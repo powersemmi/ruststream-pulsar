@@ -14,28 +14,81 @@
 
 ---
 
-`ruststream-pulsar` will implement the [RustStream](https://github.com/powersemmi/ruststream) broker contract over the [`pulsar`](https://crates.io/crates/pulsar) client maintained by StreamNative. Handlers, routers, codecs, and middleware come from the framework; this crate supplies the transport - and nothing broker-specific leaks back into the framework.
+`ruststream-pulsar` implements the RustStream broker contract over the [`pulsar`](https://crates.io/crates/pulsar) client maintained by StreamNative. Handlers, routers, codecs, and middleware come from the framework; this crate supplies the transport - and nothing broker-specific leaks back into the framework.
+
+## Features
+
+- **Lazy startup contract.** `PulsarBroker::new(url)` is synchronous and does no I/O (JWT auth and `pulsar+ssl://` as options); the runtime connects once at startup, so the broker composes with `#[ruststream::app]`. The client reconnects consumers and producers transparently after broker restarts.
+- **Subscription types as an enum.** Exclusive, shared, failover, and key-shared - with per-variant meaning, so combinations that do not exist are unrepresentable.
+- **Product-owned reliability.** The dead-letter policy (with its delivery-attempt limit) and the ack timeout are consumer settings the broker enforces, not crate machinery; `nack(requeue = true)` asks for redelivery and drives the delivery count towards the policy.
+- **Validated addressing.** `PulsarTopic` parses and validates the four meanings a topic name carries (persistence, tenant, namespace, topic) on construction, not at first use.
+- **Multi-topic and pattern subscriptions.** `PulsarSubscription::topics([...])` and `::pattern("orders-.*")` are descriptor variants - no other broker crate offers a pattern subscription.
+- **Key sharing as the partition key.** A `partition-key` header becomes the message's partition key on publish (keyed routing) and comes back as the same header, which `KeyShared` subscriptions order by.
+- **Properties carry headers directly** - no envelope format is invented; non-Rust peers see plain Pulsar messages.
+- **In-process test broker** (feature `testing`). `PulsarTestBroker` reproduces core routing with no server, implements `ruststream::testing::TestableBroker`, and passes the framework's conformance suite in process.
+
+Transactions, consumer-side batch receive, and the schema registry are deliberately out of scope for the first release: the client does not implement them, and the capability traits they would back are optional by design.
 
 ## Status
 
-**Not implemented yet.** This repository is a scaffold: the workspace, CI, and release plumbing are in place, and the crate is an empty stub. The implementation will target the `ruststream` 0.6 line; the design and scope are tracked in [powersemmi/ruststream#190](https://github.com/powersemmi/ruststream/issues/190).
+Implemented and verified against Apache Pulsar standalone (the framework's conformance lifecycle suite and the integration tests, including dead-letter routing, run in CI against it). Not yet published to crates.io: the release rides the `ruststream` 0.6 line. Design and scope are tracked in [powersemmi/ruststream#190](https://github.com/powersemmi/ruststream/issues/190).
 
-## Planned surface
+Building requires `protoc` on the path (the client compiles the Pulsar protocol definitions).
 
-- Subscription types as an enum with per-variant data: exclusive, shared, failover, and key-shared.
-- Consumer-side dead-letter policy with a delivery-attempt limit, plus an ack timeout that redelivers automatically.
-- `PulsarTopic` as a validated first-class type (persistence, tenant, namespace, topic), with multi-topic and pattern subscriptions.
-- Key sharing mapped onto `Partitioned`; message properties carrying headers.
-- The client's serialization traits bridged so encoding stays with the framework's codecs.
+## Write a service
 
-The broker contract (lazy startup, the typed connect/shutdown lifecycle, and the optional capability traits) is defined by [`ruststream`](https://crates.io/crates/ruststream) and verified by `ruststream::conformance`, with the suite run against a real broker before release.
+```rust
+use std::time::Duration;
+
+use ruststream::runtime::{App, AppInfo, HandlerResult, RustStream};
+use ruststream::subscriber;
+use ruststream_pulsar::{DeadLetter, PulsarBroker, PulsarSubscription, SubscriptionType};
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+struct Order {
+    id: u64,
+}
+
+#[subscriber(
+    PulsarSubscription::new("orders", "workers")
+        .subscription_type(SubscriptionType::Shared)
+        .dead_letter(DeadLetter::new("orders-dlq").max_deliveries(5))
+        .ack_timeout(Duration::from_secs(30))
+)]
+async fn handle(order: &Order) -> HandlerResult {
+    println!("got order {}", order.id);
+    HandlerResult::Ack
+}
+
+#[ruststream::app]
+fn app() -> impl App {
+    RustStream::new(AppInfo::new("orders", "0.1.0"))
+        .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| b.include(handle))
+}
+```
+
+## Test it
+
+The `testing` feature runs handlers against an in-process Pulsar stand-in - no server, same routing. Product behaviour (subscription types, dead-lettering, ack timeouts, redelivery) is covered by the env-gated live suite instead: `just test-brokers` starts Pulsar standalone and runs the integration tests plus the framework conformance lifecycle against it.
+
+## Layout
+
+```
+ruststream-pulsar/
+├── crates/
+│   └── ruststream-pulsar/      the published crate
+│       └── examples/           runnable pulsar_* examples
+├── docker-compose.test.yml     Pulsar standalone for the live suite
+└── Cargo.toml                  workspace
+```
 
 ## Contributing
 
 ```bash
-just check   # fmt, clippy, feature checks
-just test    # tests
-just ci      # the full local gate
+just check          # fmt, clippy, feature checks
+just test           # handler-stub tests, no server
+just test-brokers   # live integration + conformance against Pulsar standalone
 ```
 
 ## License

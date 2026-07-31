@@ -1,0 +1,19 @@
+services:
+  pulsar:
+    image: apachepulsar/pulsar:4.1.2
+    command: bin/pulsar standalone
+    ports:
+      - "127.0.0.1:6650:6650"
+      - "127.0.0.1:8080:8080"
+    environment:
+      # Without an advertised address the broker hands out its container hostname and every
+      # lookup from the host times out.
+      PULSAR_PREFIX_advertisedAddress: 127.0.0.1
+      PULSAR_PREFIX_advertisedListeners: pulsar://127.0.0.1:6650
+      # Keep the standalone JVM small enough for CI runners.
+      PULSAR_MEM: "-Xms512m -Xmx1g -XX:MaxDirectMemorySize=1g"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/admin/v2/brokers/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30

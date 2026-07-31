@@ -13,6 +13,21 @@ authors = ["RustStream contributors"]
 [workspace.dependencies]
 ruststream-pulsar = { path = "crates/ruststream-pulsar" }
 
+# The path component rides the sibling checkout until ruststream 0.6.0 is published on
+# crates.io (the same bootstrap ruststream-nats used before 0.5); the version range is what
+# a packaged release resolves against.
+ruststream = { version = ">=0.6.0, <0.7.0", path = "../ruststream", default-features = false }
+
+# The client's default features drag in async-std, OAuth2, and mutually exclusive TLS
+# runtimes; pin the tokio runtime and the wire compressors (foreign producers may compress).
+pulsar = { version = "6.8", default-features = false, features = ["tokio-runtime", "compression"] }
+regex = "1"
+bytes = "1"
+futures = "0.3"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tracing = "0.1"
+
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unreachable_pub = "deny"
