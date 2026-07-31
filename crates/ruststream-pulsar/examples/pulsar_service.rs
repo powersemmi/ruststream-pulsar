@@ -28,8 +28,10 @@ async fn handle(order: &Order) -> HandlerResult {
 
 #[ruststream::app]
 fn app() -> impl App {
-    RustStream::new(AppInfo::new("orders", "0.1.0"))
-        .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
+    RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+        PulsarBroker::new("pulsar://localhost:6650"),
+        |b| {
             b.include(handle);
-        })
+        },
+    )
 }
