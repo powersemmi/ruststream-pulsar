@@ -198,9 +198,12 @@ async fn drive(
     topic: String,
     epoch: Arc<AtomicU64>,
 ) {
-    let mut pending: Option<PulsarMessage> = None;
+    // Deliveries carry the generation captured when they were pulled off the consumer:
+    // stamping at send time would let a seek's bump - which lands before the seek command is
+    // processed - leak onto a delivery positioned before the seek.
+    let mut pending: Option<(u64, PulsarMessage)> = None;
     loop {
-        if let Some(msg) = pending.take() {
+        if let Some((stamp, msg)) = pending.take() {
             // A delivery is waiting for channel capacity; keep settling while it waits so an
             // unpolled stream can never wedge in-flight acks.
             tokio::select! {
@@ -214,17 +217,18 @@ async fn drive(
                         }
                         Some(cmd) => {
                             apply(&mut consumer, &client, cmd).await;
-                            pending = Some(msg);
+                            pending = Some((stamp, msg));
                         }
-                        None => pending = Some(msg),
+                        None => pending = Some((stamp, msg)),
                     }
                 }
                 permit = out.reserve() => match permit {
-                    Ok(permit) => permit.send((epoch.load(Ordering::Acquire), Ok(msg))),
+                    Ok(permit) => permit.send((stamp, Ok(msg))),
                     Err(_) => break, // subscriber dropped
                 },
             }
         } else {
+            let current = epoch.load(Ordering::Acquire);
             tokio::select! {
                 biased;
                 cmd = settle_rx.recv() => {
@@ -240,14 +244,14 @@ async fn drive(
                 () = out.closed() => break, // subscriber dropped
                 next = consumer.next() => match next {
                     Some(Ok(message)) => {
-                        pending = Some(PulsarMessage::new(&message, settle_tx.clone()));
+                        pending = Some((current, PulsarMessage::new(&message, settle_tx.clone())));
                     }
                     Some(Err(err)) => {
                         // Single-topic consumers surface transient errors here while the
                         // client reconnects underneath; forward and keep going.
                         if out
                             .send((
-                                epoch.load(Ordering::Acquire),
+                                current,
                                 Err(PulsarError::Receive {
                                     topic: topic.clone(),
                                     source: box_err(err),
@@ -263,7 +267,7 @@ async fn drive(
                         // The engine gave up (retries exhausted): the stream is dead for good.
                         let _ = out
                             .send((
-                                epoch.load(Ordering::Acquire),
+                                current,
                                 Err(PulsarError::Receive {
                                     topic: topic.clone(),
                                     source: Box::from("the consumer stream ended"),
