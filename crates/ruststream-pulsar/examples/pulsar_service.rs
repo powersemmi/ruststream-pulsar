@@ -1,7 +1,7 @@
 //! A minimal Pulsar service: a shared subscription with a dead-letter policy.
 //!
 //! Run a broker first (`just brokers-up`), then:
-//! `cargo run --example pulsar_service`
+//! `cargo run --example pulsar_service -- run`
 
 use std::time::Duration;
 
