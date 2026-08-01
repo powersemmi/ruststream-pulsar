@@ -5,8 +5,10 @@
 
 use bytes::Bytes;
 use pulsar::proto::MessageIdData;
-use ruststream::{AckError, Headers, IncomingMessage, OutgoingMessage, Partitioned};
+use ruststream::{AckError, Headers, IncomingMessage, OutgoingMessage, Partitioned, Positioned};
 use tokio::sync::{mpsc, oneshot};
+
+use crate::error::PulsarError;
 
 /// Header carrying the partition key, mapped onto the message's `partition_key` (which
 /// `KeyShared` subscriptions order by).
@@ -24,6 +26,27 @@ pub(crate) enum SettleKind {
     Nack,
 }
 
+/// A position in a topic's retained log, accepted by
+/// [`Seeker::seek`](ruststream::Seeker::seek).
+///
+/// Captured positions ([`Positioned::position`]) carry the pinned semantics the framework
+/// defines: seeking to one redelivers exactly that message. The timestamp form keeps the
+/// broker's own publish-time semantics instead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PulsarPosition {
+    /// The position of a delivered message.
+    MessageId(MessageIdData),
+    /// Publish time, in milliseconds since the Unix epoch.
+    Timestamp(u64),
+}
+
+/// A repositioning request shipped from a seeker handle to the subscription's driver task.
+#[derive(Debug)]
+pub(crate) struct SeekCmd {
+    pub(crate) position: PulsarPosition,
+    pub(crate) done: oneshot::Sender<Result<(), PulsarError>>,
+}
+
 /// A settlement request shipped from a message handle to the subscription's driver task
 /// (the client's ack API needs `&mut Consumer`, which the driver owns).
 #[derive(Debug)]
@@ -34,7 +57,14 @@ pub(crate) struct SettleCmd {
     pub(crate) done: oneshot::Sender<Result<(), AckError>>,
 }
 
-pub(crate) type SettleSender = mpsc::UnboundedSender<SettleCmd>;
+/// Everything the driver task can be asked to do while its stream runs.
+#[derive(Debug)]
+pub(crate) enum DriverCmd {
+    Settle(SettleCmd),
+    Seek(SeekCmd),
+}
+
+pub(crate) type SettleSender = mpsc::UnboundedSender<DriverCmd>;
 
 /// A message delivered by a [`PulsarSubscriber`](crate::PulsarSubscriber).
 ///
@@ -89,18 +119,26 @@ impl PulsarMessage {
     async fn send_settle(self, kind: SettleKind) -> Result<(), AckError> {
         let (done, wait) = oneshot::channel();
         self.settle
-            .send(SettleCmd {
+            .send(DriverCmd::Settle(SettleCmd {
                 topic: self.topic,
                 id: self.id,
                 kind,
                 done,
-            })
+            }))
             .map_err(|_| {
                 AckError::Broker(Box::from("the subscription's driver task has shut down"))
             })?;
         wait.await.map_err(|_| {
             AckError::Broker(Box::from("the subscription's driver task has shut down"))
         })?
+    }
+}
+
+impl Positioned for PulsarMessage {
+    type Position = PulsarPosition;
+
+    fn position(&self) -> PulsarPosition {
+        PulsarPosition::MessageId(self.id.clone())
     }
 }
 

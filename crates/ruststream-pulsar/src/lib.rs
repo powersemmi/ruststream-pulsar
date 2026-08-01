@@ -31,8 +31,8 @@ mod topic;
 
 pub use broker::{ConnectedPulsarBroker, PulsarBroker};
 pub use error::PulsarError;
-pub use message::{PARTITION_KEY_HEADER, PulsarMessage};
+pub use message::{PARTITION_KEY_HEADER, PulsarMessage, PulsarPosition};
 pub use publisher::{PulsarPublish, PulsarPublisher};
-pub use subscriber::PulsarSubscriber;
+pub use subscriber::{PulsarSeeker, PulsarSubscriber};
 pub use subscription::{DeadLetter, PulsarSubscription, SubscriptionType};
 pub use topic::PulsarTopic;

@@ -6,7 +6,7 @@
 
 #![cfg(feature = "testing")]
 
-use ruststream::conformance::harness;
+use ruststream::conformance::{capabilities, harness};
 use ruststream_pulsar::testing::PulsarTestBroker;
 use ruststream_pulsar::{PulsarBroker, PulsarSubscription};
 
@@ -36,6 +36,19 @@ async fn pulsar_broker_passes_lifecycle() {
     // from inheriting the previous run's messages.
     let sub = format!("lifecycle-{}", std::process::id());
     harness::lifecycle(
+        || PulsarBroker::new(url.clone()),
+        |name| PulsarSubscription::new(name, sub.clone()),
+        |connected| connected.publisher(),
+    )
+    .await;
+}
+
+#[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_broker_passes_seeking_suite() {
+    let Some(url) = test_url() else { return };
+    let sub = format!("seeking-{}", std::process::id());
+    capabilities::seeking(
         || PulsarBroker::new(url.clone()),
         |name| PulsarSubscription::new(name, sub.clone()),
         |connected| connected.publisher(),
