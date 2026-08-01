@@ -18,6 +18,9 @@ allow = [
     # unicode-ident is (MIT OR Apache-2.0) AND Unicode-3.0; the Unicode license
     # only covers the embedded character tables and is permissive.
     "Unicode-3.0",
+    # snap (the Snappy wire compressor the client may receive) is BSD-3-Clause:
+    # OSI-approved and permissive.
+    "BSD-3-Clause",
 ]
 
 [bans]

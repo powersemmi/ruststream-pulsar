@@ -1,9 +1,38 @@
 //! Apache Pulsar broker implementation for `RustStream`.
 //!
-//! This crate is not implemented yet. The design and scope are tracked in
-//! [powersemmi/ruststream#190](https://github.com/powersemmi/ruststream/issues/190).
-//! The broker contract it will implement (lazy startup, the typed connect/shutdown
-//! lifecycle, and the optional capability traits) is defined by
-//! [`ruststream`](https://docs.rs/ruststream) and verified by `ruststream::conformance`.
+//! Handlers, routers, codecs, and middleware come from the framework; this crate supplies the
+//! transport over the [`pulsar`](https://docs.rs/pulsar) client maintained by `StreamNative`.
+//!
+//! - Four subscription types as an enum with per-variant meaning (exclusive, shared, failover,
+//!   key-shared) - combinations that do not exist are unrepresentable.
+//! - The consumer-side dead-letter policy carries its delivery-attempt limit, and the ack
+//!   timeout redelivers automatically; both are product features, not crate machinery.
+//! - [`PulsarTopic`] validates the four meanings a topic name carries (persistence, tenant,
+//!   namespace, topic) on construction instead of at first use.
+//! - Multi-topic and pattern subscriptions are descriptor variants.
+//! - Key sharing maps onto the partition key; message properties carry headers directly, so no
+//!   envelope format is invented.
+//!
+//! Transactions, consumer-side batch receive, and the schema registry are deliberately out of
+//! scope: the client does not implement them, and the capability traits they would back are
+//! optional by design.
 
 #![forbid(unsafe_code)]
+
+mod broker;
+mod error;
+mod message;
+mod publisher;
+mod subscriber;
+mod subscription;
+#[cfg(feature = "testing")]
+pub mod testing;
+mod topic;
+
+pub use broker::{ConnectedPulsarBroker, PulsarBroker};
+pub use error::PulsarError;
+pub use message::{PARTITION_KEY_HEADER, PulsarMessage, PulsarPosition};
+pub use publisher::{PulsarPublish, PulsarPublisher};
+pub use subscriber::{PulsarSeeker, PulsarSubscriber};
+pub use subscription::{DeadLetter, PulsarSubscription, SubscriptionType};
+pub use topic::PulsarTopic;
