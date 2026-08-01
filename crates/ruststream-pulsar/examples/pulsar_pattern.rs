@@ -5,12 +5,19 @@
 
 use ruststream::runtime::{App, AppInfo, HandlerResult, RustStream};
 use ruststream::subscriber;
-use ruststream_pulsar::{PulsarBroker, PulsarSubscription};
+use ruststream_pulsar::{PulsarBroker, PulsarPosition, PulsarSubscription};
 
 /// One subscription spans every `orders-*` topic in the lookup namespace, including topics
 /// created after the consumer attached. What those producers write is not one schema, so the
 /// handler takes the payload raw instead of naming a type.
-#[subscriber(PulsarSubscription::pattern("orders-.*", "audit"), raw)]
+///
+/// An audit trail wants the whole record, so the subscription opens at the beginning of the
+/// retained log; the clause seeks on every startup, not only when the subscription is created.
+#[subscriber(
+    PulsarSubscription::pattern("orders-.*", "audit"),
+    start_at(PulsarPosition::earliest()),
+    raw
+)]
 async fn audit(payload: &[u8]) -> HandlerResult {
     println!("audit: {}", String::from_utf8_lossy(payload));
     HandlerResult::Ack

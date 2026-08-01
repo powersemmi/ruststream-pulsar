@@ -32,12 +32,58 @@ pub(crate) enum SettleKind {
 /// Captured positions ([`Positioned::position`]) carry the pinned semantics the framework
 /// defines: seeking to one redelivers exactly that message. The timestamp form keeps the
 /// broker's own publish-time semantics instead.
+///
+/// The constructors exist because the `start_at(..)` clause of `#[subscriber]` recovers the
+/// position type from the constructor path; a bare variant path does not name its type in the
+/// tokens the macro sees.
+///
+/// # Examples
+///
+/// ```
+/// use ruststream_pulsar::PulsarPosition;
+///
+/// let from_the_top = PulsarPosition::earliest();
+/// let from_now_on = PulsarPosition::latest();
+/// let from_a_point_in_time = PulsarPosition::timestamp(1_700_000_000_000);
+/// # let _ = (from_the_top, from_now_on, from_a_point_in_time);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PulsarPosition {
+    /// The beginning of the log: every message the topics still retain is redelivered.
+    ///
+    /// This is a seek, not the server-side initial position, which Pulsar applies only when a
+    /// subscription is first created. A subscription is durable broker-side state, so a
+    /// `start_at(PulsarPosition::earliest())` clause rewinds an existing subscription's cursor
+    /// on every startup, replaying the retained backlog each time the service starts.
+    Earliest,
+    /// The tip of the log: only messages published after the seek are delivered.
+    Latest,
     /// The position of a delivered message.
     MessageId(MessageIdData),
     /// Publish time, in milliseconds since the Unix epoch.
     Timestamp(u64),
+}
+
+impl PulsarPosition {
+    /// The beginning of the log; see [`PulsarPosition::Earliest`] for how it interacts with a
+    /// durable subscription's cursor.
+    #[must_use]
+    pub fn earliest() -> Self {
+        Self::Earliest
+    }
+
+    /// The tip of the log; see [`PulsarPosition::Latest`].
+    #[must_use]
+    pub fn latest() -> Self {
+        Self::Latest
+    }
+
+    /// A publish time, in milliseconds since the Unix epoch; see
+    /// [`PulsarPosition::Timestamp`].
+    #[must_use]
+    pub fn timestamp(millis: u64) -> Self {
+        Self::Timestamp(millis)
+    }
 }
 
 /// A repositioning request shipped from a seeker handle to the subscription's driver task.

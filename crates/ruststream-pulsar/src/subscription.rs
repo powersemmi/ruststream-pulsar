@@ -69,6 +69,10 @@ pub(crate) enum Topics {
 
 /// A subscription descriptor for one Pulsar subscription over one or more topics.
 ///
+/// Where the subscription starts reading is not a descriptor option: it is the framework's
+/// `start_at(..)` clause over [`PulsarPosition`](crate::PulsarPosition), which the `Seekable`
+/// capability backs.
+///
 /// Implements [`SubscriptionSource`], so it can sit inline in the `#[subscriber(..)]`
 /// decorator:
 ///
@@ -90,7 +94,6 @@ pub struct PulsarSubscription {
     pub(crate) sub_type: SubscriptionType,
     pub(crate) dead_letter: Option<DeadLetter>,
     pub(crate) ack_timeout: Option<Duration>,
-    pub(crate) earliest: bool,
 }
 
 impl PulsarSubscription {
@@ -103,7 +106,6 @@ impl PulsarSubscription {
             sub_type: SubscriptionType::default(),
             dead_letter: None,
             ack_timeout: None,
-            earliest: false,
         }
     }
 
@@ -143,13 +145,6 @@ impl PulsarSubscription {
     /// Redelivers messages that stay unacknowledged longer than `timeout`.
     pub fn ack_timeout(mut self, timeout: Duration) -> Self {
         self.ack_timeout = Some(timeout);
-        self
-    }
-
-    /// Starts a newly created subscription at the earliest retained message instead of the
-    /// latest.
-    pub fn earliest(mut self) -> Self {
-        self.earliest = true;
         self
     }
 
