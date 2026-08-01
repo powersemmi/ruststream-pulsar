@@ -22,7 +22,7 @@
 - **Subscription types as an enum.** Exclusive, shared, failover, and key-shared - with per-variant meaning, so combinations that do not exist are unrepresentable.
 - **Product-owned reliability.** The dead-letter policy (with its delivery-attempt limit) and the ack timeout are consumer settings the broker enforces, not crate machinery; `nack(requeue = true)` asks for redelivery and drives the delivery count towards the policy.
 - **Validated addressing.** `PulsarTopic` parses and validates the four meanings a topic name carries (persistence, tenant, namespace, topic) on construction, not at first use.
-- **Multi-topic and pattern subscriptions.** `PulsarSubscription::topics([...])` and `::pattern("orders-.*")` are descriptor variants - no other broker crate offers a pattern subscription.
+- **Multi-topic and pattern subscriptions.** `PulsarSubscription::topics([...])` subscribes to a fixed list; `::pattern("orders-.*")` follows every topic in the namespace whose name matches, including topics created after the consumer attached.
 - **Key sharing as the partition key.** A `partition-key` header becomes the message's partition key on publish (keyed routing) and comes back as the same header, which `KeyShared` subscriptions order by.
 - **Properties carry headers directly** - no envelope format is invented; non-Rust peers see plain Pulsar messages.
 - **In-process test broker** (feature `testing`). `PulsarTestBroker` reproduces core routing with no server, implements `ruststream::testing::TestableBroker`, and passes the framework's conformance suite in process.
@@ -31,7 +31,7 @@ Transactions, consumer-side batch receive, and the schema registry are deliberat
 
 ## Status
 
-Implemented and verified against Apache Pulsar standalone (the framework's conformance lifecycle suite and the integration tests, including dead-letter routing, run in CI against it). Not yet published to crates.io: the release rides the `ruststream` 0.6 line. Design and scope are tracked in [powersemmi/ruststream#190](https://github.com/powersemmi/ruststream/issues/190).
+Implemented and verified against Apache Pulsar standalone (the framework's conformance lifecycle suite and the integration tests, including dead-letter routing, run in CI against it). Built on the `ruststream` 0.6 line from crates.io; this crate itself is not published yet. Design and scope are tracked in [powersemmi/ruststream#190](https://github.com/powersemmi/ruststream/issues/190).
 
 Building requires `protoc` on the path (the client compiles the Pulsar protocol definitions).
 
