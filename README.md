@@ -32,7 +32,16 @@ Transactions, consumer-side batch receive, and the schema registry are out of sc
 
 ## Status
 
-Implemented and verified against Apache Pulsar standalone (the framework's conformance lifecycle suite and the integration tests, including dead-letter routing, run in CI against it). Published on crates.io as `ruststream-pulsar = "0.6"`, built on the `ruststream` 0.6 line. Design and scope are tracked in [powersemmi/ruststream#190](https://github.com/powersemmi/ruststream/issues/190).
+Implemented and verified against Apache Pulsar standalone (the framework's conformance lifecycle suite and the integration tests, including dead-letter routing, run in CI against it). Published on crates.io, tracking the `ruststream` 0.6 line. The design issue is [powersemmi/ruststream#190](https://github.com/powersemmi/ruststream/issues/190).
+
+## Install
+
+```toml
+[dependencies]
+ruststream = { version = "0.6", features = ["macros", "json"] }
+ruststream-pulsar = "0.6"
+serde = { version = "1", features = ["derive"] }
+```
 
 Building requires `protoc` on the path (the client compiles the Pulsar protocol definitions).
 
