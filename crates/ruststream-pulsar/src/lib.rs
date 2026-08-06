@@ -6,16 +6,16 @@
 //! - Four subscription types as an enum with per-variant meaning (exclusive, shared, failover,
 //!   key-shared) - combinations that do not exist are unrepresentable.
 //! - The consumer-side dead-letter policy carries its delivery-attempt limit, and the ack
-//!   timeout redelivers automatically; both are product features, not crate machinery.
+//!   timeout redelivers automatically; the Pulsar server enforces both, this crate does not
+//!   emulate them.
 //! - [`PulsarTopic`] validates the four meanings a topic name carries (persistence, tenant,
 //!   namespace, topic) on construction instead of at first use.
 //! - Multi-topic and pattern subscriptions are descriptor variants.
-//! - Key sharing maps onto the partition key; message properties carry headers directly, so no
-//!   envelope format is invented.
+//! - Key sharing maps onto the partition key; message properties carry headers directly, with no
+//!   extra envelope format.
 //!
-//! Transactions, consumer-side batch receive, and the schema registry are deliberately out of
-//! scope: the client does not implement them, and the capability traits they would back are
-//! optional by design.
+//! Transactions, consumer-side batch receive, and the schema registry are out of scope: the
+//! client does not implement them, and the capability traits they would back are optional.
 
 #![forbid(unsafe_code)]
 

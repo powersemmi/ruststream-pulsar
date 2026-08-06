@@ -20,19 +20,19 @@
 
 - **Lazy startup contract.** `PulsarBroker::new(url)` is synchronous and does no I/O (JWT auth and `pulsar+ssl://` as options); the runtime connects once at startup, so the broker composes with `#[ruststream::app]`. The client reconnects consumers and producers transparently after broker restarts.
 - **Subscription types as an enum.** Exclusive, shared, failover, and key-shared - with per-variant meaning, so combinations that do not exist are unrepresentable.
-- **Product-owned reliability.** The dead-letter policy (with its delivery-attempt limit) and the ack timeout are consumer settings the broker enforces, not crate machinery; `nack(requeue = true)` asks for redelivery and drives the delivery count towards the policy.
+- **Server-side reliability.** The dead-letter policy (with its delivery-attempt limit) and the ack timeout are consumer settings the Pulsar server enforces, not behaviour emulated in this crate; `nack(requeue = true)` asks for redelivery and drives the delivery count towards the policy.
 - **Validated addressing.** `PulsarTopic` parses and validates the four meanings a topic name carries (persistence, tenant, namespace, topic) on construction, not at first use.
 - **Multi-topic and pattern subscriptions.** `PulsarSubscription::topics([...])` subscribes to a fixed list; `::pattern("orders-.*")` follows every topic in the namespace whose name matches, including topics created after the consumer attached.
-- **Start position on the framework's own surface.** `PulsarPosition` (`earliest()`, `latest()`, `timestamp(ms)`, or a captured message id) is the `Seekable` capability's position type, so a subscription's start position is the `start_at(..)` clause and a live reposition is the `Seek` handler parameter - the descriptor carries no parallel start vocabulary. A `start_at` seek runs on every startup, unlike Pulsar's server-side initial position, which applies only when a subscription is first created.
+- **Start position on the framework's own surface.** `PulsarPosition` (`earliest()`, `latest()`, `timestamp(ms)`, or a captured message id) is the `Seekable` capability's position type, so a subscription's start position is the `start_at(..)` clause and a live reposition is the `Seek` handler parameter; the descriptor itself carries no separate start options. A `start_at` seek runs on every startup, unlike Pulsar's server-side initial position, which applies only when a subscription is first created.
 - **Key sharing as the partition key.** A `partition-key` header becomes the message's partition key on publish (keyed routing) and comes back as the same header, which `KeyShared` subscriptions order by.
-- **Properties carry headers directly** - no envelope format is invented; non-Rust peers see plain Pulsar messages.
+- **Properties carry headers directly.** Headers map onto Pulsar message properties with no extra envelope, so non-Rust peers see plain Pulsar messages.
 - **In-process test broker** (feature `testing`). `PulsarTestBroker` reproduces core routing with no server, implements `ruststream::testing::TestableBroker`, and passes the framework's conformance suite in process.
 
-Transactions, consumer-side batch receive, and the schema registry are deliberately out of scope for the first release: the client does not implement them, and the capability traits they would back are optional by design.
+Transactions, consumer-side batch receive, and the schema registry are out of scope for the first release: the client does not implement them, and the capability traits they would back are optional.
 
 ## Status
 
-Implemented and verified against Apache Pulsar standalone (the framework's conformance lifecycle suite and the integration tests, including dead-letter routing, run in CI against it). Built on the `ruststream` 0.6 line from crates.io; this crate itself is not published yet. Design and scope are tracked in [powersemmi/ruststream#190](https://github.com/powersemmi/ruststream/issues/190).
+Implemented and verified against Apache Pulsar standalone (the framework's conformance lifecycle suite and the integration tests, including dead-letter routing, run in CI against it). Published on crates.io as `ruststream-pulsar = "0.6"`, built on the `ruststream` 0.6 line. Design and scope are tracked in [powersemmi/ruststream#190](https://github.com/powersemmi/ruststream/issues/190).
 
 Building requires `protoc` on the path (the client compiles the Pulsar protocol definitions).
 
@@ -71,7 +71,7 @@ fn app() -> impl App {
 
 ## Test it
 
-The `testing` feature runs handlers against an in-process Pulsar stand-in - no server, same routing. Product behaviour (subscription types, dead-lettering, ack timeouts, redelivery) is covered by the env-gated live suite instead: `just test-brokers` starts Pulsar standalone and runs the integration tests plus the framework conformance lifecycle against it.
+The `testing` feature runs handlers against an in-process Pulsar stand-in - no server, same routing. Pulsar's own behaviour (subscription types, dead-lettering, ack timeouts, redelivery) is covered by the env-gated live suite instead: `just test-brokers` starts Pulsar standalone and runs the integration tests plus the framework conformance lifecycle against it.
 
 ## Layout
 
