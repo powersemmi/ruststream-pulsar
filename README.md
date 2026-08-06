@@ -6,10 +6,17 @@
 
 <p align="center">
   <a href="https://github.com/powersemmi/ruststream-pulsar/actions/workflows/ci.yml"><img src="https://github.com/powersemmi/ruststream-pulsar/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://crates.io/crates/ruststream-pulsar"><img src="https://img.shields.io/crates/v/ruststream-pulsar.svg" alt="crates.io"></a>
+  <a href="https://crates.io/crates/ruststream-pulsar"><img src="https://img.shields.io/crates/dr/ruststream-pulsar" alt="Recent downloads"></a>
+  <a href="https://docs.rs/ruststream-pulsar"><img src="https://img.shields.io/docsrs/ruststream-pulsar" alt="docs.rs"></a>
   <img src="https://img.shields.io/badge/MSRV-1.85-blue.svg" alt="MSRV 1.85">
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License">
   <a href="https://t.me/ruststream_community"><img src="https://img.shields.io/badge/-Telegram-blue?logo=telegram&label=News" alt="Telegram news channel"></a>
   <a href="https://t.me/ruststream_communuty_ru_chat"><img src="https://img.shields.io/badge/-Telegram-blue?logo=telegram&label=RU" alt="Telegram RU chat"></a>
+</p>
+
+<p align="center">
+  <b><a href="https://powersemmi.github.io/ruststream-pulsar/">Documentation</a></b>
 </p>
 
 ---
@@ -30,10 +37,6 @@
 
 Transactions, consumer-side batch receive, and the schema registry are out of scope for the first release: the client does not implement them, and the capability traits they would back are optional.
 
-## Status
-
-Implemented and verified against Apache Pulsar standalone (the framework's conformance lifecycle suite and the integration tests, including dead-letter routing, run in CI against it). Published on crates.io, tracking the `ruststream` 0.6 line. The design issue is [powersemmi/ruststream#190](https://github.com/powersemmi/ruststream/issues/190).
-
 ## Install
 
 ```toml
@@ -41,6 +44,9 @@ Implemented and verified against Apache Pulsar standalone (the framework's confo
 ruststream = { version = "0.6", features = ["macros", "json"] }
 ruststream-pulsar = "0.6"
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+ruststream-pulsar = { version = "0.6", features = ["testing"] }
 ```
 
 Building requires `protoc` on the path (the client compiles the Pulsar protocol definitions).
@@ -80,7 +86,20 @@ fn app() -> impl App {
 
 ## Test it
 
-The `testing` feature runs handlers against an in-process Pulsar stand-in - no server, same routing. Pulsar's own behaviour (subscription types, dead-lettering, ack timeouts, redelivery) is covered by the env-gated live suite instead: `just test-brokers` starts Pulsar standalone and runs the integration tests plus the framework conformance lifecycle against it.
+The `testing` feature runs handlers against an in-process Pulsar stand-in - no server, same routing, same ladder. Inject a message as an external producer would with `TestableBroker::inject`, then assert on what a handler published with the free `expect_published`:
+
+```rust
+use ruststream::{Broker, OutgoingMessage};
+use ruststream::testing::{TestableBroker, expect_published};
+use ruststream_pulsar::testing::PulsarTestBroker;
+
+let broker = PulsarTestBroker::new().connect().await?;
+broker.inject(OutgoingMessage::new("orders", br#"{"id":1}"#));
+let confirmations =
+    expect_published(&broker, "confirmations", 1, std::time::Duration::from_secs(1)).await;
+```
+
+Pulsar's own behaviour (subscription types, dead-lettering, ack timeouts, redelivery, seeking) is covered by the env-gated live suite instead: `just test-brokers` starts Pulsar standalone and runs the integration tests plus the framework conformance lifecycle against it.
 
 ## Layout
 
