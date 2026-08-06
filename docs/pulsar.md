@@ -17,6 +17,22 @@ Building requires `protoc` on the path: the client compiles the Pulsar protocol 
 Transactions, consumer-side batch receive, and the schema registry are out of scope: the client
 does not implement them, and the capability traits they would back are optional by design.
 
+## Capabilities
+
+Which of the framework's optional capability traits this broker implements natively. A capability
+that is not implemented does not compile at the mount site, rather than failing at runtime.
+
+| Capability | Native | Why |
+| --- | --- | --- |
+| `Subscribe` | yes | the connected broker subscribes by topic name, opening a `Shared` subscription named `ruststream` |
+| `BatchSubscriber` | no | the client exposes no consumer-side batch receive |
+| `TransactionalPublisher` | no | the client does not implement Pulsar transactions |
+| `OwnedTransactions` | no | the client does not implement Pulsar transactions |
+| `RequestReply` | no | Pulsar has no reply inbox; a reply is an ordinary publish to another topic |
+| `Partitioned` | yes | the `partition-key` header is the message's partition key, which `KeyShared` subscriptions order by (see [Payloads and headers](#payloads-and-headers)) |
+| `Seekable` / `Positioned` | yes | topics are a retained log: the subscriber seeks over `PulsarPosition`, and a delivery carries its own message id back as one (see [Seeking](#seeking)) |
+| `DescribeServer` | yes | `PulsarBroker` reports its service host and the `pulsar` protocol, which the framework's AsyncAPI generation consumes |
+
 ## The lifecycle
 
 The broker is a ladder of consuming transitions, so each state is a distinct type:
