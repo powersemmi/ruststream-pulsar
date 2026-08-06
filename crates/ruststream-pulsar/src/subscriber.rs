@@ -10,8 +10,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::{Stream, StreamExt};
 
-use pulsar::consumer::{Consumer, DeadLetterPolicy, InitialPosition};
-use pulsar::{ConsumerOptions, SubType, TokioExecutor};
+use pulsar::consumer::{Consumer, DeadLetterPolicy};
+use pulsar::proto::MessageIdData;
+use pulsar::{SubType, TokioExecutor};
 use ruststream::{AckError, Subscriber};
 use tokio::sync::mpsc;
 
@@ -84,11 +85,6 @@ impl PulsarSubscriber {
         }
         if descriptor.ack_timeout.is_some() {
             builder = builder.with_unacked_message_resend_delay(descriptor.ack_timeout);
-        }
-        if descriptor.earliest {
-            builder = builder.with_options(
-                ConsumerOptions::default().with_initial_position(InitialPosition::Earliest),
-            );
         }
 
         let consumer: Consumer<Vec<u8>, TokioExecutor> =
@@ -311,20 +307,43 @@ async fn apply(
     }
 }
 
+/// The ids the protocol reserves for the two ends of a log, spelled `-1` for the beginning and
+/// `i64::MAX` for the tip (the Java and Go clients agree on both). `ledger_id` and `entry_id`
+/// are unsigned on the wire, so the beginning travels as the all-ones pattern.
+const EARLIEST_MARK: u64 = u64::MAX;
+const LATEST_MARK: u64 = i64::MAX.unsigned_abs();
+
+fn end_of_log(mark: u64) -> MessageIdData {
+    MessageIdData {
+        ledger_id: mark,
+        entry_id: mark,
+        // The sentinel addresses the topic as a whole, which is what -1 means here.
+        partition: Some(-1),
+        ..MessageIdData::default()
+    }
+}
+
 async fn apply_seek(
     consumer: &mut Consumer<Vec<u8>, TokioExecutor>,
     client: &pulsar::Pulsar<TokioExecutor>,
     SeekCmd { position, done }: SeekCmd,
 ) {
     let (message_id, timestamp) = match position {
+        PulsarPosition::Earliest => (Some(end_of_log(EARLIEST_MARK)), None),
+        PulsarPosition::Latest => (Some(end_of_log(LATEST_MARK)), None),
         PulsarPosition::MessageId(id) => (Some(id), None),
         PulsarPosition::Timestamp(millis) => (None, Some(millis)),
     };
-    let result = Box::pin(consumer.seek(None, message_id, timestamp, client.clone()))
-        .await
-        .map_err(|e| PulsarError::Receive {
-            topic: consumer.topics().join(","),
-            source: box_err(e),
-        });
+    // A multi-topic consumer (a topic list or a pattern) seeks per topic and rejects an
+    // unnamed set, so the subscription's own topics are always spelled out; the single-topic
+    // consumer ignores the list.
+    let topics = consumer.topics();
+    let result =
+        Box::pin(consumer.seek(Some(topics.clone()), message_id, timestamp, client.clone()))
+            .await
+            .map_err(|e| PulsarError::Receive {
+                topic: topics.join(","),
+                source: box_err(e),
+            });
     let _ = done.send(result);
 }
