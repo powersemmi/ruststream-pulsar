@@ -1,11 +1,11 @@
 //! [`PulsarPublisher`], its [`PulsarPublish`] policy, and the crate's per-message publish
 //! arguments ([`PulsarPublishExt`]).
 
+use std::iter::once;
 use std::sync::Arc;
 
-use bytes::Bytes;
 use pulsar::TokioExecutor;
-use ruststream::{OutgoingMessage, PairError, PublishPolicy, Publisher};
+use ruststream::{Headers, OutgoingMessage, PairError, PublishPolicy, Publisher};
 use tokio::sync::Mutex;
 
 use crate::broker::{ConnectedPulsarBroker, Core, CoreCell};
@@ -127,14 +127,20 @@ pub trait PulsarPublishExt: Publisher + Sized {
     /// Publishes through this publisher with `key` as the message's partition key, which keyed
     /// routing and `KeyShared` subscriptions order by.
     ///
-    /// The same key the [`PARTITION_KEY_HEADER`] header carries, named as the argument it is:
-    /// the header form competes for the publish's single headers position, so a message
-    /// declaring a typed header contract cannot also carry a hand-written partition key, while
-    /// this one applies below the builder and composes with any of them.
+    /// The same key the [`PARTITION_KEY_HEADER`] header carries, named as the argument it is.
+    /// It rides the publisher's base headers, so it sits *under* the publish's own headers
+    /// position rather than competing with it: a message declaring a typed header contract
+    /// publishes its contract and this key together, which the header form alone could not
+    /// express.
+    ///
+    /// Precedence is the builder's own rule - the call site wins over the handle. A publish
+    /// that names `partition-key` itself overrides this one; a publish that names other keys
+    /// keeps it. The key applies to publishes assembled by the builder; a raw
+    /// [`Publisher::publish`] call bypasses the header merge, as it does for any base.
     ///
     /// The adapter borrows the publisher and lives for the publish it is chained onto; for a
     /// key fixed for the lifetime of a publisher, keep the publisher and pass the key per call
-    /// anyway - the adapter costs nothing to build.
+    /// anyway - building one carries a single-entry header map and nothing else.
     ///
     /// # Examples
     ///
@@ -164,10 +170,12 @@ pub trait PulsarPublishExt: Publisher + Sized {
 
 impl PulsarPublishExt for PulsarPublisher {}
 
-/// A publisher that stamps a partition key onto every message it forwards.
+/// A publisher that carries a partition key under every message published through it.
 ///
 /// Built by [`PulsarPublishExt::with_partition_key`] and used as the publish builder's starting
-/// point, so it never appears in a type annotation.
+/// point, so it never appears in a type annotation. The key travels as the publisher's base
+/// headers, which the builder writes the publish's own headers over, so a call site naming
+/// `partition-key` wins.
 ///
 /// # Examples
 ///
@@ -188,15 +196,14 @@ impl PulsarPublishExt for PulsarPublisher {}
 #[derive(Debug, Clone)]
 pub struct PartitionKeyed<'a, P> {
     inner: &'a P,
-    key: Bytes,
+    base: Headers,
 }
 
 impl<'a, P> PartitionKeyed<'a, P> {
     fn new(inner: &'a P, key: impl Into<String>) -> Self {
         Self {
             inner,
-            // Converted once, so each publish pays a refcount bump rather than an allocation.
-            key: Bytes::from(key.into()),
+            base: once((PARTITION_KEY_HEADER, key.into())).collect(),
         }
     }
 }
@@ -205,12 +212,11 @@ impl<P: Publisher> Publisher for PartitionKeyed<'_, P> {
     type Error = P::Error;
 
     async fn publish(&self, msg: OutgoingMessage<'_>) -> Result<(), Self::Error> {
-        // The builder hands over a finished message whose header map it does not lend mutably,
-        // so the key goes into a copy; on the ordinary path (no headers of the caller's own)
-        // that copy is an empty map, which allocates nothing.
-        let mut headers = msg.headers().clone();
-        headers.insert(PARTITION_KEY_HEADER, self.key.clone());
-        self.inner.publish(msg.with_headers(headers)).await
+        self.inner.publish(msg).await
+    }
+
+    fn base_headers(&self) -> Option<&Headers> {
+        Some(&self.base)
     }
 }
 
@@ -308,6 +314,30 @@ mod tests {
     #[outgoing(name = "orders.done", headers = OrderMeta)]
     struct OrderDone {
         id: u64,
+    }
+
+    // The builder's precedence rule reaches this step: the base is written under the publish's
+    // own headers, so a call naming the key itself has the last word.
+    #[tokio::test]
+    async fn a_call_site_key_overrides_the_argument() {
+        let broker = connected().await;
+        let mut headers = Headers::new();
+        headers.insert(PARTITION_KEY_HEADER, "user-7");
+        broker
+            .publisher()
+            .with_partition_key("user-42")
+            .raw(b"{}")
+            .with_headers(headers)
+            .to("orders")
+            .publish()
+            .await
+            .expect("publish succeeds");
+
+        let sent = broker.published("orders");
+        assert_eq!(
+            sent[0].headers().get(PARTITION_KEY_HEADER),
+            Some(b"user-7".as_slice())
+        );
     }
 
     // The point of the argument over the header: the headers position of a publish belongs to

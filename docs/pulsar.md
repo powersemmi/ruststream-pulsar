@@ -214,8 +214,8 @@ application starts, with `PulsarBroker::publisher()`, or from the connected form
 Every publish goes through the framework's builder, whose positions - the codec, the destination,
 the headers - belong to the framework. A Pulsar argument that varies per message rather than per
 publisher attaches one step earlier, on the publisher, through `PulsarPublishExt`: the method
-returns a small adapter that carries the argument and applies it as the message passes, so the
-builder keeps every position it had.
+returns a small adapter carrying the argument as the publisher's base headers, which the framework
+merges underneath the publish's own, so the builder keeps every position it had.
 
 The partition key is the argument this crate names that way, as
 `publisher.with_partition_key("user-42").message(&order).publish()`.
@@ -223,9 +223,13 @@ The partition key is the argument this crate names that way, as
 It is the same key the `partition-key` header carries, so nothing changes on the wire. What
 changes is that the key no longer competes for the publish's single headers position: a message
 declaring a typed header contract publishes its contract *and* a partition key, which the header
-form cannot express. Everything else Pulsar takes per publisher - the producer, its topic, the
-dead-letter policy of the consuming side - stays where it is, on the policy and the subscription
-descriptor.
+form cannot express.
+
+Precedence is the framework's, not this crate's: the base sits under the publish's headers and is
+written over key by key, so a publish naming `partition-key` itself overrides the step, and one
+naming other keys keeps it. Everything else Pulsar takes per publisher - the producer, its topic,
+the dead-letter policy of the consuming side - stays where it is, on the policy and the
+subscription descriptor.
 
 ## Payloads and headers
 

@@ -156,15 +156,10 @@ jobs:
       # 0.10.46. Pinning openssl rather than openssl-sys is deliberate: openssl 0.10.29 does
       # not compile against any openssl-sys new enough for the runners' OpenSSL 3.x, so the
       # pin has to land on the crate whose bound is wrong.
-      #
-      # The ruststream core declares `tracing = "0.1"` but instruments a field of type
-      # `Option<&'static str>`, whose `tracing::Value` impl arrived in tracing-core 0.1.22;
-      # tracing 0.1.26 is the first release that requires a core that new.
       - name: Pin dependencies whose declared bounds are too loose
         run: |
           cargo update -p cfg-if@0.1.0 --precise 0.1.2
           cargo update -p openssl --precise 0.10.46
-          cargo update -p tracing --precise 0.1.26
 
       # Minimum dependencies on the minimum compiler: the worst case a user can assemble.
       # Resolution above needs nightly, so only this step drops to the floor. --locked here
