@@ -32,5 +32,8 @@ tracing.workspace = true
 
 [dev-dependencies]
 ruststream = { workspace = true, features = ["conformance", "testing", "macros", "json"] }
-serde = { version = "1", features = ["derive"] }
+# Not a bare "1": `serde_derive` below this cannot parse a `#[derive(Serialize)]` type that also
+# carries `#[outgoing(headers = Meta)]`, whose value is a path rather than a literal, so the
+# doctests fail to expand. The floor the minimal-versions job verifies.
+serde = { version = "1.0.103", features = ["derive"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
