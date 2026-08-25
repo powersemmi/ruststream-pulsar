@@ -205,6 +205,11 @@ with the broker at startup. `PulsarPublish` pairs into `PulsarPublisher`, and it
 broker's default publish policy, so a `#[subscriber(.., publish("dest"))]` handler mounted without
 an explicit publisher replies through it.
 
+The prelude re-exports that policy under its concept name, so a mount site that names one writes
+`.publisher(Publish)` rather than the prefixed spelling, and reads the same on any broker. The
+prefixed `PulsarPublish` stays at the crate root for a file that mounts two brokers at once and
+needs to tell their policies apart.
+
 The publisher keeps one producer per topic, created on first publish and shared through the broker
 core so `shutdown` closes them. Each publish awaits the broker's send receipt, so success means
 the broker stored the message. A publisher can also be taken from the broker before the

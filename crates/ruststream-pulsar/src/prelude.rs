@@ -31,6 +31,23 @@
 //! two broker preludes into one file is safe: both resolve to the same `ruststream` traits, and
 //! the compiler verifies that rather than taking anyone's word for it.
 //!
+//! # Policies under their concept names
+//!
+//! The same principle runs on the policy layer. Every publishing mode this broker supports is
+//! re-exported here under its concept name with the broker prefix stripped -
+//! [`PulsarPublish`](crate::PulsarPublish) as [`Publish`] - so a mount site reads
+//! `.publisher(Publish)` whichever broker it runs on, and moving a service between brokers is an
+//! import change rather than a rewrite. The absence of a concept name is the statement that this
+//! broker has no such mode: there is no `Transaction` here because the client implements none.
+//!
+//! The prefixed originals stay at the crate root, which is what a file mounting two brokers at
+//! once reaches for when both would answer to the same concept name.
+//!
+//! [`Publish`] is a **policy** - the declaration the runtime pairs with the connected broker -
+//! and not the framework's `runtime::Publish`, the builder that a publish call assembles itself.
+//! The two never meet in a service: the builder is reached through methods, never named, and it
+//! is not in the framework's prelude.
+//!
 //! # Examples
 //!
 //! ```
@@ -40,7 +57,11 @@
 //! let orders = PulsarSubscription::new("orders", "workers")
 //!     .subscription_type(SubscriptionType::Shared)
 //!     .dead_letter(DeadLetter::new("orders-dlq").max_deliveries(5));
-//! # let _ = (broker, orders);
+//!
+//! // The policy is a unit struct, so the concept name is both the type and the value a mount
+//! // site passes to `.publisher(..)` or `.out(..)`.
+//! let policy: Publish = Publish;
+//! # let _ = (broker, orders, policy);
 //! ```
 
 // The framework's prelude first: a service file needs both, and the broker-specificity this
@@ -52,9 +73,13 @@ pub use ruststream::prelude::*;
 // both name a method with no second home, so the glob cannot make a call ambiguous.
 pub use ruststream::{Positioned, Seeker};
 
+// The policy vocabulary, under concept names rather than prefixed ones: see the module docs.
+// The prefixed originals stay at the crate root for a file that mounts two brokers at once.
+pub use crate::PulsarPublish as Publish;
+
 pub use crate::{
-    DeadLetter, PulsarBroker, PulsarPosition, PulsarPublish, PulsarPublishExt, PulsarSeeker,
-    PulsarSubscription, PulsarTopic, SubscriptionType,
+    DeadLetter, PulsarBroker, PulsarPosition, PulsarPublishExt, PulsarSeeker, PulsarSubscription,
+    PulsarTopic, SubscriptionType,
 };
 
 // `Partitioned` is implemented here, but the core surfaces `partition_key` through
