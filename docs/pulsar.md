@@ -103,8 +103,7 @@ malformed topic name, or a pattern that is not a valid regular expression fails 
 
 `PulsarSubscription` implements `SubscriptionSource`, so it sits inline in the `#[subscriber(..)]`
 decorator. The one import is `ruststream_pulsar::prelude::*`, which carries the framework's own
-prelude along with this crate's descriptors, publish policy and publish arguments; naming this
-crate's prelude is how a service says which broker it runs on:
+prelude along with this crate's descriptors, publish policy and publish arguments:
 
 ```rust
 --8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:handler"
@@ -205,10 +204,9 @@ with the broker at startup. `PulsarPublish` pairs into `PulsarPublisher`, and it
 broker's default publish policy, so a `#[subscriber(.., publish("dest"))]` handler mounted without
 an explicit publisher replies through it.
 
-The prelude re-exports that policy under its concept name, so a mount site that names one writes
-`.publisher(Publish)` rather than the prefixed spelling, and reads the same on any broker. The
-prefixed `PulsarPublish` stays at the crate root for a file that mounts two brokers at once and
-needs to tell their policies apart.
+The prelude re-exports it as `Publish`, so a mount site that names one writes
+`.publisher(Publish)`. The prefixed `PulsarPublish` stays at the crate root, for a file that mounts
+two brokers at once.
 
 The publisher keeps one producer per topic, created on first publish and shared through the broker
 core so `shutdown` closes them. Each publish awaits the broker's send receipt, so success means
@@ -218,25 +216,14 @@ application starts, with `PulsarBroker::publisher()`, or from the connected form
 
 ### Per-message publish arguments
 
-Every publish goes through the framework's builder, whose positions - the codec, the destination,
-the headers - belong to the framework. A Pulsar argument that varies per message rather than per
-publisher attaches one step earlier, on the publisher, through `PulsarPublishExt`: the method
-returns a small adapter carrying the argument as the publisher's base headers, which the framework
-merges underneath the publish's own, so the builder keeps every position it had.
+`PulsarPublishExt` attaches an argument to the publisher, ahead of the publish builder. The
+partition key is the one this crate names that way:
 
-The partition key is the argument this crate names that way, as
-`publisher.with_partition_key("user-42").message(&order).publish()`.
+`publisher.with_partition_key("user-42").message(&order).publish()`
 
-It is the same key the `partition-key` header carries, so nothing changes on the wire. What
-changes is that the key no longer competes for the publish's single headers position: a message
-declaring a typed header contract publishes its contract *and* a partition key, which the header
-form cannot express.
-
-Precedence is the framework's, not this crate's: the base sits under the publish's headers and is
-written over key by key, so a publish naming `partition-key` itself overrides the step, and one
-naming other keys keeps it. Everything else Pulsar takes per publisher - the producer, its topic,
-the dead-letter policy of the consuming side - stays where it is, on the policy and the
-subscription descriptor.
+It travels as the `partition-key` header, sent under the publish's own headers: a publish naming
+`partition-key` itself overrides the argument, one naming other keys keeps it, and a message with a
+declared header contract can carry both.
 
 ## Payloads and headers
 

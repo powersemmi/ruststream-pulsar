@@ -97,12 +97,8 @@ impl Publisher for PulsarPublisher {
 /// Pulsar's per-message publish arguments, attached to a publisher ahead of the publish
 /// builder.
 ///
-/// The framework routes every publish through one builder
-/// (`publisher.message(&value).publish()`), whose positions - the codec, the destination, the
-/// headers - belong to the framework. A broker argument that is per-message rather than
-/// per-publisher attaches one step earlier, on the publisher itself: the method returns a small
-/// adapter that carries the argument and applies it as the message passes through, so the
-/// builder keeps every position it had and the argument composes with all of them.
+/// Each method returns an adapter to start the publish builder from, so the argument travels
+/// with the message without taking any of the builder's own positions.
 ///
 /// # Examples
 ///
@@ -127,20 +123,14 @@ pub trait PulsarPublishExt: Publisher + Sized {
     /// Publishes through this publisher with `key` as the message's partition key, which keyed
     /// routing and `KeyShared` subscriptions order by.
     ///
-    /// The same key the [`PARTITION_KEY_HEADER`] header carries, named as the argument it is.
-    /// It rides the publisher's base headers, so it sits *under* the publish's own headers
-    /// position rather than competing with it: a message declaring a typed header contract
-    /// publishes its contract and this key together, which the header form alone could not
-    /// express.
+    /// The key travels as the [`PARTITION_KEY_HEADER`] header, sent under the publish's own
+    /// headers: a publish that names `partition-key` itself overrides this one, and a publish
+    /// that names other keys keeps it. A message with a declared header contract can carry both.
     ///
-    /// Precedence is the builder's own rule - the call site wins over the handle. A publish
-    /// that names `partition-key` itself overrides this one; a publish that names other keys
-    /// keeps it. The key applies to publishes assembled by the builder; a raw
-    /// [`Publisher::publish`] call bypasses the header merge, as it does for any base.
+    /// The key applies to publishes assembled by the builder; a raw [`Publisher::publish`] call
+    /// bypasses the header merge, as it does for any base headers.
     ///
-    /// The adapter borrows the publisher and lives for the publish it is chained onto; for a
-    /// key fixed for the lifetime of a publisher, keep the publisher and pass the key per call
-    /// anyway - building one carries a single-entry header map and nothing else.
+    /// The returned adapter borrows the publisher and lives for the publish it is chained onto.
     ///
     /// # Examples
     ///
@@ -173,9 +163,7 @@ impl PulsarPublishExt for PulsarPublisher {}
 /// A publisher that carries a partition key under every message published through it.
 ///
 /// Built by [`PulsarPublishExt::with_partition_key`] and used as the publish builder's starting
-/// point, so it never appears in a type annotation. The key travels as the publisher's base
-/// headers, which the builder writes the publish's own headers over, so a call site naming
-/// `partition-key` wins.
+/// point, so it never appears in a type annotation.
 ///
 /// # Examples
 ///
@@ -316,8 +304,6 @@ mod tests {
         id: u64,
     }
 
-    // The builder's precedence rule reaches this step: the base is written under the publish's
-    // own headers, so a call naming the key itself has the last word.
     #[tokio::test]
     async fn a_call_site_key_overrides_the_argument() {
         let broker = connected().await;
@@ -340,8 +326,8 @@ mod tests {
         );
     }
 
-    // The point of the argument over the header: the headers position of a publish belongs to
-    // the message's declared contract, so a hand-written partition key has nowhere to go here.
+    // The case the argument exists for: a hand-written header cannot reach a publish whose
+    // headers position is taken by a declared contract.
     #[tokio::test]
     async fn the_argument_composes_with_a_declared_header_contract() {
         let broker = connected().await;

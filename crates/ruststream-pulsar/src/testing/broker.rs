@@ -141,8 +141,7 @@ pub struct PulsarTestPublisher {
     state: Arc<TestState>,
 }
 
-// The in-process publisher mirrors the real one's publish arguments too, so a handler tested
-// against this broker publishes through exactly the chain it will run against a server.
+// Mirrors the real publisher's arguments, so a tested handler runs the chain it will in production.
 impl PulsarPublishExt for PulsarTestPublisher {}
 
 impl Publisher for PulsarTestPublisher {
