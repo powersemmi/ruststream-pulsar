@@ -23,6 +23,7 @@
 mod broker;
 mod error;
 mod message;
+pub mod prelude;
 mod publisher;
 mod subscriber;
 mod subscription;

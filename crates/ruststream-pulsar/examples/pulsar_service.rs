@@ -6,9 +6,7 @@
 // --8<-- [start:handler]
 use std::time::Duration;
 
-use ruststream::runtime::{App, AppInfo, HandlerResult, RustStream};
-use ruststream::subscriber;
-use ruststream_pulsar::{DeadLetter, PulsarBroker, PulsarSubscription, SubscriptionType};
+use ruststream_pulsar::prelude::*;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

@@ -3,9 +3,7 @@
 //! Run a broker first (`just brokers-up`), then:
 //! `cargo run --example pulsar_pattern -- run`
 
-use ruststream::runtime::{App, AppInfo, HandlerResult, RustStream};
-use ruststream::subscriber;
-use ruststream_pulsar::{PulsarBroker, PulsarPosition, PulsarSubscription};
+use ruststream_pulsar::prelude::*;
 
 /// One subscription spans every `orders-*` topic in the lookup namespace, including topics
 /// created after the consumer attached. What those producers write is not one schema, so the

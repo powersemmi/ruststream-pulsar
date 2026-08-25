@@ -102,7 +102,9 @@ malformed topic name, or a pattern that is not a valid regular expression fails 
 `PulsarError::Invalid` at subscribe time, without a call to the broker.
 
 `PulsarSubscription` implements `SubscriptionSource`, so it sits inline in the `#[subscriber(..)]`
-decorator:
+decorator. The one import is `ruststream_pulsar::prelude::*`, which carries the framework's own
+prelude along with this crate's descriptors, publish policy and publish arguments; naming this
+crate's prelude is how a service says which broker it runs on:
 
 ```rust
 --8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:handler"
