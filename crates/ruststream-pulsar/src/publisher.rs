@@ -1,5 +1,6 @@
 //! [`PulsarPublisher`] and its [`PulsarPublish`] policy.
 
+use std::future::{Future, ready};
 use std::sync::Arc;
 
 use pulsar::TokioExecutor;
@@ -109,7 +110,10 @@ pub struct PulsarPublish;
 impl PublishPolicy<ConnectedPulsarBroker> for PulsarPublish {
     type Live = PulsarPublisher;
 
-    async fn pair(self, connected: &ConnectedPulsarBroker) -> Result<Self::Live, PairError> {
-        Ok(connected.publisher())
+    fn pair(
+        self,
+        connected: &ConnectedPulsarBroker,
+    ) -> impl Future<Output = Result<Self::Live, PairError>> {
+        ready(Ok(connected.publisher()))
     }
 }
