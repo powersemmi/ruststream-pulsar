@@ -3,9 +3,10 @@ resolver = "3"
 members = ["crates/ruststream-pulsar"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
-rust-version = "1.85"
+# The floor the core crate declares on the 0.7 line; a lower one cannot resolve it.
+rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/powersemmi/ruststream-pulsar"
 authors = ["RustStream contributors"]
@@ -13,7 +14,7 @@ authors = ["RustStream contributors"]
 [workspace.dependencies]
 ruststream-pulsar = { path = "crates/ruststream-pulsar" }
 
-ruststream = { version = ">=0.6.0, <0.7.0", default-features = false }
+ruststream = { version = ">=0.7.0, <0.8.0", default-features = false }
 
 # The client's default features drag in async-std, OAuth2, and mutually exclusive TLS
 # runtimes; pin the tokio runtime and the wire compressors (foreign producers may compress).

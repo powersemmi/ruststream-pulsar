@@ -7,8 +7,8 @@ concepts (writing subscribers, routing, codecs, middleware), see the
 [RustStream documentation](https://powersemmi.github.io/ruststream/).
 
 ```toml
-ruststream = { version = "0.6", features = ["macros"] }
-ruststream-pulsar = "0.6"
+ruststream = { version = "0.7", features = ["macros"] }
+ruststream-pulsar = "0.7"
 serde = { version = "1", features = ["derive"] }
 ```
 
@@ -209,6 +209,24 @@ the broker stored the message. A publisher can also be taken from the broker bef
 application starts, with `PulsarBroker::publisher()`, or from the connected form with
 `ConnectedPulsarBroker::publisher()`.
 
+### Per-message publish arguments
+
+Every publish goes through the framework's builder, whose positions - the codec, the destination,
+the headers - belong to the framework. A Pulsar argument that varies per message rather than per
+publisher attaches one step earlier, on the publisher, through `PulsarPublishExt`: the method
+returns a small adapter that carries the argument and applies it as the message passes, so the
+builder keeps every position it had.
+
+The partition key is the argument this crate names that way, as
+`publisher.with_partition_key("user-42").message(&order).publish()`.
+
+It is the same key the `partition-key` header carries, so nothing changes on the wire. What
+changes is that the key no longer competes for the publish's single headers position: a message
+declaring a typed header contract publishes its contract *and* a partition key, which the header
+form cannot express. Everything else Pulsar takes per publisher - the producer, its topic, the
+dead-letter policy of the consuming side - stays where it is, on the policy and the subscription
+descriptor.
+
 ## Payloads and headers
 
 Message properties carry headers directly, one property per header, so no envelope format is
@@ -217,7 +235,8 @@ invented and non-Rust peers see plain Pulsar messages.
 The `partition-key` header is the exception: it becomes the message's own partition key on
 publish, which keyed routing uses to place the message and which `KeyShared` subscriptions order
 by, and it comes back as the same header on delivery. `PulsarMessage` also implements the
-framework's `Partitioned` capability over it. The convention matches the in-memory broker's, so
+framework's `Partitioned` capability over it, and `PulsarPublishExt::with_partition_key` names
+it as a publish argument rather than a header. The convention matches the in-memory broker's, so
 switching brokers does not change a service's headers.
 
 ## Local development

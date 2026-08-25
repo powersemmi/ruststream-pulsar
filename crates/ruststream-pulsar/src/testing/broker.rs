@@ -10,6 +10,7 @@ use ruststream::{
 };
 
 use crate::error::PulsarError;
+use crate::publisher::PulsarPublishExt;
 use crate::testing::router::AddressRouter;
 use crate::testing::subscriber::PulsarTestSubscriber;
 
@@ -139,6 +140,10 @@ ruststream::register_testable_broker!(ConnectedPulsarTestBroker);
 pub struct PulsarTestPublisher {
     state: Arc<TestState>,
 }
+
+// The in-process publisher mirrors the real one's publish arguments too, so a handler tested
+// against this broker publishes through exactly the chain it will run against a server.
+impl PulsarPublishExt for PulsarTestPublisher {}
 
 impl Publisher for PulsarTestPublisher {
     type Error = PulsarError;

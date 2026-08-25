@@ -8,13 +8,14 @@ use std::pin::pin;
 use std::time::Duration;
 
 use futures::StreamExt;
+use ruststream::runtime::PublishExt;
 use ruststream::{
     Broker, ConnectedBroker, Headers, IncomingMessage, OutgoingMessage, Publisher, Seekable,
     Seeker, Subscriber,
 };
 use ruststream_pulsar::{
     ConnectedPulsarBroker, DeadLetter, PARTITION_KEY_HEADER, PulsarBroker, PulsarError,
-    PulsarMessage, PulsarPosition, PulsarSubscription,
+    PulsarMessage, PulsarPosition, PulsarPublishExt, PulsarSubscription,
 };
 
 const RECV_TIMEOUT: Duration = Duration::from_secs(30);
@@ -76,6 +77,39 @@ async fn roundtrip_preserves_payload_properties_and_partition_key() {
         Some("application/json")
     );
     assert_eq!(message.headers().get_str("x-tenant"), Some("acme"));
+    assert_eq!(message.partition_key(), Some(b"user-42".as_slice()));
+    message.ack().await.expect("ack succeeds");
+
+    connected.shutdown().await.expect("shutdown succeeds");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_partition_key_argument_reaches_the_server() {
+    let Some(url) = test_url() else { return };
+    let connected = connect(&url).await;
+
+    let topic = unique("keyed");
+    let mut subscriber = connected
+        .subscribe_descriptor(PulsarSubscription::new(&topic, unique("sub")))
+        .await
+        .expect("subscription opens");
+
+    connected
+        .publisher()
+        .with_partition_key("user-42")
+        .raw(b"{\"id\":1}")
+        .to(topic.as_str())
+        .publish()
+        .await
+        .expect("publish succeeds");
+
+    let mut stream = pin!(subscriber.stream());
+    let message = tokio::time::timeout(RECV_TIMEOUT, stream.next())
+        .await
+        .expect("delivery arrives")
+        .expect("stream is open")
+        .expect("delivery is ok");
+
     assert_eq!(message.partition_key(), Some(b"user-42".as_slice()));
     message.ack().await.expect("ack succeeds");
 

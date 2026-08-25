@@ -12,7 +12,8 @@
 //!   namespace, topic) on construction instead of at first use.
 //! - Multi-topic and pattern subscriptions are descriptor variants.
 //! - Key sharing maps onto the partition key; message properties carry headers directly, with no
-//!   extra envelope format.
+//!   extra envelope format. [`PulsarPublishExt`] names the key as a publish argument, ahead of
+//!   the framework's publish builder.
 //!
 //! Transactions, consumer-side batch receive, and the schema registry are out of scope: the
 //! client does not implement them, and the capability traits they would back are optional.
@@ -32,7 +33,7 @@ mod topic;
 pub use broker::{ConnectedPulsarBroker, PulsarBroker};
 pub use error::PulsarError;
 pub use message::{PARTITION_KEY_HEADER, PulsarMessage, PulsarPosition};
-pub use publisher::{PulsarPublish, PulsarPublisher};
+pub use publisher::{PartitionKeyed, PulsarPublish, PulsarPublishExt, PulsarPublisher};
 pub use subscriber::{PulsarSeeker, PulsarSubscriber};
 pub use subscription::{DeadLetter, PulsarSubscription, SubscriptionType};
 pub use topic::PulsarTopic;
