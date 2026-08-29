@@ -5,7 +5,7 @@ use std::iter::once;
 use std::sync::Arc;
 
 use pulsar::TokioExecutor;
-use ruststream::{Headers, OutgoingMessage, PairError, PublishPolicy, Publisher};
+use ruststream::{HeaderMap, OutgoingMessage, PairError, PublishPolicy, Publisher};
 use tokio::sync::Mutex;
 
 use crate::broker::{ConnectedPulsarBroker, Core, CoreCell};
@@ -184,7 +184,7 @@ impl PulsarPublishExt for PulsarPublisher {}
 #[derive(Debug, Clone)]
 pub struct PartitionKeyed<'a, P> {
     inner: &'a P,
-    base: Headers,
+    base: HeaderMap,
 }
 
 impl<'a, P> PartitionKeyed<'a, P> {
@@ -203,7 +203,7 @@ impl<P: Publisher> Publisher for PartitionKeyed<'_, P> {
         self.inner.publish(msg).await
     }
 
-    fn base_headers(&self) -> Option<&Headers> {
+    fn base_headers(&self) -> Option<&HeaderMap> {
         Some(&self.base)
     }
 }
@@ -235,7 +235,7 @@ impl PublishPolicy<ConnectedPulsarBroker> for PulsarPublish {
 mod tests {
     use ruststream::runtime::PublishExt;
     use ruststream::testing::TestableBroker;
-    use ruststream::{Headers, Outgoing};
+    use ruststream::{HeaderMap, Outgoing};
     use serde::Serialize;
 
     use super::PulsarPublishExt;
@@ -273,7 +273,7 @@ mod tests {
     #[tokio::test]
     async fn the_argument_keeps_the_headers_the_caller_supplied() {
         let broker = connected().await;
-        let mut headers = Headers::new();
+        let mut headers = HeaderMap::new();
         headers.insert("x-tenant", "acme");
         broker
             .publisher()
@@ -307,7 +307,7 @@ mod tests {
     #[tokio::test]
     async fn a_call_site_key_overrides_the_argument() {
         let broker = connected().await;
-        let mut headers = Headers::new();
+        let mut headers = HeaderMap::new();
         headers.insert(PARTITION_KEY_HEADER, "user-7");
         broker
             .publisher()
