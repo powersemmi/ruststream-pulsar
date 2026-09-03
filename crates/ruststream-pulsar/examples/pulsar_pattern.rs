@@ -7,19 +7,22 @@ use ruststream_pulsar::prelude::*;
 
 /// One subscription spans every `orders-*` topic in the lookup namespace, including topics
 /// created after the consumer attached. What those producers write is not one schema, so the
-/// handler takes the payload raw instead of naming a type.
+/// payload rides the byte lane: `Deserialized` names the bytes without decoding them, and no
+/// codec stands between the broker and the handler.
 ///
 /// An audit trail wants the whole record, so the subscription opens at the beginning of the
 /// retained log; the clause seeks on every startup, not only when the subscription is created.
 // --8<-- [start:pattern]
+#[derive(Deserialized)]
+struct Record<'a>(&'a [u8]);
+
 #[subscriber(
     PulsarSubscription::pattern("orders-.*", "audit"),
-    start_at(PulsarPosition::earliest()),
-    raw
+    start_at(PulsarPosition::earliest())
 )]
-async fn audit(payload: &[u8]) -> HandlerResult {
-    println!("audit: {}", String::from_utf8_lossy(payload));
-    HandlerResult::Ack
+async fn audit(record: &Record<'_>) -> HandlerOutcome {
+    println!("audit: {}", String::from_utf8_lossy(record.0));
+    HandlerOutcome::ack()
 }
 // --8<-- [end:pattern]
 

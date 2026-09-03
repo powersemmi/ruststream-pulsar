@@ -20,9 +20,9 @@ struct Order {
         .dead_letter(DeadLetter::new("orders-dlq").max_deliveries(5))
         .ack_timeout(Duration::from_secs(30))
 )]
-async fn handle(order: &Order) -> HandlerResult {
+async fn handle(order: &Order) -> HandlerOutcome {
     println!("got order {}", order.id);
-    HandlerResult::Ack
+    HandlerOutcome::ack()
 }
 // --8<-- [end:handler]
 
