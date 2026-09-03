@@ -10,8 +10,8 @@ use std::time::Duration;
 use futures::StreamExt;
 use ruststream::runtime::PublishExt;
 use ruststream::{
-    Broker, ConnectedBroker, HeaderMap, IncomingMessage, OutgoingMessage, Publisher, Seekable,
-    Seeker, Subscriber,
+    Broker, ConnectedBroker, HeaderMap, IncomingMessage, Outgoing, OutgoingMessage, Publisher,
+    Seekable, Seeker, Serialized, Subscriber,
 };
 use ruststream_pulsar::{
     ConnectedPulsarBroker, DeadLetter, PARTITION_KEY_HEADER, PulsarBroker, PulsarError,
@@ -19,6 +19,11 @@ use ruststream_pulsar::{
 };
 
 const RECV_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The payload the builder-driven publishes carry: these tests assert on the transport, not on
+/// a model, so the bytes name themselves as the wire form and no codec runs on them.
+#[derive(Outgoing, Serialized)]
+struct Record(&'static [u8]);
 
 fn test_url() -> Option<String> {
     match std::env::var("PULSAR_TEST_URL") {
@@ -97,7 +102,7 @@ async fn the_partition_key_argument_reaches_the_server() {
     connected
         .publisher()
         .with_partition_key("user-42")
-        .raw(b"{\"id\":1}")
+        .message(&Record(b"{\"id\":1}"))
         .to(topic.as_str())
         .publish()
         .await

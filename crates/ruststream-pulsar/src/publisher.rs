@@ -106,15 +106,21 @@ impl Publisher for PulsarPublisher {
 /// ```
 /// # #[cfg(feature = "testing")]
 /// # async fn demo() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// use ruststream::Outgoing;
 /// use ruststream::runtime::PublishExt;
 /// use ruststream_pulsar::PulsarPublishExt;
 /// use ruststream_pulsar::testing::PulsarTestBroker;
 ///
+/// #[derive(Outgoing, serde::Serialize)]
+/// #[outgoing(name = "orders")]
+/// struct Order {
+///     id: u64,
+/// }
+///
 /// let publisher = PulsarTestBroker::new().publisher();
 /// publisher
 ///     .with_partition_key("user-42")
-///     .raw(b"{\"id\":1}")
-///     .to("orders")
+///     .message(&Order { id: 1 })
 ///     .publish()
 ///     .await?;
 /// # Ok(())
@@ -128,8 +134,8 @@ pub trait PulsarPublishExt: Publisher + Sized {
     /// headers: a publish that names `partition-key` itself overrides this one, and a publish
     /// that names other keys keeps it. A message with a declared header contract can carry both.
     ///
-    /// The key applies to publishes assembled by the builder; a raw [`Publisher::publish`] call
-    /// bypasses the header merge, as it does for any base headers.
+    /// The key applies to publishes assembled by the builder; a direct
+    /// [`Publisher::publish`] call bypasses the header merge, as it does for any base headers.
     ///
     /// The returned adapter borrows the publisher and lives for the publish it is chained onto.
     ///
@@ -138,15 +144,21 @@ pub trait PulsarPublishExt: Publisher + Sized {
     /// ```
     /// # #[cfg(feature = "testing")]
     /// # async fn demo() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// use ruststream::{Outgoing, Serialized};
     /// use ruststream::runtime::PublishExt;
     /// use ruststream_pulsar::PulsarPublishExt;
     /// use ruststream_pulsar::testing::PulsarTestBroker;
+    ///
+    /// // An already-encoded record: the newtype says the bytes are the wire form, so no
+    /// // codec runs on them.
+    /// #[derive(Outgoing, Serialized)]
+    /// struct Record(Vec<u8>);
     ///
     /// let broker = PulsarTestBroker::new();
     /// broker
     ///     .publisher()
     ///     .with_partition_key("user-42")
-    ///     .raw(b"{}")
+    ///     .message(&Record(b"{}".to_vec()))
     ///     .to("orders")
     ///     .publish()
     ///     .await?;
@@ -171,14 +183,24 @@ impl PulsarPublishExt for PulsarPublisher {}
 /// ```
 /// # #[cfg(feature = "testing")]
 /// # async fn demo() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// use ruststream::Outgoing;
 /// use ruststream::runtime::PublishExt;
 /// use ruststream_pulsar::PulsarPublishExt;
 /// use ruststream_pulsar::testing::PulsarTestBroker;
 ///
+/// #[derive(Outgoing, serde::Serialize)]
+/// struct Order {
+///     id: u64,
+/// }
+///
 /// let publisher = PulsarTestBroker::new().publisher();
 /// let keyed = publisher.with_partition_key("user-42");
-/// keyed.raw(b"{}").to("orders").publish().await?;
-/// keyed.raw(b"{}").to("orders.audit").publish().await?;
+/// keyed.message(&Order { id: 1 }).to("orders").publish().await?;
+/// keyed
+///     .message(&Order { id: 1 })
+///     .to("orders.audit")
+///     .publish()
+///     .await?;
 /// # Ok(())
 /// # }
 /// ```
@@ -239,13 +261,18 @@ impl PublishPolicy<ConnectedPulsarBroker> for PulsarPublish {
 mod tests {
     use ruststream::runtime::PublishExt;
     use ruststream::testing::TestableBroker;
-    use ruststream::{HeaderMap, Outgoing};
+    use ruststream::{HeaderMap, Outgoing, Serialized};
     use serde::Serialize;
 
     use super::PulsarPublishExt;
     use crate::PARTITION_KEY_HEADER;
     use crate::testing::{ConnectedPulsarTestBroker, PulsarTestBroker};
     use ruststream::Broker;
+
+    /// The payload these tests carry: what they assert on is the header merge, so the body is
+    /// deliberately opaque bytes rather than a model.
+    #[derive(Outgoing, Serialized)]
+    struct Record(&'static [u8]);
 
     async fn connected() -> ConnectedPulsarTestBroker {
         PulsarTestBroker::new()
@@ -260,7 +287,7 @@ mod tests {
         broker
             .publisher()
             .with_partition_key("user-42")
-            .raw(b"{}")
+            .message(&Record(b"{}"))
             .to("orders")
             .publish()
             .await
@@ -282,7 +309,7 @@ mod tests {
         broker
             .publisher()
             .with_partition_key("user-42")
-            .raw(b"{}")
+            .message(&Record(b"{}"))
             .with_headers(headers)
             .to("orders")
             .publish()
@@ -316,7 +343,7 @@ mod tests {
         broker
             .publisher()
             .with_partition_key("user-42")
-            .raw(b"{}")
+            .message(&Record(b"{}"))
             .with_headers(headers)
             .to("orders")
             .publish()
