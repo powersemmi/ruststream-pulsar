@@ -230,9 +230,14 @@ with the broker at startup. `PulsarPublish` pairs into `PulsarPublisher`, and it
 broker's default publish policy, so a `#[subscriber(.., publish("dest"))]` handler mounted without
 an explicit publisher replies through it.
 
-The prelude carries it under its own name, so a mount site that names one writes
-`.publisher(PulsarPublish)`. The bare `Publish` is the framework's slot capability trait - the
-bound a handler puts on an out slot - and this crate does not alias over it.
+Which name you write depends on which prelude the file writes, and the two do not overlap. A
+routes file imports `ruststream_pulsar::prelude::*` and gets the mount-site vocabulary, where each
+publishing mode this broker supports appears under its concept name with the prefix stripped:
+`.publisher(Publish)` reads the same whichever broker a service runs on, and the absence of a
+`TransactionalPublish` name is the statement that Pulsar's client has no transactions. A
+handler body imports `ruststream::prelude::*` instead and names framework things only, bounding an
+injected slot with the broker capability trait it needs (`Out<impl Publisher>`). The prefixed
+`PulsarPublish` stays at the crate root for a file that mounts two brokers at once.
 
 The publisher keeps one producer per topic, created on first publish and shared through the broker
 core so `shutdown` closes them. Each publish awaits the broker's send receipt, so success means
