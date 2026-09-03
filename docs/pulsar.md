@@ -211,11 +211,16 @@ element's header contract. Asking a page body for `Position` does not compile.
 --8<-- "crates/ruststream-pulsar/tests/seek_context.rs:page"
 ```
 
+A buffered subscription cannot also carry `start_at(..)`: the framework's buffer wraps the
+subscriber without forwarding `Seekable`, so the clause has nothing to seek through. A page body
+reaching for a start position needs the plain subscription, or a broker that batches natively.
+
 One seek covers every topic and every partition of the subscription's consumer, and the broker
 redelivers from the new position, so no per-message acknowledgement state needs resetting.
 Deliveries that were already buffered when the seek landed are discarded rather than handed to the
 handler, so the stream resumes at the target position. The framework's `capabilities::seeking`
-conformance suite covers the capability, and this crate runs it against a live broker.
+conformance suite covers the capability, and this crate runs it both against a live broker and
+against the in-process stand-in.
 
 ## Publishing
 
@@ -295,12 +300,21 @@ connected form implements `ruststream::testing::TestableBroker`, so the same bro
 `ruststream::testing::expect_published`. See
 [Unit-testing a service with TestApp](https://powersemmi.github.io/ruststream/latest/guides/testing/#unit-testing-a-service-with-testapp).
 
-It routes by exact address match and does not simulate Pulsar product behaviour: subscription
-types, dead-lettering, ack timeouts, redelivery timing, and seeking over a retained log are
-covered by the live suite against a real broker instead.
+It routes by exact address match over a retained log, so it is a log broker like the real one,
+not a pipe. That is what lets a service that repositions itself be unit-tested at all: the
+stand-in carries the same `PulsarContext` and `PulsarBatchContext` with the same `Position` and
+`SeekHandle` keys, a subscription opens with `start_at(..)` over the retained log, and a seek
+really discards what was queued and refills from the target. A handler that seeks therefore
+mounts on `PulsarTestBroker` unchanged, and the assertions are the harness's own:
 
-Seeking is the one place where that shows up at compile time. There is no retained log in
-process, so the test broker carries no seek context, and a handler that binds `Ctx<SeekHandle>`
-or names `PulsarContext` does not mount on it - the mount site says so, rather than the handler
-silently seeking nowhere. Split such a handler so the part worth unit-testing takes no seek key,
-and let the live suite cover the repositioning itself.
+```rust
+--8<-- "crates/ruststream-pulsar/tests/seek_context.rs:delivery"
+```
+
+The framework's `capabilities::seeking` conformance suite runs against the stand-in as well as
+against a real broker, so its repositioning is held to the same contract rather than merely
+looking right.
+
+What the stand-in does not simulate is Pulsar product behaviour: subscription types,
+dead-lettering, ack timeouts and redelivery timing are broker semantics, and the live suite
+against a real server covers those.
