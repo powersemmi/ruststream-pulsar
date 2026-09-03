@@ -5,14 +5,19 @@ use std::sync::{Arc, OnceLock};
 
 use futures::Stream;
 
+use pulsar::proto::MessageIdData;
 use ruststream::{
-    AckError, HeaderMap, IncomingMessage, Partitioned, Subscriber, testing::Coordinator,
+    AckError, HeaderMap, IncomingMessage, Partitioned, Positioned, Seekable, Subscriber,
+    testing::Coordinator,
 };
 
 use crate::PARTITION_KEY_HEADER;
 use crate::error::PulsarError;
+use crate::message::PulsarPosition;
+use crate::subscriber::PulsarSeeker;
 use crate::testing::broker::TestState;
-use crate::testing::router::{Delivery, DeliveryReceiver, DeliverySender, SubscriptionId};
+use crate::testing::router::{Delivery, SubscriptionId};
+use crate::testing::seek::LogSeeker;
 
 /// Subscriber returned by [`ConnectedPulsarTestBroker`](crate::testing::ConnectedPulsarTestBroker).
 ///
@@ -21,8 +26,6 @@ use crate::testing::router::{Delivery, DeliveryReceiver, DeliverySender, Subscri
 pub struct PulsarTestSubscriber {
     state: Arc<TestState>,
     id: SubscriptionId,
-    rx: DeliveryReceiver,
-    requeue: DeliverySender,
     /// A clone of the broker's harness coordinator, threaded into each yielded message so a
     /// requeue re-counts and a consumed delivery decrements. `None` outside a harness run.
     coordinator: Option<Coordinator>,
@@ -39,15 +42,11 @@ impl PulsarTestSubscriber {
     pub(crate) fn new(
         state: Arc<TestState>,
         id: SubscriptionId,
-        rx: DeliveryReceiver,
-        requeue: DeliverySender,
         coordinator: Option<Coordinator>,
     ) -> Self {
         Self {
             state,
             id,
-            rx,
-            requeue,
             coordinator,
         }
     }
@@ -59,22 +58,44 @@ impl Drop for PulsarTestSubscriber {
     }
 }
 
+/// Seeking is native to the stand-in: it keeps an append-only log per address, so a
+/// subscription can be refilled from any suffix of it. That is what a service's `start_at(..)`
+/// clause and its [`SeekHandle`](crate::SeekHandle) key ride on when the service is tested with
+/// the framework's harness instead of against a server.
+impl Seekable for PulsarTestSubscriber {
+    type Seeker = PulsarSeeker;
+
+    fn seeker(&self) -> PulsarSeeker {
+        PulsarSeeker::in_process(LogSeeker::new(
+            Arc::clone(&self.state),
+            self.id,
+            self.coordinator.clone(),
+        ))
+    }
+}
+
 impl Subscriber for PulsarTestSubscriber {
     type Message = PulsarTestMessage;
     type Error = PulsarError;
 
     fn stream(&mut self) -> impl Stream<Item = Result<Self::Message, Self::Error>> + Send + '_ {
-        let requeue = self.requeue.clone();
+        let state = Arc::clone(&self.state);
+        let id = self.id;
         let coordinator = self.coordinator.clone();
-        // Poll the receiver in place rather than wrapping it in an owning stream, so `stream`
-        // can be called again after the returned stream is dropped (the runtime and the
-        // conformance helpers re-enter it per call).
+        // Minted once per stream rather than once per delivery: a message clones the `Arc`, so
+        // building a per-delivery context costs reference-count bumps and nothing else.
+        let seeker = Arc::new(Seekable::seeker(self));
+        // Poll the queue in place rather than wrapping it in an owning stream, so `stream` can
+        // be called again after the returned stream is dropped (the runtime and the conformance
+        // helpers re-enter it per call).
         futures::stream::poll_fn(move |cx| {
-            self.rx.poll_recv(cx).map(|next| {
+            state.router.poll_delivery(id, cx).map(|next| {
                 next.map(|delivery| {
                     Ok(PulsarTestMessage::new(
                         delivery,
-                        requeue.clone(),
+                        Arc::clone(&state),
+                        id,
+                        Arc::clone(&seeker),
                         coordinator.clone(),
                     ))
                 })
@@ -83,14 +104,18 @@ impl Subscriber for PulsarTestSubscriber {
     }
 }
 
-/// Message handed to handlers from an [`PulsarTestSubscriber`].
+/// Message handed to handlers from a [`PulsarTestSubscriber`].
 ///
 /// `ack` consumes the handle; `nack(requeue = true)` re-queues the delivery on the owning
-/// subscription's channel so the next handler invocation sees it again; `nack(requeue = false)`
-/// drops it, matching the real subscriber's reject path in effect.
+/// subscription so the next handler invocation sees it again; `nack(requeue = false)` drops it,
+/// matching the real subscriber's reject path in effect.
 pub struct PulsarTestMessage {
     delivery: Option<Delivery>,
-    requeue: DeliverySender,
+    state: Arc<TestState>,
+    id: SubscriptionId,
+    /// The subscription's seeker, shared by every delivery it yields; the per-delivery and page
+    /// contexts clone it out of here.
+    seek: Arc<PulsarSeeker>,
     /// A clone of the broker's harness coordinator. When set, this delivery is counted in
     /// flight and is decremented exactly once when the message is consumed or dropped.
     coordinator: Option<Coordinator>,
@@ -115,14 +140,43 @@ impl std::fmt::Debug for PulsarTestMessage {
 impl PulsarTestMessage {
     pub(crate) fn new(
         delivery: Delivery,
-        requeue: DeliverySender,
+        state: Arc<TestState>,
+        id: SubscriptionId,
+        seek: Arc<PulsarSeeker>,
         coordinator: Option<Coordinator>,
     ) -> Self {
         Self {
             delivery: Some(delivery),
-            requeue,
+            state,
+            id,
+            seek,
             coordinator,
         }
+    }
+
+    /// The subscription's reposition handle, which the delivery and page contexts read.
+    pub(crate) fn seeker(&self) -> &PulsarSeeker {
+        &self.seek
+    }
+}
+
+/// The stand-in keeps one log per address, so a message id addresses an entry in it: the entry
+/// id is the log index, which is what a seek to that position resolves back to. The index is
+/// assigned at fanout and survives a requeue, so a redelivered message reports the position it
+/// always had, as on a real broker.
+impl Positioned for PulsarTestMessage {
+    type Position = PulsarPosition;
+
+    fn position(&self) -> PulsarPosition {
+        let seq = self.delivery.as_ref().map_or(0, |d| d.seq);
+        PulsarPosition::MessageId(MessageIdData {
+            ledger_id: 0,
+            entry_id: seq as u64,
+            // The sentinel addresses the address as a whole, as it does for the real broker's
+            // end-of-log marks.
+            partition: Some(-1),
+            ..MessageIdData::default()
+        })
     }
 }
 
@@ -158,12 +212,10 @@ impl IncomingMessage for PulsarTestMessage {
             .take()
             .expect("PulsarTestMessage ack/nack invoked twice");
         if requeue {
-            let sent = self.requeue.send(delivery);
+            let queued = self.state.router.requeue(self.id, delivery);
             // The requeue bypasses fanout, so count the re-enqueue here to balance this
             // message's `Drop` decrement. The redelivered copy is consumed in turn.
-            if sent.is_ok()
-                && let Some(coordinator) = &self.coordinator
-            {
+            if queued && let Some(coordinator) = &self.coordinator {
                 coordinator.enqueued();
             }
         }

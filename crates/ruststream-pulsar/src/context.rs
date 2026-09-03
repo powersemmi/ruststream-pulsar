@@ -61,6 +61,18 @@ impl BuildContext<PulsarMessage> for PulsarContext {
     }
 }
 
+/// The in-process stand-in retains a log of its own, so a service that repositions itself needs
+/// no second shape to be unit-tested: the same context, built off the in-process delivery.
+#[cfg(feature = "testing")]
+impl BuildContext<crate::testing::PulsarTestMessage> for PulsarContext {
+    fn build(msg: &crate::testing::PulsarTestMessage) -> Self {
+        Self {
+            position: Positioned::position(msg),
+            seeker: msg.seeker().clone(),
+        }
+    }
+}
+
 /// The subscription-scoped page context of a Pulsar subscription: its seeker, shared by every
 /// delivery of the page.
 ///
@@ -115,6 +127,16 @@ impl BuildBatchContext<PulsarMessage> for PulsarBatchContext {
     fn build(first: &PulsarMessage) -> Self {
         Self {
             seeker: PulsarSeeker::new(first.driver().clone()),
+        }
+    }
+}
+
+/// The page counterpart on the stand-in, so a page body that repositions is unit-testable too.
+#[cfg(feature = "testing")]
+impl BuildBatchContext<crate::testing::PulsarTestMessage> for PulsarBatchContext {
+    fn build(first: &crate::testing::PulsarTestMessage) -> Self {
+        Self {
+            seeker: first.seeker().clone(),
         }
     }
 }

@@ -115,14 +115,29 @@ impl PulsarSubscriber {
     }
 }
 
-/// Repositions a [`PulsarSubscriber`] while its stream runs; minted by
+/// Repositions a subscription while its stream runs; minted by
 /// [`Seekable::seeker`](ruststream::Seekable::seeker).
 ///
 /// A seek covers every topic (and partition) of the subscription's consumer, and the broker
 /// redelivers from the new position; per-message acknowledgement state needs no reset.
+///
+/// One type serves both transports, so a service that repositions itself reads the same
+/// [`SeekHandle`](crate::SeekHandle) key whether it runs against a server or against the
+/// in-process stand-in.
 #[derive(Clone)]
 pub struct PulsarSeeker {
-    cmd: SettleSender,
+    inner: SeekerKind,
+}
+
+/// Which subscription the handle moves. The stand-in's arm exists only with the `testing`
+/// feature, and the field is private, so a service sees one type either way.
+#[derive(Clone)]
+enum SeekerKind {
+    /// A live consumer, repositioned through its subscription's driver task.
+    Consumer(SettleSender),
+    /// An in-process subscription, repositioned over the stand-in's retained log.
+    #[cfg(feature = "testing")]
+    InProcess(crate::testing::seek::LogSeeker),
 }
 
 impl std::fmt::Debug for PulsarSeeker {
@@ -135,7 +150,17 @@ impl PulsarSeeker {
     /// Mints a handle over the subscription's driver channel. Cloning the sender is a
     /// reference-count bump, so a per-delivery context costs no allocation.
     pub(crate) fn new(cmd: SettleSender) -> Self {
-        Self { cmd }
+        Self {
+            inner: SeekerKind::Consumer(cmd),
+        }
+    }
+
+    /// Mints a handle over the in-process stand-in's retained log.
+    #[cfg(feature = "testing")]
+    pub(crate) fn in_process(seeker: crate::testing::seek::LogSeeker) -> Self {
+        Self {
+            inner: SeekerKind::InProcess(seeker),
+        }
     }
 }
 
@@ -144,17 +169,25 @@ impl ruststream::Seeker for PulsarSeeker {
     type Error = PulsarError;
 
     async fn seek(&self, to: PulsarPosition) -> Result<(), PulsarError> {
-        let (done, wait) = tokio::sync::oneshot::channel();
-        self.cmd
-            .send(DriverCmd::Seek(SeekCmd { position: to, done }))
-            .map_err(|_| PulsarError::Receive {
-                topic: String::new(),
-                source: Box::from("the subscription's driver task has shut down"),
-            })?;
-        wait.await.map_err(|_| PulsarError::Receive {
-            topic: String::new(),
-            source: Box::from("the subscription's driver task has shut down"),
-        })?
+        match &self.inner {
+            SeekerKind::Consumer(cmd) => {
+                let (done, wait) = tokio::sync::oneshot::channel();
+                cmd.send(DriverCmd::Seek(SeekCmd { position: to, done }))
+                    .map_err(|_| PulsarError::Receive {
+                        topic: String::new(),
+                        source: Box::from("the subscription's driver task has shut down"),
+                    })?;
+                wait.await.map_err(|_| PulsarError::Receive {
+                    topic: String::new(),
+                    source: Box::from("the subscription's driver task has shut down"),
+                })?
+            }
+            #[cfg(feature = "testing")]
+            SeekerKind::InProcess(seeker) => {
+                seeker.seek(&to);
+                Ok(())
+            }
+        }
     }
 }
 

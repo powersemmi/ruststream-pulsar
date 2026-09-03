@@ -6,6 +6,7 @@
 
 #![cfg(feature = "testing")]
 
+use ruststream::Name;
 use ruststream::conformance::{capabilities, harness};
 use ruststream_pulsar::testing::PulsarTestBroker;
 use ruststream_pulsar::{PulsarBroker, PulsarSubscription};
@@ -23,6 +24,20 @@ fn test_url() -> Option<String> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pulsar_test_broker_passes_conformance_suite() {
     harness::run_suite(PulsarTestBroker::new).await;
+}
+
+/// The stand-in retains a log, so the framework's own seeking suite is what says its
+/// repositioning matches the contract - the same suite the live broker runs below. Without it a
+/// service unit-tested on the stand-in could be relying on a seek that only looked right.
+#[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_test_broker_passes_seeking_suite() {
+    capabilities::seeking(
+        PulsarTestBroker::new,
+        |name| Name::new(name.to_owned()),
+        |connected| connected.publisher(),
+    )
+    .await;
 }
 
 // `make_source` / `make_publisher` must stay closures: their bounds are higher-ranked
