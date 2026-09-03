@@ -131,6 +131,14 @@ impl std::fmt::Debug for PulsarSeeker {
     }
 }
 
+impl PulsarSeeker {
+    /// Mints a handle over the subscription's driver channel. Cloning the sender is a
+    /// reference-count bump, so a per-delivery context costs no allocation.
+    pub(crate) fn new(cmd: SettleSender) -> Self {
+        Self { cmd }
+    }
+}
+
 impl ruststream::Seeker for PulsarSeeker {
     type Position = PulsarPosition;
     type Error = PulsarError;
@@ -154,9 +162,7 @@ impl ruststream::Seekable for PulsarSubscriber {
     type Seeker = PulsarSeeker;
 
     fn seeker(&self) -> PulsarSeeker {
-        PulsarSeeker {
-            cmd: self.cmd.clone(),
-        }
+        PulsarSeeker::new(self.cmd.clone())
     }
 }
 

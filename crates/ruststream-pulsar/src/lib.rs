@@ -11,6 +11,8 @@
 //! - [`PulsarTopic`] validates the four meanings a topic name carries (persistence, tenant,
 //!   namespace, topic) on construction instead of at first use.
 //! - Multi-topic and pattern subscriptions are descriptor variants.
+//! - Topics are a retained log, so a handler repositions its own subscription: [`PulsarContext`]
+//!   carries the delivery's [`Position`] and the subscription's [`SeekHandle`], read by key.
 //! - Key sharing maps onto the partition key; message properties carry headers directly, with no
 //!   extra envelope format. [`PulsarPublishExt`] names the key as a publish argument, ahead of
 //!   the framework's publish builder.
@@ -21,6 +23,7 @@
 #![forbid(unsafe_code)]
 
 mod broker;
+mod context;
 mod error;
 mod message;
 pub mod prelude;
@@ -32,6 +35,7 @@ pub mod testing;
 mod topic;
 
 pub use broker::{ConnectedPulsarBroker, PulsarBroker};
+pub use context::{Position, PulsarBatchContext, PulsarContext, SeekHandle};
 pub use error::PulsarError;
 pub use message::{PARTITION_KEY_HEADER, PulsarMessage, PulsarPosition};
 pub use publisher::{PartitionKeyed, PulsarPublish, PulsarPublishExt, PulsarPublisher};

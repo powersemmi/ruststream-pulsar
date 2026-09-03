@@ -1,8 +1,10 @@
 //! The imports a service on Pulsar writes every time, in one glob.
 //!
 //! `use ruststream_pulsar::prelude::*;` brings in the framework's own prelude, this crate's
-//! broker, descriptors, start position and seeker, its publish policy under the name [`Publish`]
-//! and its publish arguments, and the framework capability traits [`Positioned`] and [`Seeker`].
+//! broker, descriptors, start position and seeker, the delivery and page contexts with the
+//! [`Position`] and [`SeekHandle`] keys that read them, its publish policy under the name
+//! [`Publish`] and its publish arguments, and the framework capability traits [`Positioned`]
+//! and [`Seeker`].
 //!
 //! A file that mounts two brokers at once reaches for the prefixed names at each crate root
 //! ([`PulsarPublish`](crate::PulsarPublish)) to tell their policies apart.
@@ -33,8 +35,8 @@ pub use ruststream::{Positioned, Seeker};
 pub use crate::PulsarPublish as Publish;
 
 pub use crate::{
-    DeadLetter, PulsarBroker, PulsarPosition, PulsarPublishExt, PulsarSeeker, PulsarSubscription,
-    PulsarTopic, SubscriptionType,
+    DeadLetter, Position, PulsarBatchContext, PulsarBroker, PulsarContext, PulsarPosition,
+    PulsarPublishExt, PulsarSeeker, PulsarSubscription, PulsarTopic, SeekHandle, SubscriptionType,
 };
 
 // `Partitioned` stays out: the core surfaces `partition_key` through `IncomingMessage`'s

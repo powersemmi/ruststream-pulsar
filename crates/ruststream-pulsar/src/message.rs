@@ -162,6 +162,13 @@ impl PulsarMessage {
         &self.topic
     }
 
+    /// The channel back to the subscription's driver task, which owns both settlement and
+    /// seeking. The per-delivery context mints its seeker off this, so a delivery carries the
+    /// reposition handle without the subscriber having to stamp one onto every message.
+    pub(crate) fn driver(&self) -> &SettleSender {
+        &self.settle
+    }
+
     async fn send_settle(self, kind: SettleKind) -> Result<(), AckError> {
         let (done, wait) = oneshot::channel();
         self.settle
