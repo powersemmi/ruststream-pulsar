@@ -30,7 +30,7 @@ that is not implemented does not compile at the mount site, rather than failing 
 | `OwnedTransactions` | no | the client does not implement Pulsar transactions |
 | `RequestReply` | no | Pulsar has no reply inbox; a reply is an ordinary publish to another topic |
 | `Partitioned` | yes | the `partition-key` header is the message's partition key, which `KeyShared` subscriptions order by (see [Payloads and headers](#payloads-and-headers)) |
-| `Seekable` / `Positioned` | yes | topics are a retained log: the subscriber seeks over `PulsarPosition`, and a delivery carries its own message id back as one (see [Seeking](#seeking)) |
+| `Seekable` / `Positioned` | yes | topics are a retained log: the subscriber seeks over `PulsarPosition`, a delivery carries its own message id back as one, and handlers reach both through the `Position` and `SeekHandle` context keys (see [Seeking](#seeking)) |
 | `DescribeServer` | yes | `PulsarBroker` reports its service host and the `pulsar` protocol, which the framework's AsyncAPI generation consumes |
 
 ## The lifecycle
@@ -129,8 +129,10 @@ seek or a settlement covers all of them.
 --8<-- "crates/ruststream-pulsar/examples/pulsar_pattern.rs:pattern"
 ```
 
-Because a pattern spans topics written by different producers, the payloads are not one schema;
-the example takes them raw with the framework's `raw` clause instead of naming a type.
+Because a pattern spans topics written by different producers, the payloads are not one schema.
+The example puts them on the framework's byte lane instead of naming a model: a
+`#[derive(Deserialized)]` newtype over `&'a [u8]` is a named payload that already carries its
+own bytes, so no codec stands between the broker and the handler.
 
 ### Dead-lettering
 
@@ -144,9 +146,9 @@ Both are Pulsar product features configured on the consumer, not machinery this 
 
 | Handler outcome | Pulsar operation |
 | --- | --- |
-| `HandlerResult::Ack` | acknowledge the message |
-| `HandlerResult::retry()` | negative acknowledgement, asking for redelivery |
-| `HandlerResult::drop()` | acknowledge the message |
+| `HandlerOutcome::ack()` | acknowledge the message |
+| `HandlerOutcome::retry()` | negative acknowledgement, asking for redelivery |
+| `HandlerOutcome::drop()` | acknowledge the message |
 
 Dropping acknowledges because Pulsar has no terminal reject verb: poison-message routing belongs
 to the dead-letter policy, reached by the repeated redeliveries a negative acknowledgement drives.
@@ -154,7 +156,7 @@ to the dead-letter policy, reached by the repeated redeliveries a negative ackno
 The client queues acknowledgements asynchronously, so a successful settle means the
 acknowledgement was queued on the consumer, not that the broker confirmed it. Delayed redelivery
 has no native form here either: a negative acknowledgement carries no delay, so a
-`HandlerResult::retry_after(delay)` outcome takes the framework's broker-agnostic deferred
+`HandlerOutcome::retry_after(delay)` outcome takes the framework's broker-agnostic deferred
 re-publish path instead.
 
 Settlement travels from the message handle to the subscription's driver task, which owns the
@@ -186,15 +188,34 @@ existing subscription's cursor and replays the retained backlog each time the se
 Where that is not wanted, leave the clause off and let the subscription resume from its stored
 cursor.
 
-A live subscription is repositioned from inside a handler through the framework's injected `Seek`
-parameter; nothing is attached at the include site. One seek covers every topic and every
-partition of the subscription's consumer, and the broker redelivers from the new position, so no
-per-message acknowledgement state needs resetting. Deliveries that were already buffered when the
-seek landed are discarded rather than handed to the handler, so the stream resumes at the target
-position. See
-[Seeking](https://powersemmi.github.io/ruststream/latest/guides/subscribers/#seeking) in the
-framework docs for the handler surface, and the `capabilities::seeking` conformance suite, which
-this crate runs against a live broker.
+### Repositioning from a handler
+
+A live subscription is repositioned from inside a handler, through the delivery's own context.
+`PulsarContext` is what a Pulsar subscription hands its bodies, and it carries two keys:
+`Position`, where this message sits (its message id), and `SeekHandle`, the subscription's
+seeker. Both bind as parameters through the framework's `Ctx` extractor, or read through
+`ctx.context(..)` when the handler already declares a context; nothing is attached at the include
+site, and a key a broker does not carry is a compile error rather than a runtime miss.
+
+```rust
+--8<-- "crates/ruststream-pulsar/tests/seek_context.rs:delivery"
+```
+
+A page body gets the subscription-scoped half instead. Pulsar's client has no consumer-side batch
+receive, so pages here come from the framework's own buffer (the `buffered(..)` clause), and their
+context is `PulsarBatchContext`: the seeker, without a position. A page spans many deliveries, so
+where to seek rides the elements themselves - a `&[Message<H, T>]` page reads it off each
+element's header contract. Asking a page body for `Position` does not compile.
+
+```rust
+--8<-- "crates/ruststream-pulsar/tests/seek_context.rs:page"
+```
+
+One seek covers every topic and every partition of the subscription's consumer, and the broker
+redelivers from the new position, so no per-message acknowledgement state needs resetting.
+Deliveries that were already buffered when the seek landed are discarded rather than handed to the
+handler, so the stream resumes at the target position. The framework's `capabilities::seeking`
+conformance suite covers the capability, and this crate runs it against a live broker.
 
 ## Publishing
 
@@ -204,9 +225,9 @@ with the broker at startup. `PulsarPublish` pairs into `PulsarPublisher`, and it
 broker's default publish policy, so a `#[subscriber(.., publish("dest"))]` handler mounted without
 an explicit publisher replies through it.
 
-The prelude re-exports it as `Publish`, so a mount site that names one writes
-`.publisher(Publish)`. The prefixed `PulsarPublish` stays at the crate root, for a file that mounts
-two brokers at once.
+The prelude carries it under its own name, so a mount site that names one writes
+`.publisher(PulsarPublish)`. The bare `Publish` is the framework's slot capability trait - the
+bound a handler puts on an out slot - and this crate does not alias over it.
 
 The publisher keeps one producer per topic, created on first publish and shared through the broker
 core so `shutdown` closes them. Each publish awaits the broker's send receipt, so success means
@@ -277,3 +298,9 @@ connected form implements `ruststream::testing::TestableBroker`, so the same bro
 It routes by exact address match and does not simulate Pulsar product behaviour: subscription
 types, dead-lettering, ack timeouts, redelivery timing, and seeking over a retained log are
 covered by the live suite against a real broker instead.
+
+Seeking is the one place where that shows up at compile time. There is no retained log in
+process, so the test broker carries no seek context, and a handler that binds `Ctx<SeekHandle>`
+or names `PulsarContext` does not mount on it - the mount site says so, rather than the handler
+silently seeking nowhere. Split such a handler so the part worth unit-testing takes no seek key,
+and let the live suite cover the repositioning itself.
