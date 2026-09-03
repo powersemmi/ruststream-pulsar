@@ -2,15 +2,13 @@
 //!
 //! `use ruststream_pulsar::prelude::*;` brings in the framework's own prelude, this crate's
 //! broker, descriptors, start position and seeker, the delivery and page contexts with the
-//! [`Position`] and [`SeekHandle`] keys that read them, its publish policy under the name
-//! [`Publish`] and its publish arguments, and the framework capability traits [`Positioned`]
-//! and [`Seeker`].
+//! [`Position`] and [`SeekHandle`] keys that read them, its publish policy
+//! [`PulsarPublish`](crate::PulsarPublish) and its publish arguments, and the framework
+//! capability traits [`Positioned`] and [`Seeker`].
 //!
-//! A file that mounts two brokers at once reaches for the prefixed names at each crate root
-//! ([`PulsarPublish`](crate::PulsarPublish)) to tell their policies apart.
-//!
-//! [`Publish`] is a publish policy, not the framework's `runtime::Publish` builder, which a
-//! service never names.
+//! The policy keeps its prefixed name here. The bare `Publish` belongs to the framework - it is
+//! the slot capability trait a handler bounds an out slot with - and an alias would shadow it
+//! for every file that writes this glob.
 //!
 //! # Examples
 //!
@@ -22,9 +20,9 @@
 //!     .subscription_type(SubscriptionType::Shared)
 //!     .dead_letter(DeadLetter::new("orders-dlq").max_deliveries(5));
 //!
-//! // The policy is a unit struct: `Publish` is both the type and the value a mount site passes
-//! // to `.publisher(..)` or `.out(..)`.
-//! let policy: Publish = Publish;
+//! // The policy is a unit struct: `PulsarPublish` is both the type and the value a mount site
+//! // passes to `.publisher(..)` or `.out(..)`.
+//! let policy: PulsarPublish = PulsarPublish;
 //! # let _ = (broker, orders, policy);
 //! ```
 
@@ -32,11 +30,10 @@ pub use ruststream::prelude::*;
 
 pub use ruststream::{Positioned, Seeker};
 
-pub use crate::PulsarPublish as Publish;
-
 pub use crate::{
     DeadLetter, Position, PulsarBatchContext, PulsarBroker, PulsarContext, PulsarPosition,
-    PulsarPublishExt, PulsarSeeker, PulsarSubscription, PulsarTopic, SeekHandle, SubscriptionType,
+    PulsarPublish, PulsarPublishExt, PulsarSeeker, PulsarSubscription, PulsarTopic, SeekHandle,
+    SubscriptionType,
 };
 
 // `Partitioned` stays out: the core surfaces `partition_key` through `IncomingMessage`'s
