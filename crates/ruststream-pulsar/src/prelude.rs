@@ -11,7 +11,7 @@
 //! broker capability trait it needs (`Out<impl Publisher>` and friends). A routes file names
 //! the broker's mount-site vocabulary - it imports this glob, where each publishing mode this
 //! broker supports appears under its concept name with the prefix stripped, so
-//! `.publisher(Publish)` reads the same whichever broker a service runs on and moving between
+//! `.out(Reply, Publish)` reads the same whichever broker a service runs on and moving between
 //! brokers is an import change. Here that is one name, [`Publish`]; the absence of
 //! `TransactionalPublish` is the statement that Pulsar's client has no transactions. The
 //! prefixed [`PulsarPublish`](crate::PulsarPublish) stays at the crate root for a file that
@@ -31,7 +31,7 @@
 //!     .dead_letter(DeadLetter::new("orders-dlq").max_deliveries(5));
 //!
 //! // The policy is a unit struct: `Publish` is both the type and the value a mount site passes
-//! // to `.publisher(..)` or `.out(..)`.
+//! // to `.out(Reply, ..)` or to a slot marker's `.out(..)`.
 //! let policy: Publish = Publish;
 //! # let _ = (broker, orders, policy);
 //! ```

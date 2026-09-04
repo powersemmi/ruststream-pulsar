@@ -267,7 +267,7 @@ an explicit publisher replies through it.
 Which name you write depends on which prelude the file writes, and the two do not overlap. A
 routes file imports `ruststream_pulsar::prelude::*` and gets the mount-site vocabulary, where each
 publishing mode this broker supports appears under its concept name with the prefix stripped:
-`.publisher(Publish)` reads the same whichever broker a service runs on, and the absence of a
+`.out(Reply, Publish)` reads the same whichever broker a service runs on, and the absence of a
 `TransactionalPublish` name is the statement that Pulsar's client has no transactions. A
 handler body imports `ruststream::prelude::*` instead and names framework things only, bounding an
 injected slot with the broker capability trait it needs (`Out<impl Publisher>`). The prefixed
