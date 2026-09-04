@@ -4,16 +4,23 @@
 //! `Send + 'static`, so the crate owns a driver task per subscription: it polls the consumer
 //! stream, forwards deliveries into a bounded channel, and applies settlement commands shipped
 //! back from message handles.
+//!
+//! The client hands over one delivery at a time - it has no consumer-side batch receive, only a
+//! flow-control window - so the pages a page handler asks for are assembled on the client, by
+//! the framework's own [`BufferedSubscriber`]. Nothing at the mount site says so: a service
+//! names a page size and gets pages.
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use futures::{Stream, StreamExt};
 
 use pulsar::consumer::{Consumer, DeadLetterPolicy};
 use pulsar::proto::MessageIdData;
 use pulsar::{SubType, TokioExecutor};
-use ruststream::{AckError, Subscriber};
+use ruststream::{AckError, BatchSubscriber, BufferedSubscriber, Seekable, Subscriber};
 use tokio::sync::mpsc;
 
 use crate::broker::Core;
@@ -25,11 +32,23 @@ use crate::subscription::{PulsarSubscription, SubscriptionType, Topics};
 /// the client's own flow control (`batch_size` permits); this only decouples the two loops.
 const CHANNEL_CAPACITY: usize = 16;
 
-/// A subscription to one or more Pulsar topics; yields [`PulsarMessage`]s.
+/// A subscription to one or more Pulsar topics; yields [`PulsarMessage`]s, one at a time or in
+/// pages.
 ///
 /// Dropping the subscriber stops the driver task, which closes the client consumer.
 pub struct PulsarSubscriber {
     topic: String,
+    /// The wire deliveries plus client-side paging. Every capability of the subscription reaches
+    /// through the wrapper: buffering does not move the subscription, so the seeker underneath
+    /// is the subscription's own.
+    inner: BufferedSubscriber<Deliveries>,
+}
+
+/// The wire form of a subscription: one delivery at a time, off the driver task's channel.
+///
+/// This is everything the client offers, and [`PulsarSubscriber`] is this plus the pages.
+#[derive(Debug)]
+struct Deliveries {
     rx: mpsc::Receiver<(u64, Result<PulsarMessage, PulsarError>)>,
     cmd: SettleSender,
     /// The delivery generation: a seek bumps it, and items queued under an older generation
@@ -57,6 +76,7 @@ impl PulsarSubscriber {
         descriptor: PulsarSubscription,
     ) -> Result<Self, PulsarError> {
         let display = descriptor.display_topic();
+        let page_wait = descriptor.page_wait;
         let mut builder = core
             .client
             .consumer()
@@ -106,12 +126,27 @@ impl PulsarSubscriber {
             Arc::clone(&epoch),
         ));
 
-        Ok(Self {
-            topic: display,
-            rx: out_rx,
-            cmd: settle_tx,
-            epoch,
-        })
+        Ok(Self::paging(
+            display,
+            Deliveries {
+                rx: out_rx,
+                cmd: settle_tx,
+                epoch,
+            },
+            page_wait,
+        ))
+    }
+
+    /// Wraps the wire deliveries in the framework's client-side buffer.
+    ///
+    /// The page size is not this crate's to choose - it arrives per subscription, as the
+    /// argument of [`BatchSubscriber::batches`]. The deadline that closes a partial page is,
+    /// and the descriptor's `page_wait` is where a service names it.
+    fn paging(topic: String, wire: Deliveries, page_wait: Duration) -> Self {
+        Self {
+            topic,
+            inner: BufferedSubscriber::new(wire).max_wait(page_wait),
+        }
     }
 }
 
@@ -191,7 +226,7 @@ impl ruststream::Seeker for PulsarSeeker {
     }
 }
 
-impl ruststream::Seekable for PulsarSubscriber {
+impl Seekable for Deliveries {
     type Seeker = PulsarSeeker;
 
     fn seeker(&self) -> PulsarSeeker {
@@ -199,7 +234,7 @@ impl ruststream::Seekable for PulsarSubscriber {
     }
 }
 
-impl Subscriber for PulsarSubscriber {
+impl Subscriber for Deliveries {
     type Message = PulsarMessage;
     type Error = PulsarError;
 
@@ -221,6 +256,42 @@ impl Subscriber for PulsarSubscriber {
                 }
             }
         })
+    }
+}
+
+/// Buffering does not move the subscription, so the handle is the wire subscriber's own: a page
+/// subscription still opens at a chosen position and still repositions from a handler.
+impl Seekable for PulsarSubscriber {
+    type Seeker = PulsarSeeker;
+
+    fn seeker(&self) -> PulsarSeeker {
+        self.inner.seeker()
+    }
+}
+
+impl Subscriber for PulsarSubscriber {
+    type Message = PulsarMessage;
+    type Error = PulsarError;
+
+    fn stream(&mut self) -> impl Stream<Item = Result<PulsarMessage, PulsarError>> + Send + '_ {
+        self.inner.stream()
+    }
+}
+
+/// Pages assembled on the client, because the transport has none of its own: the client's
+/// consumer yields one delivery at a time, and its `batch_size` is a flow-control window rather
+/// than a receive size, so there is nothing to translate a page size into on the wire.
+///
+/// A page never carries more than the size the registration named - the buffer closes it there -
+/// and it carries fewer whenever the deadline elapsed first.
+impl BatchSubscriber for PulsarSubscriber {
+    type Batch = Vec<PulsarMessage>;
+
+    fn batches(
+        &mut self,
+        size: NonZeroUsize,
+    ) -> impl Stream<Item = Result<Self::Batch, PulsarError>> + Send + '_ {
+        self.inner.batches(size)
     }
 }
 

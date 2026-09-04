@@ -83,8 +83,9 @@ impl BuildContext<crate::testing::PulsarTestMessage> for PulsarContext {
 /// header contract). Keeping this a separate type from [`PulsarContext`] is what rejects a page
 /// body asking for per-delivery fields at compile time.
 ///
-/// Pulsar's client has no consumer-side batch receive, so pages here come from the framework's
-/// own buffer, the `buffered(..)` clause.
+/// Pulsar's client has no consumer-side batch receive, so a page here is assembled on the client
+/// from the size the mount site's `batch(n)` names. Nothing about that reaches the body: the
+/// context, the seeker and the settlement are the same either way.
 ///
 /// # Examples
 ///

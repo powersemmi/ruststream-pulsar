@@ -1,20 +1,22 @@
 //! [`PulsarTestSubscriber`] and [`PulsarTestMessage`].
 
 use std::future::{Future, ready};
+use std::num::NonZeroUsize;
 use std::sync::{Arc, OnceLock};
 
 use futures::Stream;
 
 use pulsar::proto::MessageIdData;
 use ruststream::{
-    AckError, HeaderMap, IncomingMessage, Partitioned, Positioned, Seekable, Subscriber,
-    testing::Coordinator,
+    AckError, BatchSubscriber, BufferedSubscriber, HeaderMap, IncomingMessage, Partitioned,
+    Positioned, Seekable, Subscriber, testing::Coordinator,
 };
 
 use crate::PARTITION_KEY_HEADER;
 use crate::error::PulsarError;
 use crate::message::PulsarPosition;
 use crate::subscriber::PulsarSeeker;
+use crate::subscription::DEFAULT_PAGE_WAIT;
 use crate::testing::broker::TestState;
 use crate::testing::router::{Delivery, SubscriptionId};
 use crate::testing::seek::LogSeeker;
@@ -23,7 +25,16 @@ use crate::testing::seek::LogSeeker;
 ///
 /// Dropping it unregisters the subscription, so handlers stop receiving as soon as their task
 /// finishes.
+///
+/// It pages the way the real subscriber does - through the framework's client-side buffer over a
+/// one-at-a-time queue - so a page handler under test runs the code path it will in production,
+/// and a page never carries more than the size its registration named.
 pub struct PulsarTestSubscriber {
+    inner: BufferedSubscriber<Queued>,
+}
+
+/// The stand-in's wire form: the subscription's queue in the router, one delivery at a time.
+struct Queued {
     state: Arc<TestState>,
     id: SubscriptionId,
     /// A clone of the broker's harness coordinator, threaded into each yielded message so a
@@ -38,6 +49,12 @@ impl std::fmt::Debug for PulsarTestSubscriber {
     }
 }
 
+impl std::fmt::Debug for Queued {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Queued").finish_non_exhaustive()
+    }
+}
+
 impl PulsarTestSubscriber {
     pub(crate) fn new(
         state: Arc<TestState>,
@@ -45,14 +62,17 @@ impl PulsarTestSubscriber {
         coordinator: Option<Coordinator>,
     ) -> Self {
         Self {
-            state,
-            id,
-            coordinator,
+            inner: BufferedSubscriber::new(Queued {
+                state,
+                id,
+                coordinator,
+            })
+            .max_wait(DEFAULT_PAGE_WAIT),
         }
     }
 }
 
-impl Drop for PulsarTestSubscriber {
+impl Drop for Queued {
     fn drop(&mut self) {
         self.state.router.unsubscribe(self.id);
     }
@@ -62,7 +82,7 @@ impl Drop for PulsarTestSubscriber {
 /// subscription can be refilled from any suffix of it. That is what a service's `start_at(..)`
 /// clause and its [`SeekHandle`](crate::SeekHandle) key ride on when the service is tested with
 /// the framework's harness instead of against a server.
-impl Seekable for PulsarTestSubscriber {
+impl Seekable for Queued {
     type Seeker = PulsarSeeker;
 
     fn seeker(&self) -> PulsarSeeker {
@@ -74,7 +94,7 @@ impl Seekable for PulsarTestSubscriber {
     }
 }
 
-impl Subscriber for PulsarTestSubscriber {
+impl Subscriber for Queued {
     type Message = PulsarTestMessage;
     type Error = PulsarError;
 
@@ -101,6 +121,36 @@ impl Subscriber for PulsarTestSubscriber {
                 })
             })
         })
+    }
+}
+
+/// The seeker reaches through the buffer, so a page subscription on the stand-in opens with
+/// `start_at(..)` and repositions from a page body, as it does on a server.
+impl Seekable for PulsarTestSubscriber {
+    type Seeker = PulsarSeeker;
+
+    fn seeker(&self) -> PulsarSeeker {
+        self.inner.seeker()
+    }
+}
+
+impl Subscriber for PulsarTestSubscriber {
+    type Message = PulsarTestMessage;
+    type Error = PulsarError;
+
+    fn stream(&mut self) -> impl Stream<Item = Result<Self::Message, Self::Error>> + Send + '_ {
+        self.inner.stream()
+    }
+}
+
+impl BatchSubscriber for PulsarTestSubscriber {
+    type Batch = Vec<PulsarTestMessage>;
+
+    fn batches(
+        &mut self,
+        size: NonZeroUsize,
+    ) -> impl Stream<Item = Result<Self::Batch, PulsarError>> + Send + '_ {
+        self.inner.batches(size)
     }
 }
 

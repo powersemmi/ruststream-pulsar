@@ -67,6 +67,13 @@ pub(crate) enum Topics {
     Pattern(String),
 }
 
+/// How long a partial page waits for more deliveries before the handler sees it, unless the
+/// descriptor names another value.
+///
+/// Short, because the cost of waiting is latency on a page that is already useful; a service
+/// trading latency for fuller pages raises it with [`PulsarSubscription::page_wait`].
+pub(crate) const DEFAULT_PAGE_WAIT: Duration = Duration::from_millis(10);
+
 /// A subscription descriptor for one Pulsar subscription over one or more topics.
 ///
 /// Where the subscription starts reading is not a descriptor option: it is the framework's
@@ -94,6 +101,7 @@ pub struct PulsarSubscription {
     pub(crate) sub_type: SubscriptionType,
     pub(crate) dead_letter: Option<DeadLetter>,
     pub(crate) ack_timeout: Option<Duration>,
+    pub(crate) page_wait: Duration,
 }
 
 impl PulsarSubscription {
@@ -106,6 +114,7 @@ impl PulsarSubscription {
             sub_type: SubscriptionType::default(),
             dead_letter: None,
             ack_timeout: None,
+            page_wait: DEFAULT_PAGE_WAIT,
         }
     }
 
@@ -145,6 +154,17 @@ impl PulsarSubscription {
     /// Redelivers messages that stay unacknowledged longer than `timeout`.
     pub fn ack_timeout(mut self, timeout: Duration) -> Self {
         self.ack_timeout = Some(timeout);
+        self
+    }
+
+    /// Caps how long a partial page waits for more deliveries after its first one.
+    ///
+    /// Only a page handler observes this: the client hands over one delivery at a time, so a
+    /// `batch(n)` registration on this subscription assembles its pages here, and a page closes
+    /// when it holds `n` deliveries or when this has elapsed, whichever comes first. Defaults to
+    /// 10 ms; raising it trades latency for fuller pages on a sparse topic.
+    pub fn page_wait(mut self, wait: Duration) -> Self {
+        self.page_wait = wait;
         self
     }
 

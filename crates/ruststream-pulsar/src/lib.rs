@@ -13,12 +13,15 @@
 //! - Multi-topic and pattern subscriptions are descriptor variants.
 //! - Topics are a retained log, so a handler repositions its own subscription: [`PulsarContext`]
 //!   carries the delivery's [`Position`] and the subscription's [`SeekHandle`], read by key.
+//! - Page handlers work here. The client hands over one delivery at a time, so a page is
+//!   assembled on the client from the size the mount site names; only the deadline that closes a
+//!   partial page is this crate's own, on [`PulsarSubscription::page_wait`].
 //! - Key sharing maps onto the partition key; message properties carry headers directly, with no
 //!   extra envelope format. [`PulsarPublishExt`] names the key as a publish argument, ahead of
 //!   the framework's publish builder.
 //!
-//! Transactions, consumer-side batch receive, and the schema registry are out of scope: the
-//! client does not implement them, and the capability traits they would back are optional.
+//! Transactions and the schema registry are out of scope: the client does not implement them,
+//! and the capability traits they would back are optional.
 
 #![forbid(unsafe_code)]
 

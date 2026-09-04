@@ -32,11 +32,12 @@
 - **Multi-topic and pattern subscriptions.** `PulsarSubscription::topics([...])` subscribes to a fixed list; `::pattern("orders-.*")` follows every topic in the namespace whose name matches, including topics created after the consumer attached.
 - **Start position on the framework's own surface.** `PulsarPosition` (`earliest()`, `latest()`, `timestamp(ms)`, or a captured message id) is the `Seekable` capability's position type, so a subscription's start position is the `start_at(..)` clause; the descriptor itself carries no separate start options. A `start_at` seek runs on every startup, unlike Pulsar's server-side initial position, which applies only when a subscription is first created.
 - **Repositioning from a handler, by key.** A delivery's context carries where it sits and the handle that moves the subscription, read as `Ctx<Position>` and `Ctx<SeekHandle>` parameters (or `ctx.context(..)`); a page body reads the handle off the subscription-scoped `PulsarBatchContext`. A key another broker does not carry is a compile error at the mount site, not a runtime miss.
+- **Pages, assembled on the client.** The Pulsar client has no consumer-side batch receive, so a `&[T]` page handler is served from single deliveries: the mount site names the page size, the descriptor's `page_wait` names how long a partial page waits for the rest, and a page never carries more than the size that was asked for. Nothing at the mount site or in the body says which side the page was built on.
 - **Key sharing as the partition key.** A `partition-key` header becomes the message's partition key on publish (keyed routing) and comes back as the same header, which `KeyShared` subscriptions order by. `PulsarPublishExt::with_partition_key` sets it as a per-message publish argument.
 - **Properties carry headers directly.** Headers map onto Pulsar message properties with no extra envelope, so non-Rust peers see plain Pulsar messages.
 - **In-process test broker** (feature `testing`). `PulsarTestBroker` reproduces core routing with no server, implements `ruststream::testing::TestableBroker`, and passes the framework's conformance suite in process.
 
-Transactions, consumer-side batch receive, and the schema registry are out of scope for the first release: the client does not implement them, and the capability traits they would back are optional.
+Transactions and the schema registry are out of scope for the first release: the client does not implement them, and the capability traits they would back are optional.
 
 ## Install
 

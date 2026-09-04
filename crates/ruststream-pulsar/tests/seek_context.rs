@@ -11,8 +11,6 @@
 //! `integration_pulsar.rs`.
 #![cfg(feature = "testing")]
 
-use std::time::Duration;
-
 use ruststream::testing::TestApp;
 use ruststream_pulsar::prelude::*;
 use ruststream_pulsar::testing::PulsarTestBroker;
@@ -126,40 +124,43 @@ async fn a_handler_repositions_its_own_subscription() {
 /// What is specific to the page path: the body names the subscription-scoped context, reads the
 /// seeker off it, and repositions the subscription it came from without stranding it.
 ///
-/// What a page deliberately does not assert here is the discard, and the reason is a framework
-/// limitation worth naming: the buffer wraps the subscriber without forwarding `Seekable`, so a
-/// page subscription cannot open on a backlog with `start_at(..)`, and each harness publish
-/// settles before the next, so a page is one element. The reposition's own mechanics are pinned
-/// by `capabilities::seeking` against this same broker, and its effect on a running subscription
-/// by the single-delivery test above.
+/// The mount site names one number, the page size, and nothing there says Pulsar assembles its
+/// pages on the client rather than pulling them off the wire. The seeker reaches through that
+/// buffer, so a page subscription opens on a backlog exactly as a single-delivery one does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_page_repositions_the_subscription_it_came_from() {
-    let app = RustStream::new(AppInfo::new("seek-page", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
-        |b| {
-            // Pulsar's client has no consumer-side batch receive, so pages come from the
-            // framework's own buffer.
-            b.include(skip_poison_page.buffered(nonzero!(8), Duration::from_millis(10)));
-        },
-    );
-    let tb = TestApp::start(app).await.expect("start harness");
+    let broker = PulsarTestBroker::new();
+    backlog(&broker, "jobs.bulk").await;
 
-    tb.broker::<PulsarTestBroker>()
-        .message(&poison(1))
-        .to("jobs.bulk")
-        .publish()
-        .await
-        .expect("publish");
+    let app = RustStream::new(AppInfo::new("seek-page", "0.1.0")).with_broker(broker, |b| {
+        b.include(
+            skip_poison_page
+                .batch(nonzero!(2))
+                .start_at(PulsarPosition::earliest()),
+        );
+    });
+    let tb = TestApp::start(app).await.expect("start harness");
+    tb.settle().await.expect("the opening replay settles");
+
+    // One page, closed by the size rather than by the deadline, and it carried the marker: the
+    // seek to the tip dropped jobs 3 and 4 before a second page could form.
     tb.broker::<PulsarTestBroker>()
         .subscriber("jobs.bulk")
         .assert_called_once()
-        .with(&poison(1))
+        .assert_page_sizes(&[2])
         .settled(HandlerOutcome::ack());
+    assert_eq!(
+        tb.broker::<PulsarTestBroker>()
+            .subscriber("jobs.bulk")
+            .received::<Job>(),
+        vec![job(1), poison(2)],
+        "the deliveries queued behind the marker must not reach the handler",
+    );
 
     // The page's seek moved the live subscription rather than breaking it: the next entry still
-    // arrives, at the repositioned tip.
+    // arrives, at the repositioned tip, as a page of its own.
     tb.broker::<PulsarTestBroker>()
-        .message(&job(2))
+        .message(&job(5))
         .to("jobs.bulk")
         .publish()
         .await
@@ -167,6 +168,6 @@ async fn a_page_repositions_the_subscription_it_came_from() {
     tb.broker::<PulsarTestBroker>()
         .subscriber("jobs.bulk")
         .assert_called(2)
-        .with(&job(2))
+        .assert_page_sizes(&[2, 1])
         .settled(HandlerOutcome::ack());
 }
