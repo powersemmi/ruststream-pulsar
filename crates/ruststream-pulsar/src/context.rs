@@ -2,7 +2,7 @@
 //!
 //! Pulsar topics are a retained log, so the two things a body needs to reposition itself are
 //! per-delivery state: where this message sits ([`Position`]) and the handle that moves the
-//! subscription ([`SeekHandle`]). Both ride [`PulsarContext`], built once per delivery; a page
+//! subscription ([`SeekHandle`]). Both ride [`PulsarContext`], built once per delivery; a batch
 //! spans many deliveries, so [`PulsarBatchContext`] carries only the subscription-scoped half.
 
 use ruststream::{BuildBatchContext, BuildContext, ContextField, Field, Positioned};
@@ -73,17 +73,17 @@ impl BuildContext<crate::testing::PulsarTestMessage> for PulsarContext {
     }
 }
 
-/// The subscription-scoped page context of a Pulsar subscription: its seeker, shared by every
-/// delivery of the page.
+/// The subscription-scoped batch context of a Pulsar subscription: its seeker, shared by every
+/// delivery of the batch.
 ///
-/// The runtime builds one per dispatched page from the page's first delivery (see
-/// [`BuildBatchContext`]), and a page body reads it by key - [`SeekHandle`] - through
-/// `ctx.context(..)`. A [`Position`] has no place here: a page spans many deliveries, so where
-/// to seek rides the elements themselves (a `&[Message<H, T>]` page reads it off each element's
-/// header contract). Keeping this a separate type from [`PulsarContext`] is what rejects a page
+/// The runtime builds one per dispatched batch from the batch's first delivery (see
+/// [`BuildBatchContext`]), and a batch body reads it by key - [`SeekHandle`] - through
+/// `ctx.context(..)`. A [`Position`] has no place here: a batch spans many deliveries, so where
+/// to seek rides the elements themselves (a `&[Message<H, T>]` batch reads it off each element's
+/// header contract). Keeping this a separate type from [`PulsarContext`] is what rejects a batch
 /// body asking for per-delivery fields at compile time.
 ///
-/// Pulsar's client has no consumer-side batch receive, so a page here is assembled on the client
+/// Pulsar's client has no consumer-side batch receive, so a batch here is assembled on the client
 /// from the size the mount site's `batch(n)` names. Nothing about that reaches the body: the
 /// context, the seeker and the settlement are the same either way.
 ///
@@ -100,20 +100,20 @@ impl BuildContext<crate::testing::PulsarTestMessage> for PulsarContext {
 /// impl Handle<[Job], (), (), PulsarBatchContext> for Replayer {
 ///     async fn handle(
 ///         &self,
-///         page: &[Job],
+///         batch: &[Job],
 ///         _outs: &(),
 ///         ctx: &mut Context<'_, PulsarBatchContext>,
 ///     ) -> Result<(), Vec<HandlerOutcome>> {
-///         // A page that saw the rewind marker replays the retained backlog once it is
-///         // settled; the next page opens at the beginning of the log.
-///         if page.iter().any(|job| job.id == u64::MAX)
+///         // A batch that saw the rewind marker replays the retained backlog once it is
+///         // settled; the next batch opens at the beginning of the log.
+///         if batch.iter().any(|job| job.id == u64::MAX)
 ///             && ctx
 ///                 .context(SeekHandle)
 ///                 .seek(PulsarPosition::earliest())
 ///                 .await
 ///                 .is_err()
 ///         {
-///             return Err(page.iter().map(|_| HandlerOutcome::retry()).collect());
+///             return Err(batch.iter().map(|_| HandlerOutcome::retry()).collect());
 ///         }
 ///         Ok(())
 ///     }
@@ -132,7 +132,7 @@ impl BuildBatchContext<PulsarMessage> for PulsarBatchContext {
     }
 }
 
-/// The page counterpart on the stand-in, so a page body that repositions is unit-testable too.
+/// The batch counterpart on the stand-in, so a batch body that repositions is unit-testable too.
 #[cfg(feature = "testing")]
 impl BuildBatchContext<crate::testing::PulsarTestMessage> for PulsarBatchContext {
     fn build(first: &crate::testing::PulsarTestMessage) -> Self {
@@ -185,7 +185,7 @@ impl Field<PulsarContext> for Position {
 }
 
 /// The key reading the subscription's [`PulsarSeeker`] out of [`PulsarContext`] (and out of
-/// [`PulsarBatchContext`] on the page path): the reposition handle every delivery of the
+/// [`PulsarBatchContext`] on the batch path): the reposition handle every delivery of the
 /// subscription shares.
 ///
 /// One seek covers every topic and every partition of the subscription's consumer.

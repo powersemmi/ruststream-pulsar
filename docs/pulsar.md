@@ -25,7 +25,7 @@ that is not implemented does not compile at the mount site, rather than failing 
 | Capability | Native | Why |
 | --- | --- | --- |
 | `Subscribe` | yes | the connected broker subscribes by topic name, opening a `Shared` subscription named `ruststream` |
-| `BatchSubscriber` | client-side | the client exposes no consumer-side batch receive, so pages are assembled from single deliveries (see [Pages](#pages)) |
+| `BatchSubscriber` | client-side | the client exposes no consumer-side batch receive, so batches are assembled from single deliveries (see [Batches](#batches)) |
 | `TransactionalPublisher` | no | the client does not implement Pulsar transactions |
 | `OwnedTransactions` | no | the client does not implement Pulsar transactions |
 | `RequestReply` | no | Pulsar has no reply inbox; a reply is an ordinary publish to another topic |
@@ -86,7 +86,7 @@ subscription they share, and carries the consumer settings the product owns:
 | `subscription_type(SubscriptionType)` | how competing consumers share the subscription | `Shared` |
 | `dead_letter(DeadLetter)` | the consumer-side dead-letter policy | none |
 | `ack_timeout(Duration)` | redeliver messages left unacknowledged for longer than this | none |
-| `page_wait(Duration)` | how long a partial page waits for more deliveries (see [Pages](#pages)) | 10 ms |
+| `batch_wait(Duration)` | how long a partial batch waits for more deliveries (see [Batches](#batches)) | 10 ms |
 
 The subscription type is an enum with per-variant meaning, so combinations that do not exist are
 unrepresentable:
@@ -135,36 +135,36 @@ The example puts them on the framework's byte lane instead of naming a model: a
 `#[derive(Deserialized)]` newtype over `&'a [u8]` is a named payload that already carries its
 own bytes, so no codec stands between the broker and the handler.
 
-### Pages
+### Batches
 
-A handler that takes a slice is handed a whole page and settles it at once:
+A handler that takes a slice is handed a whole batch and settles it at once:
 
 ```rust
---8<-- "crates/ruststream-pulsar/examples/pulsar_pages.rs:handler"
+--8<-- "crates/ruststream-pulsar/examples/pulsar_batches.rs:handler"
 ```
 
-Its mount site names one number, the page size, which is the only thing about a page the
+Its mount site names one number, the batch size, which is the only thing about a batch the
 framework carries down to the broker:
 
 ```rust
---8<-- "crates/ruststream-pulsar/examples/pulsar_pages.rs:app"
+--8<-- "crates/ruststream-pulsar/examples/pulsar_batches.rs:app"
 ```
 
 Pulsar's client has no consumer-side batch receive - its `batch_size` is a flow-control window,
-not a receive size - so the page is assembled from single deliveries, by the framework's own
+not a receive size - so the batch is assembled from single deliveries, by the framework's own
 client-side buffer which `PulsarSubscriber` carries. Nothing at the mount site says so, and
-nothing in the body can tell: the page is exactly what the subscriber delivered, never a slice of
+nothing in the body can tell: the batch is exactly what the subscriber delivered, never a slice of
 it, and it never carries more than the size the registration named.
 
-A page closes when it holds that many deliveries, or when `page_wait` has elapsed since its first
-one, whichever comes first; an idle subscription waits indefinitely for that first delivery. The
-default is 10 ms, short so that a page which is already useful does not wait on a sparse topic;
-raising it trades latency for fuller pages. The size is not a descriptor option beside it, because
-it belongs to the registration rather than to the subscription - one subscription descriptor can
-be mounted twice with different page sizes.
+A batch closes when it holds that many deliveries, or when `batch_wait` has elapsed since its
+first one, whichever comes first; an idle subscription waits indefinitely for that first delivery.
+The default is 10 ms, short so that a batch which is already useful does not wait on a sparse
+topic; raising it trades latency for fuller batches. The size is not a descriptor option beside
+it, because it belongs to the registration rather than to the subscription - one subscription
+descriptor can be mounted twice with different batch sizes.
 
-Buffering does not move the subscription, so a page subscription seeks like any other: it opens at
-a chosen position with `start_at(..)`, and a page body repositions it through
+Buffering does not move the subscription, so a batch subscription seeks like any other: it opens
+at a chosen position with `start_at(..)`, and a batch body repositions it through
 `PulsarBatchContext` (see [Repositioning from a handler](#repositioning-from-a-handler)).
 
 ### Dead-lettering
@@ -234,23 +234,23 @@ site, and a key a broker does not carry is a compile error rather than a runtime
 --8<-- "crates/ruststream-pulsar/tests/seek_context.rs:delivery"
 ```
 
-A page body gets the subscription-scoped half instead: `PulsarBatchContext`, the seeker without a
-position. A page spans many deliveries, so where to seek rides the elements themselves - a
-`&[Message<H, T>]` page reads it off each element's header contract. Asking a page body for
+A batch body gets the subscription-scoped half instead: `PulsarBatchContext`, the seeker without a
+position. A batch spans many deliveries, so where to seek rides the elements themselves - a
+`&[Message<H, T>]` batch reads it off each element's header contract. Asking a batch body for
 `Position` does not compile.
 
 ```rust
---8<-- "crates/ruststream-pulsar/tests/seek_context.rs:page"
+--8<-- "crates/ruststream-pulsar/tests/seek_context.rs:batch"
 ```
 
-That the pages are assembled on the client (see [Pages](#pages)) costs the seek nothing: buffering
-does not move the subscription, so the handle underneath is the subscription's own, and a page
-subscription carries `start_at(..)` like any other.
+That the batches are assembled on the client (see [Batches](#batches)) costs the seek nothing:
+buffering does not move the subscription, so the handle underneath is the subscription's own, and
+a batch subscription carries `start_at(..)` like any other.
 
 One seek covers every topic and every partition of the subscription's consumer, and the broker
 redelivers from the new position, so no per-message acknowledgement state needs resetting.
 Deliveries that were already buffered when the seek landed are discarded rather than handed to the
-handler, so the stream resumes at the target position. A page still being assembled is the one
+handler, so the stream resumes at the target position. A batch still being assembled is the one
 exception: it keeps what it had already pulled, which was pulled before the seek, and closes with
 it. The framework's `capabilities::seeking`
 conformance suite covers the capability, and this crate runs it both against a live broker and
@@ -310,7 +310,7 @@ The repository ships a compose file running Pulsar standalone, and the just reci
 just brokers-up                  # Pulsar standalone on 127.0.0.1:6650 (admin on 8080)
 cargo run --example pulsar_service -- run
 cargo run --example pulsar_pattern -- run
-cargo run --example pulsar_pages -- run
+cargo run --example pulsar_batches -- run
 just brokers-down
 ```
 
@@ -328,7 +328,7 @@ PULSAR_TEST_URL=pulsar://127.0.0.1:6650 cargo test --workspace --all-features --
 
 The same suite runs in CI: the integration tests, the framework's conformance lifecycle check
 (`new` -> `connect` -> subscribe -> publish -> receive -> ack -> `shutdown`, with a publisher
-created before shutdown asserted to error afterwards), and the seeking and paging capability
+created before shutdown asserted to error afterwards), and the seeking and batching capability
 suites.
 
 ## Testing
@@ -353,10 +353,10 @@ mounts on `PulsarTestBroker` unchanged, and the assertions are the harness's own
 ```
 
 The framework's `capabilities::seeking` and `capabilities::batches` conformance suites run against
-the stand-in as well as against a real broker, so its repositioning and its pages are held to the
-same contract rather than merely looking right. The stand-in pages exactly as the real subscriber
-does - the same client-side buffer over a one-at-a-time queue - so a page handler under test runs
-the code path it will in production.
+the stand-in as well as against a real broker, so its repositioning and its batches are held to
+the same contract rather than merely looking right. The stand-in batches exactly as the real
+subscriber does - the same client-side buffer over a one-at-a-time queue - so a batch handler
+under test runs the code path it will in production.
 
 What the stand-in does not simulate is Pulsar product behaviour: subscription types,
 dead-lettering, ack timeouts and redelivery timing are broker semantics, and the live suite

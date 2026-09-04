@@ -16,7 +16,7 @@ use crate::PARTITION_KEY_HEADER;
 use crate::error::PulsarError;
 use crate::message::PulsarPosition;
 use crate::subscriber::PulsarSeeker;
-use crate::subscription::DEFAULT_PAGE_WAIT;
+use crate::subscription::DEFAULT_BATCH_WAIT;
 use crate::testing::broker::TestState;
 use crate::testing::router::{Delivery, SubscriptionId};
 use crate::testing::seek::LogSeeker;
@@ -26,9 +26,9 @@ use crate::testing::seek::LogSeeker;
 /// Dropping it unregisters the subscription, so handlers stop receiving as soon as their task
 /// finishes.
 ///
-/// It pages the way the real subscriber does - through the framework's client-side buffer over a
-/// one-at-a-time queue - so a page handler under test runs the code path it will in production,
-/// and a page never carries more than the size its registration named.
+/// It batches the way the real subscriber does - through the framework's client-side buffer over
+/// a one-at-a-time queue - so a batch handler under test runs the code path it will in
+/// production, and a batch never carries more than the size its registration named.
 pub struct PulsarTestSubscriber {
     inner: BufferedSubscriber<Queued>,
 }
@@ -67,7 +67,7 @@ impl PulsarTestSubscriber {
                 id,
                 coordinator,
             })
-            .max_wait(DEFAULT_PAGE_WAIT),
+            .max_wait(DEFAULT_BATCH_WAIT),
         }
     }
 }
@@ -124,8 +124,8 @@ impl Subscriber for Queued {
     }
 }
 
-/// The seeker reaches through the buffer, so a page subscription on the stand-in opens with
-/// `start_at(..)` and repositions from a page body, as it does on a server.
+/// The seeker reaches through the buffer, so a batch subscription on the stand-in opens with
+/// `start_at(..)` and repositions from a batch body, as it does on a server.
 impl Seekable for PulsarTestSubscriber {
     type Seeker = PulsarSeeker;
 
@@ -163,7 +163,7 @@ pub struct PulsarTestMessage {
     delivery: Option<Delivery>,
     state: Arc<TestState>,
     id: SubscriptionId,
-    /// The subscription's seeker, shared by every delivery it yields; the per-delivery and page
+    /// The subscription's seeker, shared by every delivery it yields; the per-delivery and batch
     /// contexts clone it out of here.
     seek: Arc<PulsarSeeker>,
     /// A clone of the broker's harness coordinator. When set, this delivery is counted in
@@ -204,7 +204,7 @@ impl PulsarTestMessage {
         }
     }
 
-    /// The subscription's reposition handle, which the delivery and page contexts read.
+    /// The subscription's reposition handle, which the delivery and batch contexts read.
     pub(crate) fn seeker(&self) -> &PulsarSeeker {
         &self.seek
     }

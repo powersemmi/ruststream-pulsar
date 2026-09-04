@@ -40,9 +40,9 @@ async fn pulsar_test_broker_passes_seeking_suite() {
     .await;
 }
 
-/// Pulsar's client hands over one delivery at a time, so this crate's pages are assembled on the
-/// client. The suite is what says the assembly honours the contract: it opens the subscription
-/// at a size smaller than the run and fails a page that comes back longer.
+/// Pulsar's client hands over one delivery at a time, so this crate's batches are assembled on
+/// the client. The suite is what says the assembly honours the contract: it opens the
+/// subscription at a size smaller than the run and fails a batch that comes back longer.
 #[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pulsar_test_broker_passes_batches_suite() {
@@ -85,7 +85,7 @@ async fn pulsar_broker_passes_seeking_suite() {
     .await;
 }
 
-/// The same page contract against a live consumer: the buffer sits over real deliveries here,
+/// The same batch contract against a live consumer: the buffer sits over real deliveries here,
 /// with the client's own flow control underneath it.
 #[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

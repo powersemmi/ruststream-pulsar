@@ -1,7 +1,7 @@
 //! The imports a routes file on Pulsar writes every time, in one glob.
 //!
 //! `use ruststream_pulsar::prelude::*;` brings in the framework's own prelude, this crate's
-//! broker, descriptors, start position and seeker, the delivery and page contexts with the
+//! broker, descriptors, start position and seeker, the delivery and batch contexts with the
 //! [`Position`] and [`SeekHandle`] keys that read them, its publish policy under the name
 //! [`Publish`] and its publish arguments, and the framework capability traits [`Positioned`]
 //! and [`Seeker`].

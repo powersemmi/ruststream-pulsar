@@ -6,9 +6,9 @@
 //! back from message handles.
 //!
 //! The client hands over one delivery at a time - it has no consumer-side batch receive, only a
-//! flow-control window - so the pages a page handler asks for are assembled on the client, by
+//! flow-control window - so the batches a batch handler asks for are assembled on the client, by
 //! the framework's own [`BufferedSubscriber`]. Nothing at the mount site says so: a service
-//! names a page size and gets pages.
+//! names a batch size and gets batches.
 
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -33,20 +33,20 @@ use crate::subscription::{PulsarSubscription, SubscriptionType, Topics};
 const CHANNEL_CAPACITY: usize = 16;
 
 /// A subscription to one or more Pulsar topics; yields [`PulsarMessage`]s, one at a time or in
-/// pages.
+/// batches.
 ///
 /// Dropping the subscriber stops the driver task, which closes the client consumer.
 pub struct PulsarSubscriber {
     topic: String,
-    /// The wire deliveries plus client-side paging. Every capability of the subscription reaches
-    /// through the wrapper: buffering does not move the subscription, so the seeker underneath
-    /// is the subscription's own.
+    /// The wire deliveries plus client-side batching. Every capability of the subscription
+    /// reaches through the wrapper: buffering does not move the subscription, so the seeker
+    /// underneath is the subscription's own.
     inner: BufferedSubscriber<Deliveries>,
 }
 
 /// The wire form of a subscription: one delivery at a time, off the driver task's channel.
 ///
-/// This is everything the client offers, and [`PulsarSubscriber`] is this plus the pages.
+/// This is everything the client offers, and [`PulsarSubscriber`] is this plus the batches.
 #[derive(Debug)]
 struct Deliveries {
     rx: mpsc::Receiver<(u64, Result<PulsarMessage, PulsarError>)>,
@@ -76,7 +76,7 @@ impl PulsarSubscriber {
         descriptor: PulsarSubscription,
     ) -> Result<Self, PulsarError> {
         let display = descriptor.display_topic();
-        let page_wait = descriptor.page_wait;
+        let batch_wait = descriptor.batch_wait;
         let mut builder = core
             .client
             .consumer()
@@ -126,26 +126,26 @@ impl PulsarSubscriber {
             Arc::clone(&epoch),
         ));
 
-        Ok(Self::paging(
+        Ok(Self::batching(
             display,
             Deliveries {
                 rx: out_rx,
                 cmd: settle_tx,
                 epoch,
             },
-            page_wait,
+            batch_wait,
         ))
     }
 
     /// Wraps the wire deliveries in the framework's client-side buffer.
     ///
-    /// The page size is not this crate's to choose - it arrives per subscription, as the
-    /// argument of [`BatchSubscriber::batches`]. The deadline that closes a partial page is,
-    /// and the descriptor's `page_wait` is where a service names it.
-    fn paging(topic: String, wire: Deliveries, page_wait: Duration) -> Self {
+    /// The batch size is not this crate's to choose - it arrives per subscription, as the
+    /// argument of [`BatchSubscriber::batches`]. The deadline that closes a partial batch is,
+    /// and the descriptor's `batch_wait` is where a service names it.
+    fn batching(topic: String, wire: Deliveries, batch_wait: Duration) -> Self {
         Self {
             topic,
-            inner: BufferedSubscriber::new(wire).max_wait(page_wait),
+            inner: BufferedSubscriber::new(wire).max_wait(batch_wait),
         }
     }
 }
@@ -259,7 +259,7 @@ impl Subscriber for Deliveries {
     }
 }
 
-/// Buffering does not move the subscription, so the handle is the wire subscriber's own: a page
+/// Buffering does not move the subscription, so the handle is the wire subscriber's own: a batch
 /// subscription still opens at a chosen position and still repositions from a handler.
 impl Seekable for PulsarSubscriber {
     type Seeker = PulsarSeeker;
@@ -278,11 +278,11 @@ impl Subscriber for PulsarSubscriber {
     }
 }
 
-/// Pages assembled on the client, because the transport has none of its own: the client's
+/// Batches assembled on the client, because the transport has none of its own: the client's
 /// consumer yields one delivery at a time, and its `batch_size` is a flow-control window rather
-/// than a receive size, so there is nothing to translate a page size into on the wire.
+/// than a receive size, so there is nothing to translate a batch size into on the wire.
 ///
-/// A page never carries more than the size the registration named - the buffer closes it there -
+/// A batch never carries more than the size the registration named - the buffer closes it there -
 /// and it carries fewer whenever the deadline elapsed first.
 impl BatchSubscriber for PulsarSubscriber {
     type Batch = Vec<PulsarMessage>;

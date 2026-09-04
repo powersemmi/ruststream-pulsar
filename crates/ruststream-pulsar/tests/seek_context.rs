@@ -1,7 +1,7 @@
 //! Repositioning from a handler, at the level a service writes it.
 //!
 //! The subject here is the application: a body reads the subscription's seeker off its delivery
-//! context (or, for a page, off the subscription-scoped one) and moves the subscription. So the
+//! context (or, for a batch, off the subscription-scoped one) and moves the subscription. So the
 //! test is a `TestApp` run against the in-process stand-in, which retains a log and therefore
 //! backs both halves of the crate's seek surface - the `start_at(..)` clause that opens the
 //! subscription at the beginning of it, and the `SeekHandle` key the body reads.
@@ -37,15 +37,15 @@ async fn skip_poison(job: &Job, Ctx(seeker): Ctx<SeekHandle>) -> HandlerOutcome 
 }
 // --8<-- [end:delivery]
 
-// --8<-- [start:page]
-/// The page counterpart. A page has no single position, so its context carries the seeker alone
+// --8<-- [start:batch]
+/// The batch counterpart. A batch has no single position, so its context carries the seeker alone
 /// and the body reads it through a declared `Context` parameter.
 #[subscriber("jobs.bulk")]
-async fn skip_poison_page(
-    page: &[Job],
+async fn skip_poison_batch(
+    batch: &[Job],
     ctx: &mut Context<'_, PulsarBatchContext>,
 ) -> HandlerOutcome {
-    if page.iter().any(|job| job.poisoned)
+    if batch.iter().any(|job| job.poisoned)
         && ctx
             .context(SeekHandle)
             .seek(PulsarPosition::latest())
@@ -56,7 +56,7 @@ async fn skip_poison_page(
     }
     HandlerOutcome::ack()
 }
-// --8<-- [end:page]
+// --8<-- [end:batch]
 
 fn job(id: u64) -> Job {
     Job {
@@ -121,20 +121,20 @@ async fn a_handler_repositions_its_own_subscription() {
         .settled(HandlerOutcome::ack());
 }
 
-/// What is specific to the page path: the body names the subscription-scoped context, reads the
+/// What is specific to the batch path: the body names the subscription-scoped context, reads the
 /// seeker off it, and repositions the subscription it came from without stranding it.
 ///
-/// The mount site names one number, the page size, and nothing there says Pulsar assembles its
-/// pages on the client rather than pulling them off the wire. The seeker reaches through that
-/// buffer, so a page subscription opens on a backlog exactly as a single-delivery one does.
+/// The mount site names one number, the batch size, and nothing there says Pulsar assembles its
+/// batches on the client rather than pulling them off the wire. The seeker reaches through that
+/// buffer, so a batch subscription opens on a backlog exactly as a single-delivery one does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_page_repositions_the_subscription_it_came_from() {
+async fn a_batch_repositions_the_subscription_it_came_from() {
     let broker = PulsarTestBroker::new();
     backlog(&broker, "jobs.bulk").await;
 
-    let app = RustStream::new(AppInfo::new("seek-page", "0.1.0")).with_broker(broker, |b| {
+    let app = RustStream::new(AppInfo::new("seek-batch", "0.1.0")).with_broker(broker, |b| {
         b.include(
-            skip_poison_page
+            skip_poison_batch
                 .batch(nonzero!(2))
                 .start_at(PulsarPosition::earliest()),
         );
@@ -142,12 +142,12 @@ async fn a_page_repositions_the_subscription_it_came_from() {
     let tb = TestApp::start(app).await.expect("start harness");
     tb.settle().await.expect("the opening replay settles");
 
-    // One page, closed by the size rather than by the deadline, and it carried the marker: the
-    // seek to the tip dropped jobs 3 and 4 before a second page could form.
+    // One batch, closed by the size rather than by the deadline, and it carried the marker: the
+    // seek to the tip dropped jobs 3 and 4 before a second batch could form.
     tb.broker::<PulsarTestBroker>()
         .subscriber("jobs.bulk")
         .assert_called_once()
-        .assert_page_sizes(&[2])
+        .assert_batch_sizes(&[2])
         .settled(HandlerOutcome::ack());
     assert_eq!(
         tb.broker::<PulsarTestBroker>()
@@ -157,8 +157,8 @@ async fn a_page_repositions_the_subscription_it_came_from() {
         "the deliveries queued behind the marker must not reach the handler",
     );
 
-    // The page's seek moved the live subscription rather than breaking it: the next entry still
-    // arrives, at the repositioned tip, as a page of its own.
+    // The batch's seek moved the live subscription rather than breaking it: the next entry still
+    // arrives, at the repositioned tip, as a batch of its own.
     tb.broker::<PulsarTestBroker>()
         .message(&job(5))
         .to("jobs.bulk")
@@ -168,6 +168,6 @@ async fn a_page_repositions_the_subscription_it_came_from() {
     tb.broker::<PulsarTestBroker>()
         .subscriber("jobs.bulk")
         .assert_called(2)
-        .assert_page_sizes(&[2, 1])
+        .assert_batch_sizes(&[2, 1])
         .settled(HandlerOutcome::ack());
 }
