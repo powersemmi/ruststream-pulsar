@@ -1,6 +1,7 @@
 //! [`PulsarTestBroker`]: the in-process transport and its connected form.
 
 use std::future::{Future, ready};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use bytes::Bytes;
@@ -19,6 +20,11 @@ use crate::testing::subscriber::PulsarTestSubscriber;
 #[derive(Debug, Default)]
 pub(crate) struct TestState {
     pub(crate) router: AddressRouter,
+    /// Set by `shutdown`. The ladder makes owner-side misuse a compile error, but handles that
+    /// alias the transport - a publisher taken before the shutdown, a clone of the connected
+    /// form - outlive it and must report the closure instead of routing into a dead router, as
+    /// they do against a server.
+    closed: AtomicBool,
     coordinator: OnceLock<Coordinator>,
 }
 
@@ -27,9 +33,30 @@ impl TestState {
         self.coordinator.get()
     }
 
-    pub(crate) fn publish(&self, name: &str, payload: Bytes, headers: ruststream::HeaderMap) {
+    /// `Ok` while the transport is live, [`PulsarError::NotConnected`] once it has shut down -
+    /// the error the real broker's own handles report then.
+    fn ensure_open(&self) -> Result<(), PulsarError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(PulsarError::NotConnected);
+        }
+        Ok(())
+    }
+
+    /// Closes the transport: every aliasing handle reports the closure from here on.
+    fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn publish(
+        &self,
+        name: &str,
+        payload: Bytes,
+        headers: ruststream::HeaderMap,
+    ) -> Result<(), PulsarError> {
+        self.ensure_open()?;
         self.router
             .publish(name, payload, headers, self.coordinator());
+        Ok(())
     }
 }
 
@@ -132,6 +159,7 @@ impl ConnectedPulsarTestBroker {
     /// map insertion, so nothing here awaits.
     fn open(&self, descriptor: PulsarSubscription) -> Result<PulsarTestSubscriber, PulsarError> {
         descriptor.validate()?;
+        self.state.ensure_open()?;
         let route = match descriptor.topics {
             Topics::List(topics) => Route::Topics(topics),
             // `validate` already compiled the pattern, so this cannot fail; it is mapped rather
@@ -159,6 +187,7 @@ impl ConnectedBroker for ConnectedPulsarTestBroker {
     type Closed = ();
 
     fn shutdown(self) -> impl Future<Output = Result<(), Self::Error>> {
+        self.state.close();
         self.state.router.clear();
         ready(Ok(()))
     }
@@ -168,7 +197,11 @@ impl Subscribe for ConnectedPulsarTestBroker {
     type Subscriber = PulsarTestSubscriber;
 
     fn subscribe(&self, name: &str) -> impl Future<Output = Result<Self::Subscriber, Self::Error>> {
-        ready(Ok(self.open_route(Route::topic(name.to_owned()))))
+        ready(
+            self.state
+                .ensure_open()
+                .map(|()| self.open_route(Route::topic(name.to_owned()))),
+        )
     }
 }
 
@@ -178,7 +211,10 @@ impl TestableBroker for ConnectedPulsarTestBroker {
     }
 
     fn inject(&self, message: OutgoingMessage<'_>) {
-        self.state.publish(
+        // An injection stands in for an external producer and the trait gives it no way to
+        // report; against a shut-down transport it is dropped, which is what a producer talking
+        // to a closed broker achieves in effect.
+        let _ = self.state.publish(
             message.name(),
             Bytes::copy_from_slice(message.payload()),
             message.headers().clone(),
@@ -193,6 +229,11 @@ impl TestableBroker for ConnectedPulsarTestBroker {
 ruststream::register_testable_broker!(ConnectedPulsarTestBroker);
 
 /// Publisher for the in-process broker.
+///
+/// Usable from the moment the broker exists, since there is no connection to wait for, and until
+/// the transport shuts down; afterwards every publish reports
+/// [`PulsarError::NotConnected`](crate::PulsarError::NotConnected), as the real publisher does
+/// against a closed connection.
 #[derive(Debug, Clone)]
 pub struct PulsarTestPublisher {
     state: Arc<TestState>,
@@ -205,12 +246,11 @@ impl Publisher for PulsarTestPublisher {
     type Error = PulsarError;
 
     fn publish(&self, msg: OutgoingMessage<'_>) -> impl Future<Output = Result<(), Self::Error>> {
-        self.state.publish(
+        ready(self.state.publish(
             msg.name(),
             Bytes::copy_from_slice(msg.payload()),
             msg.headers().clone(),
-        );
-        ready(Ok(()))
+        ))
     }
 }
 
@@ -219,4 +259,49 @@ impl Publisher for PulsarTestPublisher {
 /// through the same declaration it will in production.
 impl DefaultPublish for ConnectedPulsarTestBroker {
     type Policy = crate::PulsarPublish;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The framework's `harness::lifecycle` asserts this against every broker; these two name
+    /// the error, which the suite only requires to be an error.
+    #[tokio::test]
+    async fn a_publisher_outliving_the_transport_reports_the_closure() {
+        let broker = PulsarTestBroker::new();
+        let early = broker.publisher();
+        let connected = broker.connect().await.expect("the stand-in connects");
+        let live = connected.publisher();
+        connected.shutdown().await.expect("shutdown");
+
+        for publisher in [early, live] {
+            let err = publisher
+                .publish(OutgoingMessage::new("orders", b"late".as_slice()))
+                .await
+                .expect_err("a publish into a shut-down transport must not report success");
+            assert!(matches!(err, PulsarError::NotConnected));
+        }
+    }
+
+    #[tokio::test]
+    async fn subscribing_after_shutdown_reports_the_closure() {
+        let connected = PulsarTestBroker::new()
+            .connect()
+            .await
+            .expect("the stand-in connects");
+        let alias = connected.clone();
+        connected.shutdown().await.expect("shutdown");
+
+        let by_name = Subscribe::subscribe(&alias, "orders")
+            .await
+            .expect_err("a subscription on a shut-down transport must not open");
+        assert!(matches!(by_name, PulsarError::NotConnected));
+
+        let by_descriptor = alias
+            .subscribe_descriptor(PulsarSubscription::new("orders", "workers"))
+            .await
+            .expect_err("a subscription on a shut-down transport must not open");
+        assert!(matches!(by_descriptor, PulsarError::NotConnected));
+    }
 }

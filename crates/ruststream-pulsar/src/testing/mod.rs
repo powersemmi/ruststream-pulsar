@@ -11,6 +11,14 @@
 //! through the [`SeekHandle`](crate::SeekHandle) key, mounts here unchanged and is tested with
 //! the harness rather than against a server.
 //!
+//! The ladder is the real one, terminal state included: after `shutdown`, a publisher taken
+//! before it and any clone of the connected form report
+//! [`PulsarError::NotConnected`](crate::PulsarError::NotConnected) instead of routing into a
+//! dead transport. Every framework suite this crate's capabilities justify - the routing suite,
+//! `harness::lifecycle`, `capabilities::seeking` and `capabilities::batches` - runs against this
+//! broker as well as against a server, so what it claims to follow is checked rather than
+//! assumed.
+//!
 //! The crate's routes-file vocabulary is the same here as in production.
 //! [`PulsarPublish`](crate::PulsarPublish) pairs against this broker into
 //! [`PulsarTestPublisher`], and is its default publish policy, so `.out(Reply, Publish)` and the

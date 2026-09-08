@@ -338,9 +338,10 @@ suites.
 ## Testing
 
 The `testing` feature ships `PulsarTestBroker`: an in-process broker that reproduces the crate's
-core routing with no server and no network. It follows the same ladder as the real broker, and its
-connected form implements `ruststream::testing::TestableBroker`, so the same broker drives the
-`TestApp` harness and the framework's conformance suite in process; inject traffic with
+core routing with no server and no network. It follows the same ladder as the real broker, terminal
+state included, and its connected form implements `ruststream::testing::TestableBroker`, so the same
+broker drives the `TestApp` harness and the framework's conformance suites in process; inject
+traffic with
 `broker.inject(OutgoingMessage::new(..))` and assert on published output with the free
 `ruststream::testing::expect_published`. See
 [Unit-testing a service with TestApp](https://powersemmi.github.io/ruststream/latest/guides/testing/#unit-testing-a-service-with-testapp).
@@ -377,11 +378,16 @@ mounts on `PulsarTestBroker` unchanged, and the assertions are the harness's own
 --8<-- "crates/ruststream-pulsar/tests/seek_context.rs:delivery"
 ```
 
-The framework's `capabilities::seeking` and `capabilities::batches` conformance suites run against
-the stand-in as well as against a real broker, so its repositioning and its batches are held to
-the same contract rather than merely looking right. The stand-in batches exactly as the real
-subscriber does - the same client-side buffer over a one-at-a-time queue - so a batch handler
-under test runs the code path it will in production.
+Every framework suite this crate's capabilities justify runs against the stand-in as well as
+against a real broker: the routing suite, `harness::lifecycle`, `capabilities::seeking` and
+`capabilities::batches`. A service is unit-tested against this broker, so it is held to the
+contract rather than to whatever it happens to do, and the server legs are what say the two
+agree. `harness::lifecycle` is the reason a publisher that outlives `shutdown` reports
+`NotConnected` here rather than quietly accepting the message, exactly as a handle aliasing a
+closed connection does. Request-reply and transactions have no leg either way: the client backs
+neither, so the crate implements neither capability. The stand-in also batches exactly as the
+real subscriber does - the same client-side buffer over a one-at-a-time queue - so a batch
+handler under test runs the code path it will in production.
 
 What the stand-in does not simulate is Pulsar product behaviour: subscription types,
 dead-lettering, ack timeouts and redelivery timing are broker semantics, and the live suite
