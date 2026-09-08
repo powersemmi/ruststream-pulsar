@@ -410,7 +410,10 @@ broker:
   topic: `dead_letter` needs the server's per-message delivery count, which this transport does
   not keep.
 - `ack_timeout`, credit and redelivery timing carry no behaviour here; they are the server's
-  clock. The live suite covers all four against a real broker.
+  clock, not the transport's.
+
+The last two are product behaviour the live suite covers against a real broker; the first two are
+where this model is coarser than the server's.
 
 Topic names route literally, with no namespace to resolve them against: `orders` and
 `persistent://public/default/orders` are two addresses here and one topic on a server. A pattern
