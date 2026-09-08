@@ -6,13 +6,13 @@ use std::sync::{Arc, OnceLock};
 use bytes::Bytes;
 use ruststream::testing::{Coordinator, TestableBroker};
 use ruststream::{
-    Broker, ConnectedBroker, DefaultPublish, OutgoingMessage, PairError, PublishPolicy, Publisher,
-    RawMessage, Subscribe,
+    Broker, ConnectedBroker, DefaultPublish, OutgoingMessage, Publisher, RawMessage, Subscribe,
 };
 
 use crate::error::PulsarError;
 use crate::publisher::PulsarPublishExt;
-use crate::testing::router::AddressRouter;
+use crate::subscription::{PulsarSubscription, Topics};
+use crate::testing::router::{AddressRouter, Route};
 use crate::testing::subscriber::PulsarTestSubscriber;
 
 /// Shared state of one in-process broker: the router plus the harness coordinator.
@@ -89,6 +89,69 @@ impl ConnectedPulsarTestBroker {
             state: Arc::clone(&self.state),
         }
     }
+
+    /// Opens the subscription `descriptor` describes, in process.
+    ///
+    /// Mirrors [`ConnectedPulsarBroker::subscribe_descriptor`](crate::ConnectedPulsarBroker::subscribe_descriptor),
+    /// which is what lets the descriptor a service mounts in production mount here too: it is
+    /// validated first, so a malformed topic name, or a pattern that is not a regular
+    /// expression, fails at startup exactly as it does against a server, and its addressing
+    /// half - the topic, the topic list, or the pattern - becomes the subscription's route. The
+    /// settings a Pulsar server owns carry no behaviour here; the [module docs](crate::testing)
+    /// list them.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PulsarError::Invalid`] when the descriptor carries no subscription name, no
+    /// topic, a malformed topic name, or a pattern that is not a regular expression.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ruststream::Broker;
+    /// use ruststream_pulsar::PulsarSubscription;
+    /// use ruststream_pulsar::testing::PulsarTestBroker;
+    ///
+    /// # async fn demo() -> Result<(), ruststream_pulsar::PulsarError> {
+    /// let connected = PulsarTestBroker::new().connect().await?;
+    /// let subscriber = connected
+    ///     .subscribe_descriptor(PulsarSubscription::new("orders", "workers"))
+    ///     .await?;
+    /// # let _ = subscriber;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn subscribe_descriptor(
+        &self,
+        descriptor: PulsarSubscription,
+    ) -> impl Future<Output = Result<PulsarTestSubscriber, PulsarError>> {
+        ready(self.open(descriptor))
+    }
+
+    /// The synchronous body of [`Self::subscribe_descriptor`]: registering a subscription is a
+    /// map insertion, so nothing here awaits.
+    fn open(&self, descriptor: PulsarSubscription) -> Result<PulsarTestSubscriber, PulsarError> {
+        descriptor.validate()?;
+        let route = match descriptor.topics {
+            Topics::List(topics) => Route::Topics(topics),
+            // `validate` already compiled the pattern, so this cannot fail; it is mapped rather
+            // than unwrapped because the compiled form is what the router matches with.
+            Topics::Pattern(pattern) => Route::pattern(&pattern).map_err(|err| {
+                PulsarError::Invalid(format!("invalid topic pattern '{pattern}': {err}"))
+            })?,
+        };
+        Ok(self.open_route(route))
+    }
+
+    /// Registers `route` and wraps it in the subscriber the harness drives.
+    fn open_route(&self, route: Route) -> PulsarTestSubscriber {
+        let id = self.state.router.subscribe(route);
+        PulsarTestSubscriber::new(
+            Arc::clone(&self.state),
+            id,
+            self.state.coordinator().cloned(),
+        )
+    }
 }
 
 impl ConnectedBroker for ConnectedPulsarTestBroker {
@@ -105,12 +168,7 @@ impl Subscribe for ConnectedPulsarTestBroker {
     type Subscriber = PulsarTestSubscriber;
 
     fn subscribe(&self, name: &str) -> impl Future<Output = Result<Self::Subscriber, Self::Error>> {
-        let id = self.state.router.subscribe(name.to_owned());
-        ready(Ok(PulsarTestSubscriber::new(
-            Arc::clone(&self.state),
-            id,
-            self.state.coordinator().cloned(),
-        )))
+        ready(Ok(self.open_route(Route::topic(name.to_owned()))))
     }
 }
 
@@ -156,32 +214,9 @@ impl Publisher for PulsarTestPublisher {
     }
 }
 
-/// The publish policy for [`PulsarTestPublisher`], mirroring
-/// [`PulsarPublish`](crate::PulsarPublish) on the real broker.
-///
-/// # Examples
-///
-/// ```
-/// use ruststream_pulsar::testing::PulsarTestPublish;
-///
-/// let policy = PulsarTestPublish::default();
-/// # let _ = policy;
-/// ```
-#[derive(Debug, Clone, Copy, Default)]
-#[must_use]
-pub struct PulsarTestPublish;
-
-impl PublishPolicy<ConnectedPulsarTestBroker> for PulsarTestPublish {
-    type Live = PulsarTestPublisher;
-
-    fn pair(
-        self,
-        connected: &ConnectedPulsarTestBroker,
-    ) -> impl Future<Output = Result<Self::Live, PairError>> {
-        ready(Ok(connected.publisher()))
-    }
-}
-
+/// The stand-in's default is the crate's own [`PulsarPublish`](crate::PulsarPublish), which
+/// pairs against this broker too, so a handler replying through the broker default replies
+/// through the same declaration it will in production.
 impl DefaultPublish for ConnectedPulsarTestBroker {
-    type Policy = PulsarTestPublish;
+    type Policy = crate::PulsarPublish;
 }

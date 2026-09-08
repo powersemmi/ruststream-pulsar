@@ -102,9 +102,11 @@ A descriptor is validated before any I/O: an empty subscription name, an empty t
 malformed topic name, or a pattern that is not a valid regular expression fails with
 `PulsarError::Invalid` at subscribe time, without a call to the broker.
 
-`PulsarSubscription` implements `SubscriptionSource`, so it sits inline in the `#[subscriber(..)]`
-decorator. The one import is `ruststream_pulsar::prelude::*`, which carries the framework's own
-prelude along with this crate's descriptors, publish policy and publish arguments:
+`PulsarSubscription` implements `SubscriptionSource` for the real broker and, behind the `testing`
+feature, for the in-process stand-in, so it sits inline in the `#[subscriber(..)]` decorator and
+the same declaration mounts on either (see [Testing](#testing)). The one import is
+`ruststream_pulsar::prelude::*`, which carries the framework's own prelude along with this crate's
+descriptors, publish policy and publish arguments:
 
 ```rust
 --8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:handler"
@@ -262,7 +264,9 @@ A publisher is a policy plus the live connection. The policy holds no connection
 constructed anywhere - in a router, in configuration, at a mount site - and the runtime pairs it
 with the broker at startup. `PulsarPublish` pairs into `PulsarPublisher`, and it is the connected
 broker's default publish policy, so a `#[subscriber(.., publish("dest"))]` handler mounted without
-an explicit publisher replies through it.
+an explicit publisher replies through it. The same policy pairs against the in-process stand-in,
+where it becomes that broker's publisher, so a mount site names `Publish` once and runs on either
+(see [Testing](#testing)).
 
 Which name you write depends on which prelude the file writes, and the two do not overlap. A
 routes file imports `ruststream_pulsar::prelude::*` and gets the mount-site vocabulary, where each
@@ -341,8 +345,29 @@ connected form implements `ruststream::testing::TestableBroker`, so the same bro
 `ruststream::testing::expect_published`. See
 [Unit-testing a service with TestApp](https://powersemmi.github.io/ruststream/latest/guides/testing/#unit-testing-a-service-with-testapp).
 
-It routes by exact address match over a retained log, so it is a log broker like the real one,
-not a pipe. That is what lets a service that repositions itself be unit-tested at all: the
+`PulsarSubscription` is a subscription source for it as well as for the real broker, so a test
+mounts the declaration the service ships instead of a bare-topic rewrite of it - the descriptor
+below is the one from [Subscription descriptors](#subscription-descriptors), unchanged:
+
+```rust
+--8<-- "crates/ruststream-pulsar/tests/descriptor_sources.rs:descriptor"
+```
+
+Its addressing is honoured in full: a single topic, the list of `topics([..])`, and the regular
+expression of `pattern(..)`, matched against every topic published to, so a topic that first
+appears after the subscription opened reaches the handler as it does on a server.
+
+The publishing half carries over the same way. `PulsarPublish` pairs against the stand-in as well,
+and it is that broker's default policy, so the include site is the production one - `.out(Reply,
+Publish)`, or nothing at all for the broker default - and the reply is read back off the publish
+log:
+
+```rust
+--8<-- "crates/ruststream-pulsar/tests/descriptor_sources.rs:reply_mount"
+```
+
+It routes over a retained log, so it is a log broker like the real one, not a pipe. That is what
+lets a service that repositions itself be unit-tested at all: the
 stand-in carries the same `PulsarContext` and `PulsarBatchContext` with the same `Position` and
 `SeekHandle` keys, a subscription opens with `start_at(..)` over the retained log, and a seek
 really discards what was queued and refills from the target. A handler that seeks therefore
@@ -360,4 +385,18 @@ under test runs the code path it will in production.
 
 What the stand-in does not simulate is Pulsar product behaviour: subscription types,
 dead-lettering, ack timeouts and redelivery timing are broker semantics, and the live suite
-against a real server covers those.
+against a real server covers those. A descriptor's settings therefore carry no behaviour here,
+and two consequences are worth naming, because a test could otherwise assert what a real broker
+will not do:
+
+- every subscription covering a topic receives every message published to it, so two handlers
+  sharing one `Shared` subscription each see the whole stream in process, where a server splits
+  it between them;
+- a delivery nacked past `max_deliveries` keeps coming back instead of moving to the dead-letter
+  topic.
+
+Topic names route literally, with no namespace to resolve them against: `orders` and
+`persistent://public/default/orders` are two addresses here and one topic on a server. A pattern
+is matched against that same literal name, while a server matches it against the fully qualified
+one, so an unanchored `orders-.*` selects the same topics either way and a `^`-anchored pattern
+over a bare name matches here and nowhere else.

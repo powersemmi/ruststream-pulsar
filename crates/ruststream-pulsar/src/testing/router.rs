@@ -1,11 +1,12 @@
 //! Subscription registry, fanout and retained log for the in-process Pulsar stand-in.
 //!
-//! Core routing only: an exact-name match fans a published message out to every live
-//! subscription on that name. The per-name log is what makes the stand-in a log broker rather
-//! than a pipe: it backs the publish assertions, and a subscription can be repositioned over it,
-//! so the crate's seek surface works in process. Pulsar's own semantics (subscription types,
-//! dead-letter policies, ack timeouts, key sharing) are transport behaviour and are not
-//! simulated here.
+//! Core routing only: a published message reaches every live subscription whose [`Route`]
+//! covers the address it went to - one topic, the list of a multi-topic subscription, or the
+//! regular expression of a pattern subscription. The per-name log is what makes the stand-in a
+//! log broker rather than a pipe: it backs the publish assertions, and a subscription can be
+//! repositioned over it, so the crate's seek surface works in process. Pulsar's own semantics
+//! (subscription types, dead-letter policies, ack timeouts, key sharing) are transport
+//! behaviour and are not simulated here.
 //!
 //! Every subscription's queue lives here, under the one lock the log lives under. That is what
 //! makes a reposition atomic: a seek drains the queue and refills it from the log in a single
@@ -41,9 +42,43 @@ pub(crate) struct Delivery {
     pub(crate) seq: usize,
 }
 
-#[derive(Default)]
+/// Which addresses one subscription covers.
+///
+/// The variants are the descriptor's own, so a subscription cannot be half a list and half a
+/// pattern: [`PulsarSubscription::new`](crate::PulsarSubscription::new) and
+/// [`topics`](crate::PulsarSubscription::topics) arrive as [`Route::Topics`], and
+/// [`pattern`](crate::PulsarSubscription::pattern) as [`Route::Pattern`], compiled once here
+/// rather than per published message.
+#[derive(Debug, Clone)]
+pub(crate) enum Route {
+    /// Exact topic names: one for a single-topic subscription, several for a multi-topic one.
+    Topics(Vec<String>),
+    /// A regular expression over topic names, as Pulsar's pattern subscription applies it.
+    Pattern(regex::Regex),
+}
+
+impl Route {
+    /// The route of a subscription on one topic, which is what a bare name resolves to.
+    pub(crate) fn topic(address: String) -> Self {
+        Self::Topics(vec![address])
+    }
+
+    /// Compiles a pattern subscription's regular expression.
+    pub(crate) fn pattern(pattern: &str) -> Result<Self, regex::Error> {
+        regex::Regex::new(pattern).map(Self::Pattern)
+    }
+
+    /// Whether a message published to `address` belongs to this subscription.
+    fn covers(&self, address: &str) -> bool {
+        match self {
+            Self::Topics(topics) => topics.iter().any(|topic| topic == address),
+            Self::Pattern(pattern) => pattern.is_match(address),
+        }
+    }
+}
+
 struct Subscription {
-    address: String,
+    route: Route,
     queue: VecDeque<Delivery>,
     waker: AtomicWaker,
 }
@@ -68,7 +103,7 @@ impl RouterState {
     }
 }
 
-/// In-memory exact-address router over a retained per-address log.
+/// In-memory router over a retained per-address log.
 #[derive(Default)]
 pub(crate) struct AddressRouter {
     state: Mutex<RouterState>,
@@ -82,15 +117,16 @@ impl AddressRouter {
             .expect("pulsar test router mutex poisoned")
     }
 
-    /// Registers a subscription on `address`, returning the id its subscriber polls,
+    /// Registers a subscription covering `route`, returning the id its subscriber polls,
     /// repositions and unregisters with.
-    pub(crate) fn subscribe(&self, address: String) -> SubscriptionId {
+    pub(crate) fn subscribe(&self, route: Route) -> SubscriptionId {
         let id = SubscriptionId(self.next_id.fetch_add(1, Ordering::Relaxed));
         self.lock().subscriptions.insert(
             id,
             Subscription {
-                address,
-                ..Subscription::default()
+                route,
+                queue: VecDeque::new(),
+                waker: AtomicWaker::new(),
             },
         );
         id
@@ -133,8 +169,8 @@ impl AddressRouter {
         true
     }
 
-    /// Appends `payload` to the address's log and queues it on every subscription of that
-    /// address. Under a harness run every live enqueue is counted with
+    /// Appends `payload` to the address's log and queues it on every subscription whose route
+    /// covers that address. Under a harness run every live enqueue is counted with
     /// [`Coordinator::enqueued`].
     // significant_drop_tightening misfires: the guard is used up to the last statement.
     #[allow(clippy::significant_drop_tightening)]
@@ -160,7 +196,7 @@ impl AddressRouter {
             seq,
         };
         for sub in state.subscriptions.values_mut() {
-            if sub.address == address {
+            if sub.route.covers(address) {
                 sub.queue.push_back(delivery.clone());
                 sub.waker.wake();
                 if let Some(coordinator) = coordinator {
@@ -182,6 +218,11 @@ impl AddressRouter {
     /// Repositions subscription `id` to `position`: everything queued for it is dropped, and the
     /// log suffix from the target on takes its place.
     ///
+    /// A subscription over several topics holds a log per topic, and the position applies to
+    /// each of them - a seek on a real multi-topic consumer covers every topic it holds. The
+    /// replayed suffixes are merged by publish time, which is the order the subscription
+    /// observed them the first time round.
+    ///
     /// Both halves run in one critical section, so a concurrent publish lands wholly before or
     /// wholly after the swap and cannot be lost or duplicated. The harness accounting is
     /// finished here too - the replay counted in flight, the discarded queue counted consumed -
@@ -195,21 +236,28 @@ impl AddressRouter {
         coordinator: Option<&Coordinator>,
     ) {
         let mut state = self.lock();
-        let Some(address) = state.subscriptions.get(&id).map(|sub| sub.address.clone()) else {
+        let Some(route) = state.subscriptions.get(&id).map(|sub| sub.route.clone()) else {
             return;
         };
-        let entries = state.entries(&address);
-        let target = resolve(entries, position);
-        let replay: VecDeque<Delivery> = entries
-            .iter()
-            .enumerate()
-            .skip(target)
-            .map(|(seq, entry)| Delivery {
-                payload: entry.message.payload_bytes(),
-                headers: entry.message.headers().clone(),
-                seq,
-            })
-            .collect();
+        let mut merged: Vec<(u64, Delivery)> = Vec::new();
+        for (address, entries) in &state.log {
+            if !route.covers(address) {
+                continue;
+            }
+            let target = resolve(entries, position);
+            merged.extend(entries.iter().enumerate().skip(target).map(|(seq, entry)| {
+                (
+                    entry.at,
+                    Delivery {
+                        payload: entry.message.payload_bytes(),
+                        headers: entry.message.headers().clone(),
+                        seq,
+                    },
+                )
+            }));
+        }
+        merged.sort_by_key(|(at, _)| *at);
+        let replay: VecDeque<Delivery> = merged.into_iter().map(|(_, delivery)| delivery).collect();
 
         let sub = state
             .subscriptions
