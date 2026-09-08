@@ -4,7 +4,7 @@
 //! [`Route`] covers the address it went to - one topic, the list of a multi-topic subscription,
 //! or the regular expression of a pattern subscription - and within each of those, the
 //! subscription's [`SubscriptionType`] picks the one CONSUMER that takes it: `Exclusive` and
-//! `Failover` deliver to the active consumer, `Shared` rotates, `KeyShared` rotates by partition
+//! `Failover` deliver to the active consumer, `Shared` rotates, `KeyShared` splits by partition
 //! key. Competing consumers therefore split a stream here rather than each seeing all of it,
 //! which is the thing a service writes a test about.
 //!
@@ -219,8 +219,8 @@ impl RouterState {
     ///
     /// `Exclusive` and `Failover` deliver to the one active consumer - for `Failover` that is the
     /// first attached, and its standbys wait for it to go. `Shared` rotates over the members, so
-    /// competing consumers split the stream rather than each seeing all of it. `KeyShared`
-    /// rotates by the partition key instead, so one key always lands on one consumer.
+    /// competing consumers split the stream rather than each seeing all of it. `KeyShared` splits
+    /// it by the partition key instead, so one key always lands on one consumer.
     ///
     /// `members` must be non-empty and in attach order.
     fn choose(
