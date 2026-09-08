@@ -5,7 +5,7 @@
 
 use bytes::Bytes;
 use pulsar::proto::MessageIdData;
-use ruststream::{AckError, Headers, IncomingMessage, OutgoingMessage, Partitioned, Positioned};
+use ruststream::{AckError, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::PulsarError;
@@ -121,7 +121,7 @@ pub(crate) type SettleSender = mpsc::UnboundedSender<DriverCmd>;
 /// acknowledgements asynchronously, so `Ok` means "queued", not "broker confirmed".
 pub struct PulsarMessage {
     payload: Bytes,
-    headers: Headers,
+    headers: HeaderMap,
     topic: String,
     id: MessageIdData,
     settle: SettleSender,
@@ -139,7 +139,7 @@ impl std::fmt::Debug for PulsarMessage {
 impl PulsarMessage {
     pub(crate) fn new(message: &pulsar::consumer::Message<Vec<u8>>, settle: SettleSender) -> Self {
         let metadata = message.metadata();
-        let mut headers = Headers::with_capacity(metadata.properties.len() + 1);
+        let mut headers = HeaderMap::with_capacity(metadata.properties.len() + 1);
         for kv in &metadata.properties {
             headers.insert(kv.key.clone(), kv.value.clone());
         }
@@ -160,6 +160,13 @@ impl PulsarMessage {
     #[must_use]
     pub fn topic(&self) -> &str {
         &self.topic
+    }
+
+    /// The channel back to the subscription's driver task, which owns both settlement and
+    /// seeking. The per-delivery context mints its seeker off this, so a delivery carries the
+    /// reposition handle without the subscriber having to stamp one onto every message.
+    pub(crate) fn driver(&self) -> &SettleSender {
+        &self.settle
     }
 
     async fn send_settle(self, kind: SettleKind) -> Result<(), AckError> {
@@ -199,7 +206,7 @@ impl IncomingMessage for PulsarMessage {
         &self.payload
     }
 
-    fn headers(&self) -> &Headers {
+    fn headers(&self) -> &HeaderMap {
         &self.headers
     }
 
@@ -249,7 +256,7 @@ mod tests {
 
     #[test]
     fn partition_key_header_becomes_the_partition_key() {
-        let mut headers = Headers::new();
+        let mut headers = HeaderMap::new();
         headers.insert(PARTITION_KEY_HEADER, "user-42");
         headers.insert("x-tenant", "acme");
         let outgoing = OutgoingMessage::new("orders", b"{}".as_slice()).with_headers(headers);

@@ -6,9 +6,7 @@
 // --8<-- [start:handler]
 use std::time::Duration;
 
-use ruststream::runtime::{App, AppInfo, HandlerResult, RustStream};
-use ruststream::subscriber;
-use ruststream_pulsar::{DeadLetter, PulsarBroker, PulsarSubscription, SubscriptionType};
+use ruststream_pulsar::prelude::*;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -22,9 +20,9 @@ struct Order {
         .dead_letter(DeadLetter::new("orders-dlq").max_deliveries(5))
         .ack_timeout(Duration::from_secs(30))
 )]
-async fn handle(order: &Order) -> HandlerResult {
+async fn handle(order: &Order) -> HandlerOutcome {
     println!("got order {}", order.id);
-    HandlerResult::Ack
+    HandlerOutcome::ack()
 }
 // --8<-- [end:handler]
 

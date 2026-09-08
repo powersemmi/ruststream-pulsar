@@ -8,16 +8,22 @@ use std::pin::pin;
 use std::time::Duration;
 
 use futures::StreamExt;
+use ruststream::runtime::PublishExt;
 use ruststream::{
-    Broker, ConnectedBroker, Headers, IncomingMessage, OutgoingMessage, Publisher, Seekable,
-    Seeker, Subscriber,
+    Broker, ConnectedBroker, HeaderMap, IncomingMessage, Outgoing, OutgoingMessage, Publisher,
+    Seekable, Seeker, Serialized, Subscriber,
 };
 use ruststream_pulsar::{
     ConnectedPulsarBroker, DeadLetter, PARTITION_KEY_HEADER, PulsarBroker, PulsarError,
-    PulsarMessage, PulsarPosition, PulsarSubscription,
+    PulsarMessage, PulsarPosition, PulsarPublishExt, PulsarSubscription,
 };
 
 const RECV_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The payload the builder-driven publishes carry: these tests assert on the transport, not on
+/// a model, so the bytes name themselves as the wire form and no codec runs on them.
+#[derive(Outgoing, Serialized)]
+struct Record(&'static [u8]);
 
 fn test_url() -> Option<String> {
     match std::env::var("PULSAR_TEST_URL") {
@@ -53,7 +59,7 @@ async fn roundtrip_preserves_payload_properties_and_partition_key() {
         .await
         .expect("subscription opens");
 
-    let mut headers = Headers::new();
+    let mut headers = HeaderMap::new();
     headers.insert("content-type", "application/json");
     headers.insert("x-tenant", "acme");
     headers.insert(PARTITION_KEY_HEADER, "user-42");
@@ -76,6 +82,39 @@ async fn roundtrip_preserves_payload_properties_and_partition_key() {
         Some("application/json")
     );
     assert_eq!(message.headers().get_str("x-tenant"), Some("acme"));
+    assert_eq!(message.partition_key(), Some(b"user-42".as_slice()));
+    message.ack().await.expect("ack succeeds");
+
+    connected.shutdown().await.expect("shutdown succeeds");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_partition_key_argument_reaches_the_server() {
+    let Some(url) = test_url() else { return };
+    let connected = connect(&url).await;
+
+    let topic = unique("keyed");
+    let mut subscriber = connected
+        .subscribe_descriptor(PulsarSubscription::new(&topic, unique("sub")))
+        .await
+        .expect("subscription opens");
+
+    connected
+        .publisher()
+        .with_partition_key("user-42")
+        .message(&Record(b"{\"id\":1}"))
+        .to(topic.as_str())
+        .publish()
+        .await
+        .expect("publish succeeds");
+
+    let mut stream = pin!(subscriber.stream());
+    let message = tokio::time::timeout(RECV_TIMEOUT, stream.next())
+        .await
+        .expect("delivery arrives")
+        .expect("stream is open")
+        .expect("delivery is ok");
+
     assert_eq!(message.partition_key(), Some(b"user-42".as_slice()));
     message.ack().await.expect("ack succeeds");
 
@@ -117,61 +156,9 @@ async fn nack_with_requeue_redelivers() {
     connected.shutdown().await.expect("shutdown succeeds");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn seeking_to_earliest_replays_the_retained_backlog() {
-    let Some(url) = test_url() else { return };
-    let connected = connect(&url).await;
-
-    let topic = unique("replay");
-    // The subscription exists before the first publish, so the broker retains all three for
-    // it; draining them leaves a cursor at the tip, which is what the seek has to rewind.
-    let mut subscriber = connected
-        .subscribe_descriptor(PulsarSubscription::new(&topic, unique("sub")))
-        .await
-        .expect("subscription opens");
-    let publisher = connected.publisher();
-    for id in 1..=3u8 {
-        publisher
-            .publish(OutgoingMessage::new(&topic, [id].as_slice()))
-            .await
-            .expect("publish succeeds");
-    }
-
-    {
-        let mut stream = pin!(subscriber.stream());
-        for id in 1..=3u8 {
-            let message = tokio::time::timeout(RECV_TIMEOUT, stream.next())
-                .await
-                .expect("delivery arrives")
-                .expect("stream is open")
-                .expect("delivery is ok");
-            assert_eq!(message.payload(), [id]);
-            message.ack().await.expect("ack succeeds");
-        }
-    }
-
-    subscriber
-        .seeker()
-        .seek(PulsarPosition::earliest())
-        .await
-        .expect("seek to the beginning succeeds");
-
-    let mut stream = pin!(subscriber.stream());
-    for id in 1..=3u8 {
-        let message = tokio::time::timeout(RECV_TIMEOUT, stream.next())
-            .await
-            .expect("replayed delivery arrives")
-            .expect("stream is open")
-            .expect("replayed delivery is ok");
-        assert_eq!(message.payload(), [id]);
-        message.ack().await.expect("ack succeeds");
-    }
-
-    connected.shutdown().await.expect("shutdown succeeds");
-}
-
-/// A multi-topic subscription seeks per topic, a different client path from the single-topic
-/// one, so the capability is pinned on both.
+/// The one seek test that needs the wire beyond the framework's own `capabilities::seeking`
+/// suite (which `conformance_pulsar.rs` runs against this broker): a multi-topic subscription
+/// seeks per topic, a different client path the suite's single-name source never reaches.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn seeking_to_earliest_replays_every_topic_of_a_multi_topic_subscription() {
     let Some(url) = test_url() else { return };

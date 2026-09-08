@@ -1,5 +1,6 @@
 //! [`PulsarTestBroker`]: the in-process transport and its connected form.
 
+use std::future::{Future, ready};
 use std::sync::{Arc, OnceLock};
 
 use bytes::Bytes;
@@ -10,6 +11,7 @@ use ruststream::{
 };
 
 use crate::error::PulsarError;
+use crate::publisher::PulsarPublishExt;
 use crate::testing::router::AddressRouter;
 use crate::testing::subscriber::PulsarTestSubscriber;
 
@@ -25,7 +27,7 @@ impl TestState {
         self.coordinator.get()
     }
 
-    pub(crate) fn publish(&self, name: &str, payload: Bytes, headers: ruststream::Headers) {
+    pub(crate) fn publish(&self, name: &str, payload: Bytes, headers: ruststream::HeaderMap) {
         self.router
             .publish(name, payload, headers, self.coordinator());
     }
@@ -66,8 +68,8 @@ impl Broker for PulsarTestBroker {
     type Error = PulsarError;
     type Connected = ConnectedPulsarTestBroker;
 
-    async fn connect(self) -> Result<Self::Connected, Self::Error> {
-        Ok(ConnectedPulsarTestBroker { state: self.state })
+    fn connect(self) -> impl Future<Output = Result<Self::Connected, Self::Error>> {
+        ready(Ok(ConnectedPulsarTestBroker { state: self.state }))
     }
 }
 
@@ -93,24 +95,22 @@ impl ConnectedBroker for ConnectedPulsarTestBroker {
     type Error = PulsarError;
     type Closed = ();
 
-    async fn shutdown(self) -> Result<(), Self::Error> {
+    fn shutdown(self) -> impl Future<Output = Result<(), Self::Error>> {
         self.state.router.clear();
-        Ok(())
+        ready(Ok(()))
     }
 }
 
 impl Subscribe for ConnectedPulsarTestBroker {
     type Subscriber = PulsarTestSubscriber;
 
-    async fn subscribe(&self, name: &str) -> Result<Self::Subscriber, Self::Error> {
-        let (id, requeue, rx) = self.state.router.subscribe(name.to_owned());
-        Ok(PulsarTestSubscriber::new(
+    fn subscribe(&self, name: &str) -> impl Future<Output = Result<Self::Subscriber, Self::Error>> {
+        let id = self.state.router.subscribe(name.to_owned());
+        ready(Ok(PulsarTestSubscriber::new(
             Arc::clone(&self.state),
             id,
-            rx,
-            requeue,
             self.state.coordinator().cloned(),
-        ))
+        )))
     }
 }
 
@@ -140,16 +140,19 @@ pub struct PulsarTestPublisher {
     state: Arc<TestState>,
 }
 
+// Mirrors the real publisher's arguments, so a tested handler runs the chain it will in production.
+impl PulsarPublishExt for PulsarTestPublisher {}
+
 impl Publisher for PulsarTestPublisher {
     type Error = PulsarError;
 
-    async fn publish(&self, msg: OutgoingMessage<'_>) -> Result<(), Self::Error> {
+    fn publish(&self, msg: OutgoingMessage<'_>) -> impl Future<Output = Result<(), Self::Error>> {
         self.state.publish(
             msg.name(),
             Bytes::copy_from_slice(msg.payload()),
             msg.headers().clone(),
         );
-        Ok(())
+        ready(Ok(()))
     }
 }
 
@@ -171,8 +174,11 @@ pub struct PulsarTestPublish;
 impl PublishPolicy<ConnectedPulsarTestBroker> for PulsarTestPublish {
     type Live = PulsarTestPublisher;
 
-    async fn pair(self, connected: &ConnectedPulsarTestBroker) -> Result<Self::Live, PairError> {
-        Ok(connected.publisher())
+    fn pair(
+        self,
+        connected: &ConnectedPulsarTestBroker,
+    ) -> impl Future<Output = Result<Self::Live, PairError>> {
+        ready(Ok(connected.publisher()))
     }
 }
 

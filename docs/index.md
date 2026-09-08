@@ -13,8 +13,8 @@ Building the crate requires `protoc` on the path, since the client compiles the 
 definitions.
 
 ```toml
-ruststream = { version = "0.6", features = ["macros", "json"] }
-ruststream-pulsar = "0.6"
+ruststream = { version = "0.7", features = ["macros", "json"] }
+ruststream-pulsar = "0.7"
 serde = { version = "1", features = ["derive"] }
 ```
 

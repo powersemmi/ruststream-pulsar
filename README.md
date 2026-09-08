@@ -9,7 +9,7 @@
   <a href="https://crates.io/crates/ruststream-pulsar"><img src="https://img.shields.io/crates/v/ruststream-pulsar.svg" alt="crates.io"></a>
   <a href="https://crates.io/crates/ruststream-pulsar"><img src="https://img.shields.io/crates/dr/ruststream-pulsar" alt="Recent downloads"></a>
   <a href="https://docs.rs/ruststream-pulsar"><img src="https://img.shields.io/docsrs/ruststream-pulsar" alt="docs.rs"></a>
-  <img src="https://img.shields.io/badge/MSRV-1.85-blue.svg" alt="MSRV 1.85">
+  <img src="https://img.shields.io/badge/MSRV-1.88-blue.svg" alt="MSRV 1.88">
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License">
   <a href="https://t.me/ruststream_community"><img src="https://img.shields.io/badge/-Telegram-blue?logo=telegram&label=News" alt="Telegram news channel"></a>
   <a href="https://t.me/ruststream_communuty_ru_chat"><img src="https://img.shields.io/badge/-Telegram-blue?logo=telegram&label=RU" alt="Telegram RU chat"></a>
@@ -30,23 +30,25 @@
 - **Server-side reliability.** The dead-letter policy (with its delivery-attempt limit) and the ack timeout are consumer settings the Pulsar server enforces, not behaviour emulated in this crate; `nack(requeue = true)` asks for redelivery and drives the delivery count towards the policy.
 - **Validated addressing.** `PulsarTopic` parses and validates the four meanings a topic name carries (persistence, tenant, namespace, topic) on construction, not at first use.
 - **Multi-topic and pattern subscriptions.** `PulsarSubscription::topics([...])` subscribes to a fixed list; `::pattern("orders-.*")` follows every topic in the namespace whose name matches, including topics created after the consumer attached.
-- **Start position on the framework's own surface.** `PulsarPosition` (`earliest()`, `latest()`, `timestamp(ms)`, or a captured message id) is the `Seekable` capability's position type, so a subscription's start position is the `start_at(..)` clause and a live reposition is the `Seek` handler parameter; the descriptor itself carries no separate start options. A `start_at` seek runs on every startup, unlike Pulsar's server-side initial position, which applies only when a subscription is first created.
-- **Key sharing as the partition key.** A `partition-key` header becomes the message's partition key on publish (keyed routing) and comes back as the same header, which `KeyShared` subscriptions order by.
+- **Start position on the framework's own surface.** `PulsarPosition` (`earliest()`, `latest()`, `timestamp(ms)`, or a captured message id) is the `Seekable` capability's position type, so a subscription's start position is the `start_at(..)` clause; the descriptor itself carries no separate start options. A `start_at` seek runs on every startup, unlike Pulsar's server-side initial position, which applies only when a subscription is first created.
+- **Repositioning from a handler, by key.** A delivery's context carries where it sits and the handle that moves the subscription, read as `Ctx<Position>` and `Ctx<SeekHandle>` parameters (or `ctx.context(..)`); a batch body reads the handle off the subscription-scoped `PulsarBatchContext`. A key another broker does not carry is a compile error at the mount site, not a runtime miss.
+- **Batches, assembled on the client.** The Pulsar client has no consumer-side batch receive, so a `&[T]` batch handler is served from single deliveries: the mount site names the batch size, the descriptor's `batch_wait` names how long a partial batch waits for the rest, and a batch never carries more than the size that was asked for. Nothing at the mount site or in the body says which side the batch was built on.
+- **Key sharing as the partition key.** A `partition-key` header becomes the message's partition key on publish (keyed routing) and comes back as the same header, which `KeyShared` subscriptions order by. `PulsarPublishExt::with_partition_key` sets it as a per-message publish argument.
 - **Properties carry headers directly.** Headers map onto Pulsar message properties with no extra envelope, so non-Rust peers see plain Pulsar messages.
 - **In-process test broker** (feature `testing`). `PulsarTestBroker` reproduces core routing with no server, implements `ruststream::testing::TestableBroker`, and passes the framework's conformance suite in process.
 
-Transactions, consumer-side batch receive, and the schema registry are out of scope for the first release: the client does not implement them, and the capability traits they would back are optional.
+Transactions and the schema registry are out of scope for the first release: the client does not implement them, and the capability traits they would back are optional.
 
 ## Install
 
 ```toml
 [dependencies]
-ruststream = { version = "0.6", features = ["macros", "json"] }
-ruststream-pulsar = "0.6"
+ruststream = { version = "0.7", features = ["macros", "json"] }
+ruststream-pulsar = "0.7"
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
-ruststream-pulsar = { version = "0.6", features = ["testing"] }
+ruststream-pulsar = { version = "0.7", features = ["testing"] }
 ```
 
 Building requires `protoc` on the path (the client compiles the Pulsar protocol definitions).
@@ -56,9 +58,7 @@ Building requires `protoc` on the path (the client compiles the Pulsar protocol 
 ```rust
 use std::time::Duration;
 
-use ruststream::runtime::{App, AppInfo, HandlerResult, RustStream};
-use ruststream::subscriber;
-use ruststream_pulsar::{DeadLetter, PulsarBroker, PulsarSubscription, SubscriptionType};
+use ruststream_pulsar::prelude::*;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -72,9 +72,9 @@ struct Order {
         .dead_letter(DeadLetter::new("orders-dlq").max_deliveries(5))
         .ack_timeout(Duration::from_secs(30))
 )]
-async fn handle(order: &Order) -> HandlerResult {
+async fn handle(order: &Order) -> HandlerOutcome {
     println!("got order {}", order.id);
-    HandlerResult::Ack
+    HandlerOutcome::ack()
 }
 
 #[ruststream::app]

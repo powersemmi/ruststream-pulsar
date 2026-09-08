@@ -6,6 +6,7 @@
 
 #![cfg(feature = "testing")]
 
+use ruststream::Name;
 use ruststream::conformance::{capabilities, harness};
 use ruststream_pulsar::testing::PulsarTestBroker;
 use ruststream_pulsar::{PulsarBroker, PulsarSubscription};
@@ -23,6 +24,34 @@ fn test_url() -> Option<String> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pulsar_test_broker_passes_conformance_suite() {
     harness::run_suite(PulsarTestBroker::new).await;
+}
+
+/// The stand-in retains a log, so the framework's own seeking suite is what says its
+/// repositioning matches the contract - the same suite the live broker runs below. Without it a
+/// service unit-tested on the stand-in could be relying on a seek that only looked right.
+#[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_test_broker_passes_seeking_suite() {
+    capabilities::seeking(
+        PulsarTestBroker::new,
+        |name| Name::new(name.to_owned()),
+        |connected| connected.publisher(),
+    )
+    .await;
+}
+
+/// Pulsar's client hands over one delivery at a time, so this crate's batches are assembled on
+/// the client. The suite is what says the assembly honours the contract: it opens the
+/// subscription at a size smaller than the run and fails a batch that comes back longer.
+#[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_test_broker_passes_batches_suite() {
+    capabilities::batches(
+        PulsarTestBroker::new,
+        |name| Name::new(name.to_owned()),
+        |connected| connected.publisher(),
+    )
+    .await;
 }
 
 // `make_source` / `make_publisher` must stay closures: their bounds are higher-ranked
@@ -49,6 +78,21 @@ async fn pulsar_broker_passes_seeking_suite() {
     let Some(url) = test_url() else { return };
     let sub = format!("seeking-{}", std::process::id());
     capabilities::seeking(
+        || PulsarBroker::new(url.clone()),
+        |name| PulsarSubscription::new(name, sub.clone()),
+        |connected| connected.publisher(),
+    )
+    .await;
+}
+
+/// The same batch contract against a live consumer: the buffer sits over real deliveries here,
+/// with the client's own flow control underneath it.
+#[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_broker_passes_batches_suite() {
+    let Some(url) = test_url() else { return };
+    let sub = format!("batches-{}", std::process::id());
+    capabilities::batches(
         || PulsarBroker::new(url.clone()),
         |name| PulsarSubscription::new(name, sub.clone()),
         |connected| connected.publisher(),

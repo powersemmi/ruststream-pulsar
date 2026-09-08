@@ -4,16 +4,23 @@
 //! `Send + 'static`, so the crate owns a driver task per subscription: it polls the consumer
 //! stream, forwards deliveries into a bounded channel, and applies settlement commands shipped
 //! back from message handles.
+//!
+//! The client hands over one delivery at a time - it has no consumer-side batch receive, only a
+//! flow-control window - so the batches a batch handler asks for are assembled on the client, by
+//! the framework's own [`BufferedSubscriber`]. Nothing at the mount site says so: a service
+//! names a batch size and gets batches.
 
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use futures::{Stream, StreamExt};
 
 use pulsar::consumer::{Consumer, DeadLetterPolicy};
 use pulsar::proto::MessageIdData;
 use pulsar::{SubType, TokioExecutor};
-use ruststream::{AckError, Subscriber};
+use ruststream::{AckError, BatchSubscriber, BufferedSubscriber, Seekable, Subscriber};
 use tokio::sync::mpsc;
 
 use crate::broker::Core;
@@ -25,11 +32,23 @@ use crate::subscription::{PulsarSubscription, SubscriptionType, Topics};
 /// the client's own flow control (`batch_size` permits); this only decouples the two loops.
 const CHANNEL_CAPACITY: usize = 16;
 
-/// A subscription to one or more Pulsar topics; yields [`PulsarMessage`]s.
+/// A subscription to one or more Pulsar topics; yields [`PulsarMessage`]s, one at a time or in
+/// batches.
 ///
 /// Dropping the subscriber stops the driver task, which closes the client consumer.
 pub struct PulsarSubscriber {
     topic: String,
+    /// The wire deliveries plus client-side batching. Every capability of the subscription
+    /// reaches through the wrapper: buffering does not move the subscription, so the seeker
+    /// underneath is the subscription's own.
+    inner: BufferedSubscriber<Deliveries>,
+}
+
+/// The wire form of a subscription: one delivery at a time, off the driver task's channel.
+///
+/// This is everything the client offers, and [`PulsarSubscriber`] is this plus the batches.
+#[derive(Debug)]
+struct Deliveries {
     rx: mpsc::Receiver<(u64, Result<PulsarMessage, PulsarError>)>,
     cmd: SettleSender,
     /// The delivery generation: a seek bumps it, and items queued under an older generation
@@ -57,6 +76,7 @@ impl PulsarSubscriber {
         descriptor: PulsarSubscription,
     ) -> Result<Self, PulsarError> {
         let display = descriptor.display_topic();
+        let batch_wait = descriptor.batch_wait;
         let mut builder = core
             .client
             .consumer()
@@ -106,23 +126,53 @@ impl PulsarSubscriber {
             Arc::clone(&epoch),
         ));
 
-        Ok(Self {
-            topic: display,
-            rx: out_rx,
-            cmd: settle_tx,
-            epoch,
-        })
+        Ok(Self::batching(
+            display,
+            Deliveries {
+                rx: out_rx,
+                cmd: settle_tx,
+                epoch,
+            },
+            batch_wait,
+        ))
+    }
+
+    /// Wraps the wire deliveries in the framework's client-side buffer.
+    ///
+    /// The batch size is not this crate's to choose - it arrives per subscription, as the
+    /// argument of [`BatchSubscriber::batches`]. The deadline that closes a partial batch is,
+    /// and the descriptor's `batch_wait` is where a service names it.
+    fn batching(topic: String, wire: Deliveries, batch_wait: Duration) -> Self {
+        Self {
+            topic,
+            inner: BufferedSubscriber::new(wire).max_wait(batch_wait),
+        }
     }
 }
 
-/// Repositions a [`PulsarSubscriber`] while its stream runs; minted by
+/// Repositions a subscription while its stream runs; minted by
 /// [`Seekable::seeker`](ruststream::Seekable::seeker).
 ///
 /// A seek covers every topic (and partition) of the subscription's consumer, and the broker
 /// redelivers from the new position; per-message acknowledgement state needs no reset.
+///
+/// One type serves both transports, so a service that repositions itself reads the same
+/// [`SeekHandle`](crate::SeekHandle) key whether it runs against a server or against the
+/// in-process stand-in.
 #[derive(Clone)]
 pub struct PulsarSeeker {
-    cmd: SettleSender,
+    inner: SeekerKind,
+}
+
+/// Which subscription the handle moves. The stand-in's arm exists only with the `testing`
+/// feature, and the field is private, so a service sees one type either way.
+#[derive(Clone)]
+enum SeekerKind {
+    /// A live consumer, repositioned through its subscription's driver task.
+    Consumer(SettleSender),
+    /// An in-process subscription, repositioned over the stand-in's retained log.
+    #[cfg(feature = "testing")]
+    InProcess(crate::testing::seek::LogSeeker),
 }
 
 impl std::fmt::Debug for PulsarSeeker {
@@ -131,36 +181,60 @@ impl std::fmt::Debug for PulsarSeeker {
     }
 }
 
+impl PulsarSeeker {
+    /// Mints a handle over the subscription's driver channel. Cloning the sender is a
+    /// reference-count bump, so a per-delivery context costs no allocation.
+    pub(crate) fn new(cmd: SettleSender) -> Self {
+        Self {
+            inner: SeekerKind::Consumer(cmd),
+        }
+    }
+
+    /// Mints a handle over the in-process stand-in's retained log.
+    #[cfg(feature = "testing")]
+    pub(crate) fn in_process(seeker: crate::testing::seek::LogSeeker) -> Self {
+        Self {
+            inner: SeekerKind::InProcess(seeker),
+        }
+    }
+}
+
 impl ruststream::Seeker for PulsarSeeker {
     type Position = PulsarPosition;
     type Error = PulsarError;
 
     async fn seek(&self, to: PulsarPosition) -> Result<(), PulsarError> {
-        let (done, wait) = tokio::sync::oneshot::channel();
-        self.cmd
-            .send(DriverCmd::Seek(SeekCmd { position: to, done }))
-            .map_err(|_| PulsarError::Receive {
-                topic: String::new(),
-                source: Box::from("the subscription's driver task has shut down"),
-            })?;
-        wait.await.map_err(|_| PulsarError::Receive {
-            topic: String::new(),
-            source: Box::from("the subscription's driver task has shut down"),
-        })?
-    }
-}
-
-impl ruststream::Seekable for PulsarSubscriber {
-    type Seeker = PulsarSeeker;
-
-    fn seeker(&self) -> PulsarSeeker {
-        PulsarSeeker {
-            cmd: self.cmd.clone(),
+        match &self.inner {
+            SeekerKind::Consumer(cmd) => {
+                let (done, wait) = tokio::sync::oneshot::channel();
+                cmd.send(DriverCmd::Seek(SeekCmd { position: to, done }))
+                    .map_err(|_| PulsarError::Receive {
+                        topic: String::new(),
+                        source: Box::from("the subscription's driver task has shut down"),
+                    })?;
+                wait.await.map_err(|_| PulsarError::Receive {
+                    topic: String::new(),
+                    source: Box::from("the subscription's driver task has shut down"),
+                })?
+            }
+            #[cfg(feature = "testing")]
+            SeekerKind::InProcess(seeker) => {
+                seeker.seek(&to);
+                Ok(())
+            }
         }
     }
 }
 
-impl Subscriber for PulsarSubscriber {
+impl Seekable for Deliveries {
+    type Seeker = PulsarSeeker;
+
+    fn seeker(&self) -> PulsarSeeker {
+        PulsarSeeker::new(self.cmd.clone())
+    }
+}
+
+impl Subscriber for Deliveries {
     type Message = PulsarMessage;
     type Error = PulsarError;
 
@@ -182,6 +256,42 @@ impl Subscriber for PulsarSubscriber {
                 }
             }
         })
+    }
+}
+
+/// Buffering does not move the subscription, so the handle is the wire subscriber's own: a batch
+/// subscription still opens at a chosen position and still repositions from a handler.
+impl Seekable for PulsarSubscriber {
+    type Seeker = PulsarSeeker;
+
+    fn seeker(&self) -> PulsarSeeker {
+        self.inner.seeker()
+    }
+}
+
+impl Subscriber for PulsarSubscriber {
+    type Message = PulsarMessage;
+    type Error = PulsarError;
+
+    fn stream(&mut self) -> impl Stream<Item = Result<PulsarMessage, PulsarError>> + Send + '_ {
+        self.inner.stream()
+    }
+}
+
+/// Batches assembled on the client, because the transport has none of its own: the client's
+/// consumer yields one delivery at a time, and its `batch_size` is a flow-control window rather
+/// than a receive size, so there is nothing to translate a batch size into on the wire.
+///
+/// A batch never carries more than the size the registration named - the buffer closes it there -
+/// and it carries fewer whenever the deadline elapsed first.
+impl BatchSubscriber for PulsarSubscriber {
+    type Batch = Vec<PulsarMessage>;
+
+    fn batches(
+        &mut self,
+        size: NonZeroUsize,
+    ) -> impl Stream<Item = Result<Self::Batch, PulsarError>> + Send + '_ {
+        self.inner.batches(size)
     }
 }
 
