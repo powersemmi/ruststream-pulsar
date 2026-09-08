@@ -38,7 +38,7 @@
 //! subscription for one consumer and refuses a second attach,
 //! [`Failover`](crate::SubscriptionType::Failover) delivers to the active consumer and promotes a
 //! standby when it leaves, [`Shared`](crate::SubscriptionType::Shared) rotates, and
-//! [`KeyShared`](crate::SubscriptionType::KeyShared) rotates by partition key. Two handlers on
+//! [`KeyShared`](crate::SubscriptionType::KeyShared) splits by partition key. Two handlers on
 //! one shared subscription therefore split a run between them in process, as they do in
 //! production, and a `nack(requeue = true)` goes back to the subscription, so a retry can land on
 //! a sibling.
@@ -57,7 +57,9 @@
 //! * [`ack_timeout`](crate::PulsarSubscription::ack_timeout), credit and redelivery timing carry
 //!   no behaviour here either; they are the server's clock, not the transport's.
 //!
-//! All four are verified end to end against a real broker instead.
+//! The last two are product behaviour the live suite covers against a real broker; the first two
+//! are where this model is coarser than the server's, and a test that leans on either is leaning
+//! on the wrong broker.
 //!
 //! Topic names route literally: the stand-in has no namespace to resolve them against, so
 //! `orders` and `persistent://public/default/orders` are two addresses here and one topic on a

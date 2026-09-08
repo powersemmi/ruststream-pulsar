@@ -394,7 +394,7 @@ The subscription type is honoured, because it is the thing a service writes test
 message reaches every subscription over its topic, and within one subscription the type picks the
 consumer that takes it: `Exclusive` holds the subscription for one consumer and refuses a second
 attach, `Failover` delivers to the active consumer and promotes a standby when it leaves, `Shared`
-rotates, and `KeyShared` rotates by partition key. Two handlers on one shared subscription
+rotates, and `KeyShared` splits by partition key. Two handlers on one shared subscription
 therefore split a run between them here as they do in production, and a `nack(requeue = true)`
 goes back to the subscription, so a retry can land on a sibling.
 
