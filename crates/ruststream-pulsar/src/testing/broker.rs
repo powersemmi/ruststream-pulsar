@@ -12,8 +12,8 @@ use ruststream::{
 
 use crate::error::PulsarError;
 use crate::publisher::PulsarPublishExt;
-use crate::subscription::{PulsarSubscription, Topics};
-use crate::testing::router::{AddressRouter, Route};
+use crate::subscription::{DEFAULT_SUBSCRIPTION, PulsarSubscription, Topics};
+use crate::testing::router::{AddressRouter, Membership, Route};
 use crate::testing::subscriber::PulsarTestSubscriber;
 
 /// Shared state of one in-process broker: the router plus the harness coordinator.
@@ -160,6 +160,7 @@ impl ConnectedPulsarTestBroker {
     fn open(&self, descriptor: PulsarSubscription) -> Result<PulsarTestSubscriber, PulsarError> {
         descriptor.validate()?;
         self.state.ensure_open()?;
+        let display = descriptor.display_topic();
         let route = match descriptor.topics {
             Topics::List(topics) => Route::Topics(topics),
             // `validate` already compiled the pattern, so this cannot fail; it is mapped rather
@@ -168,17 +169,33 @@ impl ConnectedPulsarTestBroker {
                 PulsarError::Invalid(format!("invalid topic pattern '{pattern}': {err}"))
             })?,
         };
-        Ok(self.open_route(route))
+        let membership = Membership::new(descriptor.subscription, descriptor.sub_type);
+        self.attach(route, membership, &display)
     }
 
-    /// Registers `route` and wraps it in the subscriber the harness drives.
-    fn open_route(&self, route: Route) -> PulsarTestSubscriber {
-        let id = self.state.router.subscribe(route);
-        PulsarTestSubscriber::new(
+    /// Attaches a consumer to the router and wraps it in the subscriber the harness drives.
+    ///
+    /// `topic` names what the subscription targeted, so a refused attach reports where it
+    /// happened rather than only why.
+    fn attach(
+        &self,
+        route: Route,
+        membership: Membership,
+        topic: &str,
+    ) -> Result<PulsarTestSubscriber, PulsarError> {
+        let id = self
+            .state
+            .router
+            .subscribe(route, membership)
+            .map_err(|held| PulsarError::Subscribe {
+                topic: topic.to_owned(),
+                source: Box::new(held),
+            })?;
+        Ok(PulsarTestSubscriber::new(
             Arc::clone(&self.state),
             id,
             self.state.coordinator().cloned(),
-        )
+        ))
     }
 }
 
@@ -197,11 +214,9 @@ impl Subscribe for ConnectedPulsarTestBroker {
     type Subscriber = PulsarTestSubscriber;
 
     fn subscribe(&self, name: &str) -> impl Future<Output = Result<Self::Subscriber, Self::Error>> {
-        ready(
-            self.state
-                .ensure_open()
-                .map(|()| self.open_route(Route::topic(name.to_owned()))),
-        )
+        // The same descriptor the real broker builds for a bare name, so two handlers mounted on
+        // one topic compete on the service-wide subscription here as they do there.
+        ready(self.open(PulsarSubscription::new(name, DEFAULT_SUBSCRIPTION)))
     }
 }
 

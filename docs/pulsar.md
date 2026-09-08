@@ -390,17 +390,27 @@ neither suite applies to either broker. The stand-in also batches exactly as the
 real subscriber does - the same client-side buffer over a one-at-a-time queue - so a batch
 handler under test runs the code path it will in production.
 
-What the stand-in does not simulate is Pulsar product behaviour: subscription types,
-dead-lettering, ack timeouts and redelivery timing are broker semantics, and the live suite
-against a real server covers those. A descriptor's settings therefore carry no behaviour here,
-and two consequences are worth naming, because a test could otherwise assert what a real broker
-will not do:
+The subscription type is honoured, because it is the thing a service writes tests about. A
+message reaches every subscription over its topic, and within one subscription the type picks the
+consumer that takes it: `Exclusive` holds the subscription for one consumer and refuses a second
+attach, `Failover` delivers to the active consumer and promotes a standby when it leaves, `Shared`
+rotates, and `KeyShared` rotates by partition key. Two handlers on one shared subscription
+therefore split a run between them here as they do in production, and a `nack(requeue = true)`
+goes back to the subscription, so a retry can land on a sibling.
 
-- every subscription covering a topic receives every message published to it, so two handlers
-  sharing one `Shared` subscription each see the whole stream in process, where a server splits
-  it between them;
-- a delivery nacked past `max_deliveries` keeps coming back instead of moving to the dead-letter
-  topic.
+Four things still stop short of a server, and a test that leans on them is leaning on the wrong
+broker:
+
+- `KeyShared` assigns by the key's hash modulo the consumer count rather than by Pulsar's hash
+  ranges. One key stays on one consumer, which is the property worth testing, but which consumer
+  that is differs from a server's, and so does what a consumer joining or leaving reshuffles.
+- A seek moves the consumer that asked for it; on a server the cursor belongs to the subscription,
+  so a seek from one consumer of a shared subscription moves its siblings too.
+- A delivery nacked past `max_deliveries` keeps coming back instead of moving to the dead-letter
+  topic: `dead_letter` needs the server's per-message delivery count, which this transport does
+  not keep.
+- `ack_timeout`, credit and redelivery timing carry no behaviour here; they are the server's
+  clock. The live suite covers all four against a real broker.
 
 Topic names route literally, with no namespace to resolve them against: `orders` and
 `persistent://public/default/orders` are two addresses here and one topic on a server. A pattern

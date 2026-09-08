@@ -32,21 +32,32 @@
 //! published to - so a topic that first appears after the subscription opened reaches it, as it
 //! does on a server.
 //!
-//! The rest of a descriptor describes work the Pulsar server does, and the stand-in ignores it:
-//! [`subscription_type`](crate::PulsarSubscription::subscription_type),
-//! [`dead_letter`](crate::PulsarSubscription::dead_letter) and
-//! [`ack_timeout`](crate::PulsarSubscription::ack_timeout) carry no behaviour here, and nor do
-//! credit or redelivery timing. Two consequences are worth naming, because a test could
-//! otherwise assert what a real broker will not do:
+//! So is the sharing rule. A message reaches every subscription over its topic, and within one
+//! subscription the [`subscription_type`](crate::PulsarSubscription::subscription_type) picks the
+//! consumer that takes it: [`Exclusive`](crate::SubscriptionType::Exclusive) holds the
+//! subscription for one consumer and refuses a second attach,
+//! [`Failover`](crate::SubscriptionType::Failover) delivers to the active consumer and promotes a
+//! standby when it leaves, [`Shared`](crate::SubscriptionType::Shared) rotates, and
+//! [`KeyShared`](crate::SubscriptionType::KeyShared) rotates by partition key. Two handlers on
+//! one shared subscription therefore split a run between them in process, as they do in
+//! production, and a `nack(requeue = true)` goes back to the subscription, so a retry can land on
+//! a sibling.
 //!
-//! * every subscription covering a topic receives every message published to it, so two
-//!   handlers sharing one [`SubscriptionType::Shared`](crate::SubscriptionType::Shared)
-//!   subscription name each see the whole stream in process, where a server would split it
-//!   between them;
-//! * a delivery nacked past [`max_deliveries`](crate::DeadLetter::max_deliveries) keeps being
-//!   redelivered instead of moving to the dead-letter topic.
+//! Where that stops short of a server, and why:
 //!
-//! Both are Pulsar product behaviour, verified end to end against a real broker.
+//! * `KeyShared` assigns by the key's hash modulo the consumer count, not by Pulsar's hash
+//!   RANGES. One key stays on one consumer, which is what a test rests on, but which consumer
+//!   that is differs from a server's, and so does what a consumer joining or leaving reshuffles.
+//! * A seek moves the consumer that asked for it. On a server the cursor belongs to the
+//!   subscription, so a seek from one consumer of a shared subscription moves its siblings too.
+//! * A delivery nacked past [`max_deliveries`](crate::DeadLetter::max_deliveries) keeps coming
+//!   back instead of moving to the dead-letter topic:
+//!   [`dead_letter`](crate::PulsarSubscription::dead_letter) needs the server's per-message
+//!   delivery count, which this transport does not keep.
+//! * [`ack_timeout`](crate::PulsarSubscription::ack_timeout), credit and redelivery timing carry
+//!   no behaviour here either; they are the server's clock, not the transport's.
+//!
+//! All four are verified end to end against a real broker instead.
 //!
 //! Topic names route literally: the stand-in has no namespace to resolve them against, so
 //! `orders` and `persistent://public/default/orders` are two addresses here and one topic on a

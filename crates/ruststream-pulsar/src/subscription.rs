@@ -74,6 +74,14 @@ pub(crate) enum Topics {
 /// trading latency for fuller batches raises it with [`PulsarSubscription::batch_wait`].
 pub(crate) const DEFAULT_BATCH_WAIT: Duration = Duration::from_millis(10);
 
+/// The subscription a bare topic name joins, on the real broker and on the stand-in alike.
+///
+/// A `#[subscriber("orders")]` names no subscription and Pulsar has no anonymous consumer, so
+/// the crate supplies one: by-name handlers share this durable subscription under the default
+/// [`SubscriptionType::Shared`], which is what makes two instances of a service competing
+/// consumers rather than two independent readers of one topic.
+pub(crate) const DEFAULT_SUBSCRIPTION: &str = "ruststream";
+
 /// A subscription descriptor for one Pulsar subscription over one or more topics.
 ///
 /// Where the subscription starts reading is not a descriptor option: it is the framework's
@@ -243,9 +251,11 @@ impl SubscriptionSource<ConnectedPulsarBroker> for PulsarSubscription {
 /// All three forms route: one topic, the list of
 /// [`topics`](PulsarSubscription::topics), and the regular expression of
 /// [`pattern`](PulsarSubscription::pattern), which the stand-in matches against every topic
-/// published to, including topics that first appear after the subscription opened. The rest of
-/// the descriptor describes work a Pulsar server does, and the [`testing` module
-/// docs](crate::testing) say what that leaves unsimulated.
+/// published to, including topics that first appear after the subscription opened. The
+/// [`subscription_type`](PulsarSubscription::subscription_type) decides which consumer of the
+/// subscription takes a message, so competing consumers split a stream in process as they do in
+/// production. What is left to the server - the dead-letter policy, the ack timeout, redelivery
+/// timing - the [`testing` module docs](crate::testing) name.
 #[cfg(feature = "testing")]
 impl SubscriptionSource<crate::testing::ConnectedPulsarTestBroker> for PulsarSubscription {
     type Subscriber = crate::testing::PulsarTestSubscriber;
