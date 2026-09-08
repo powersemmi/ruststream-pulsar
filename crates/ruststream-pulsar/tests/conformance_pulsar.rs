@@ -5,8 +5,8 @@
 //! quietly disagrees with the contract is worse than no stand-in. The server legs, gated behind
 //! `PULSAR_TEST_URL`, are what says the stand-in is not merely agreeing with itself.
 //!
-//! Request-reply and transactions have no legs here: the client backs neither, so this crate
-//! implements neither capability and the suites do not apply.
+//! Request-reply and transactions have no legs here: the crate implements neither capability, so
+//! neither suite applies to either broker.
 //!
 //! Start a broker with `just brokers-up`, then:
 //! `PULSAR_TEST_URL=pulsar://127.0.0.1:6650 cargo test --all-features`.

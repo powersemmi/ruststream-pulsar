@@ -384,8 +384,9 @@ against a real broker: the routing suite, `harness::lifecycle`, `capabilities::s
 contract rather than to whatever it happens to do, and the server legs are what say the two
 agree. `harness::lifecycle` is the reason a publisher that outlives `shutdown` reports
 `NotConnected` here rather than quietly accepting the message, exactly as a handle aliasing a
-closed connection does. Request-reply and transactions have no leg either way: the client backs
-neither, so the crate implements neither capability. The stand-in also batches exactly as the
+closed connection does. Request-reply and transactions have no leg either way: the crate
+implements neither capability, for the reasons in the [capability matrix](#capabilities), so
+neither suite applies to either broker. The stand-in also batches exactly as the
 real subscriber does - the same client-side buffer over a one-at-a-time queue - so a batch
 handler under test runs the code path it will in production.
 
