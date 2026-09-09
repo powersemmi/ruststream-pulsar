@@ -31,7 +31,7 @@ that is not implemented does not compile at the mount site, rather than failing 
 | `RequestReply` | no | Pulsar has no reply inbox; a reply is an ordinary publish to another topic |
 | `Partitioned` | yes | the `partition-key` header is the message's partition key, which `KeyShared` subscriptions order by (see [Payloads and headers](#payloads-and-headers)) |
 | `Seekable` / `Positioned` | yes | topics are a retained log: the subscriber seeks over `PulsarPosition`, a delivery carries its own message id back as one, and handlers reach both through the `Position` and `SeekHandle` context keys (see [Seeking](#seeking)) |
-| `DescribeServer` | yes | `PulsarBroker` reports its service host and the `pulsar` protocol, which the framework's AsyncAPI generation consumes |
+| `DescribeServer` | yes | `PulsarBroker` reports only the host and port from its URL, with the `pulsar` protocol, which the framework's AsyncAPI generation consumes |
 
 ## The lifecycle
 
