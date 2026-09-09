@@ -261,8 +261,9 @@ against the in-process stand-in.
 A publisher is a policy plus the live connection. The policy holds no connection, so it is
 constructed anywhere - in a router, in configuration, at a mount site - and the runtime pairs it
 with the broker at startup. `PulsarPublish` pairs into `PulsarPublisher`, and it is the connected
-broker's default publish policy, so a `#[subscriber(.., publish("dest"))]` handler mounted without
-an explicit publisher replies through it.
+broker's default publish policy, so a handler mounted with plain `include` replies through it. The
+reply type names the topic the reply goes to, with `#[outgoing(name = "receipts")]`. A reply type
+that names none goes to the topic the `publish("receipts")` clause names.
 
 Which name you write depends on which prelude the file writes, and the two do not overlap. A
 routes file imports `ruststream_pulsar::prelude::*` and gets the mount-site vocabulary, where each
