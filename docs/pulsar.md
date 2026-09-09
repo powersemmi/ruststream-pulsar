@@ -339,11 +339,7 @@ suites.
 
 The `testing` feature ships `PulsarTestBroker`: an in-process broker that reproduces the crate's
 core routing with no server and no network. It follows the same ladder as the real broker, terminal
-state included, and its connected form implements `ruststream::testing::TestableBroker`, so the same
-broker drives the `TestApp` harness and the framework's conformance suites in process; inject
-traffic with
-`broker.inject(OutgoingMessage::new(..))` and assert on published output with the free
-`ruststream::testing::expect_published`. See
+state included, and it drives the `TestApp` harness. See
 [Unit-testing a service with TestApp](https://powersemmi.github.io/ruststream/latest/guides/testing/#unit-testing-a-service-with-testapp).
 
 `PulsarSubscription` is a subscription source for it as well as for the real broker, so a test

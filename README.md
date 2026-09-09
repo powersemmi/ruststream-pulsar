@@ -107,8 +107,6 @@ tb.broker::<PulsarTestBroker>()
     .assert_called_once();
 ```
 
-Traffic from a producer outside the service arrives the same way, or through `TestableBroker::inject`; `expect_published` asserts on what a handler published.
-
 Pulsar's own behaviour (subscription types, dead-lettering, ack timeouts, redelivery, seeking) is covered by the env-gated live suite instead: `just test-brokers` starts Pulsar standalone and runs the integration tests plus the framework conformance lifecycle against it.
 
 ## Layout

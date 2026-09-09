@@ -58,7 +58,7 @@ async fn audit(order: &Order) -> HandlerOutcome {
     HandlerOutcome::ack()
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Outgoing, Serialize)]
 struct Receipt {
     id: u64,
 }
