@@ -40,9 +40,14 @@ struct Order {
 }
 
 /// A reply that leaves its destination to the mount site: the derive carries no name.
+///
+/// The three message types here carry different fields on purpose. A reply asserted by payload
+/// alone would pass on the request instead if the two shapes matched, and the whole point of
+/// these tests is which topic the payload came off.
 #[derive(Debug, Deserialize, Eq, Outgoing, PartialEq, Serialize)]
 struct Confirmation {
-    id: u64,
+    order: u64,
+    accepted: bool,
 }
 
 /// A reply that is always a receipt on the receipts topic, so the type says so once and every
@@ -50,17 +55,24 @@ struct Confirmation {
 #[derive(Debug, Deserialize, Eq, Outgoing, PartialEq, Serialize)]
 #[outgoing(name = "receipts")]
 struct Receipt {
-    id: u64,
+    order: u64,
+    issued: bool,
 }
 
 #[subscriber("orders", publish("confirmations"))]
 async fn confirm(order: &Order) -> Confirmation {
-    Confirmation { id: order.id }
+    Confirmation {
+        order: order.id,
+        accepted: true,
+    }
 }
 
 #[subscriber("receipt-requests", publish)]
 async fn issue_receipt(order: &Order) -> Receipt {
-    Receipt { id: order.id }
+    Receipt {
+        order: order.id,
+        issued: true,
+    }
 }
 
 /// The verb a routes file writes: the reply position takes this broker's policy under the name
@@ -106,7 +118,10 @@ async fn a_reply_lands_on_the_topic_its_type_declares() {
     tb.broker::<PulsarTestBroker>()
         .published::<Receipt>("receipts")
         .assert_called_once()
-        .with(&Receipt { id: 7 });
+        .with(&Receipt {
+            order: 7,
+            issued: true,
+        });
 }
 
 /// A reply type that names no topic is published where the mount site says.
@@ -134,5 +149,8 @@ async fn a_reply_lands_on_the_topic_the_mount_site_names() {
     tb.broker::<PulsarTestBroker>()
         .published::<Confirmation>("confirmations")
         .assert_called_once()
-        .with(&Confirmation { id: 7 });
+        .with(&Confirmation {
+            order: 7,
+            accepted: true,
+        });
 }
