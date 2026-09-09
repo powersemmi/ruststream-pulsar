@@ -104,9 +104,10 @@ The `testing` feature ships an in-process Pulsar stand-in - no server, same rout
 ```rust
 use ruststream::testing::TestApp;
 use ruststream_pulsar::prelude::*;
-use ruststream_pulsar::testing::{PulsarTestBroker, PulsarTestPublish};
+use ruststream_pulsar::testing::PulsarTestBroker;
 
-// The same body, on a topic-name subscriber, with the stand-in's own publish policy.
+// The same body, on a topic-name subscriber. Mounted plainly, so the reply leaves through the
+// broker's default publish policy and the mount site names no publisher on either broker.
 #[subscriber("orders", publish("confirmations"))]
 async fn confirm(order: &Order) -> Confirmation {
     Confirmation { id: order.id }
@@ -114,7 +115,7 @@ async fn confirm(order: &Order) -> Confirmation {
 
 let app = RustStream::new(AppInfo::new("orders", "0.1.0"))
     .with_broker(PulsarTestBroker::new(), |b| {
-        b.include(confirm).out(Reply, PulsarTestPublish);
+        b.include(confirm);
     });
 let tb = TestApp::start(app).await?;
 
