@@ -11,10 +11,21 @@ use ruststream::conformance::{capabilities, harness};
 use ruststream_pulsar::testing::PulsarTestBroker;
 use ruststream_pulsar::{PulsarBroker, PulsarSubscription};
 
+/// The broker to run the live checks against, or `None` to skip them.
+///
+/// Skipping quietly is what keeps these usable on a laptop with no stand running. It is also
+/// what would let a renamed variable or a dropped `env:` block turn the whole live job green
+/// without running anything, so CI sets `RUSTSTREAM_REQUIRE_LIVE` and the skip becomes a
+/// failure there.
 fn test_url() -> Option<String> {
     match std::env::var("PULSAR_TEST_URL") {
         Ok(url) if !url.is_empty() => Some(url),
         _ => {
+            assert!(
+                std::env::var_os("RUSTSTREAM_REQUIRE_LIVE").is_none(),
+                "RUSTSTREAM_REQUIRE_LIVE is set, so the live suites must run, but \
+                 PULSAR_TEST_URL is missing or empty",
+            );
             eprintln!("PULSAR_TEST_URL is not set; skipping the live conformance check");
             None
         }

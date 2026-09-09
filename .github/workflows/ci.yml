@@ -209,6 +209,10 @@ jobs:
       - name: Run integration + conformance against Pulsar
         env:
           PULSAR_TEST_URL: pulsar://127.0.0.1:6650
+          # Without this the gated tests return before their first assertion when the URL is
+          # missing, and the job goes green having tested nothing. Set here, a lost URL fails
+          # the job instead. Unset on a laptop, so the suites still skip while developing.
+          RUSTSTREAM_REQUIRE_LIVE: "1"
         run: >-
           cargo test -p ruststream-pulsar --all-features
           --test integration_pulsar
