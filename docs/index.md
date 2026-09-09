@@ -1,16 +1,14 @@
 # ruststream-pulsar
 
-**`ruststream-pulsar`** is the Apache Pulsar broker for the
-[RustStream](https://powersemmi.github.io/ruststream/) messaging framework. It covers the four
-subscription types, multi-topic and pattern subscriptions, the consumer-side dead-letter policy,
-seeking over the retained log, and ships an in-process test broker under its `testing` feature.
+**`ruststream-pulsar`** runs a [RustStream](https://powersemmi.github.io/ruststream/) service on
+Apache Pulsar. A topic is a retained log, so a subscription rewinds over it. You pick one of the
+four subscription types, subscribe to a list of topics or to a pattern, and set the consumer-side
+dead-letter policy. The `testing` feature ships an in-process broker.
 
-Handlers, routers, codecs, and middleware come from the framework; this crate supplies the
-transport over the [`pulsar`](https://docs.rs/pulsar) client maintained by StreamNative, and
-nothing broker-specific leaks back into the framework.
+The transport is implemented over the [`pulsar`](https://docs.rs/pulsar) client maintained by
+StreamNative.
 
-Building the crate requires `protoc` on the path, since the client compiles the Pulsar protocol
-definitions.
+Building requires `protoc` on the path: the client compiles the Pulsar protocol definitions.
 
 ```toml
 ruststream = { version = "0.7", features = ["macros", "json"] }
@@ -34,7 +32,5 @@ serde = { version = "1", features = ["derive"] }
 
 ## How this site relates to the RustStream docs
 
-This site documents the Pulsar broker only. Framework concepts that apply to every broker (writing
-subscribers, publishing, routing, codecs, middleware, observability, the CLI) live in the
-[RustStream documentation](https://powersemmi.github.io/ruststream/). The pages here cover what is
-specific to Pulsar and link back to the framework docs where the two meet.
+This site documents the Pulsar broker only. Everything that works the same on every broker is in
+the [RustStream documentation](https://powersemmi.github.io/ruststream/).
