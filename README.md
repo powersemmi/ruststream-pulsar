@@ -35,7 +35,7 @@
 - **Batches, assembled on the client.** The Pulsar client has no consumer-side batch receive, so a `&[T]` batch handler is served from single deliveries: the mount site names the batch size with `.batch(nonzero!(n))`, the descriptor's `batch_wait` names how long a partial batch waits for the rest, and a batch never carries more than the size that was asked for. Nothing at the mount site or in the body says which side the batch was built on.
 - **Key sharing as the partition key.** A `partition-key` header becomes the message's partition key on publish (keyed routing) and comes back as the same header, which `KeyShared` subscriptions order by. `PulsarPublishExt::with_partition_key` sets it as a per-message publish argument.
 - **Properties carry headers directly.** Headers map onto Pulsar message properties with no extra envelope, so non-Rust peers see plain Pulsar messages.
-- **In-process test broker** (feature `testing`). `PulsarTestBroker` reproduces core routing with no server, drives the framework's `TestApp` harness, and passes its conformance suite in process.
+- **In-process test broker** (feature `testing`). `PulsarTestBroker` reproduces core routing with no server, a service mounts on it and runs under the `TestApp` harness, and it answers the way a real Pulsar does, which the crate's own tests hold it to.
 
 Transactions and the schema registry are out of scope: the client does not implement them, and the capability traits they would back are optional.
 
@@ -66,7 +66,7 @@ struct Order {
     id: u64,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Outgoing, PartialEq, Serialize, Deserialize)]
 struct Confirmation {
     id: u64,
 }
