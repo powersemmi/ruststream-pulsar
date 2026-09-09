@@ -17,9 +17,6 @@
 //! prefixed [`PulsarPublish`](crate::PulsarPublish) stays at the crate root for a file that
 //! mounts two brokers at once and must tell their policies apart.
 //!
-//! [`Publish`] is a publish policy, not the framework's `runtime::Publish` builder, which a
-//! service never names.
-//!
 //! # Examples
 //!
 //! ```
