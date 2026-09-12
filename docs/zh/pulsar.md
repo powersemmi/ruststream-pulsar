@@ -1,7 +1,7 @@
 # Apache Pulsar { #apache-pulsar }
 
 `ruststream-pulsar` 在 Apache Pulsar 上运行 RustStream 服务。主题是一份保留下来的日志，因此订阅可以
-在它上面回放。你可以从四种订阅模式里选一种，订阅一组主题或者一个主题模式，并设定消费者侧的死信
+在它上面回放。你可以从四种订阅类型里选一种，订阅一组主题或者一个主题模式，并设定消费者侧的死信
 策略。`testing` feature 提供一个进程内 Broker。框架本身的概念（编写订阅者、路由、编解码器和中间件）
 参见 [RustStream 文档](https://powersemmi.github.io/ruststream/)。
 
@@ -72,12 +72,12 @@ URL 写成 `pulsar://` 或 `pulsar+ssl://`，你可以用 `token(jwt)` 附上 JW
 | `PulsarSubscription::new(topic, subscription)` | 一个主题 | - |
 | `PulsarSubscription::topics([..], subscription)` | 一组固定的主题 | - |
 | `PulsarSubscription::pattern(regex, subscription)` | 查找命名空间里每一个匹配的主题 | - |
-| `subscription_type(SubscriptionType)` | 竞争的消费者如何分享这条订阅 | `Shared` |
+| `subscription_type(SubscriptionType)` | 竞争的消费者如何共享这条订阅 | `Shared` |
 | `dead_letter(DeadLetter)` | 消费者侧的死信策略 | 无 |
 | `ack_timeout(Duration)` | 超过这个时长仍未确认的消息，重新投递 | 无 |
 | `batch_wait(Duration)` | 未满的批等待更多投递多久（见[批](#batches)） | 10 毫秒 |
 
-这四种模式是 Pulsar 自己的：
+这四种类型是 Pulsar 自己的：
 
 | 变体 | 含义 |
 | --- | --- |
@@ -337,8 +337,8 @@ Broker 交出同样的 `PulsarContext` 和 `PulsarBatchContext`，带同样的 `
 攒批的方式也和真实订阅者完全一致（同一个客户端缓冲区，架在一次一条的队列之上），因此被测的批量
 处理器走的就是它在生产中要走的那条代码路径。
 
-订阅模式是生效的，因为服务正是围着它写测试。一条消息会到达其主题上的每一条订阅，而在一条订阅
-内部，由模式挑出接收它的那个消费者：`Exclusive` 让一个消费者独占订阅并拒绝第二次接入，`Failover`
+订阅类型是生效的，因为服务正是围着它写测试。一条消息会到达其主题上的每一条订阅，而在一条订阅
+内部，由类型挑出接收它的那个消费者：`Exclusive` 让一个消费者独占订阅并拒绝第二次接入，`Failover`
 投给活跃消费者，它离开时提升一个热备，`Shared` 轮流分发，`KeyShared` 按分区键切分。因此一条共享
 订阅上的两个处理器，在这里也像在生产中一样分摊一次运行，而 `nack(requeue = true)` 会回到订阅，
 于是重试可能落到兄弟消费者上。
