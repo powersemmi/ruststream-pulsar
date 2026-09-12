@@ -131,14 +131,26 @@ impl Broker for PulsarBroker {
     }
 }
 
+/// The address a client dials, taken from the service URL: the host and its port, and nothing
+/// else.
+///
+/// The generated `AsyncAPI` document is published and shared, so a `user:password@` in the URL
+/// must not reach it. The userinfo is cut at the LAST `@` of the authority, because a password
+/// may contain one; the path and query are cut first, so an `@` further along the URL cannot be
+/// mistaken for the delimiter.
+fn server_address(url: &str) -> &str {
+    let after_scheme = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let authority = after_scheme
+        .split_once(['/', '?', '#'])
+        .map_or(after_scheme, |(authority, _)| authority);
+    authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host)
+}
+
 impl DescribeServer for PulsarBroker {
     fn describe_server(&self) -> ServerSpec {
-        ServerSpec::new(
-            self.url
-                .trim_start_matches("pulsar+ssl://")
-                .trim_start_matches("pulsar://"),
-            "pulsar",
-        )
+        ServerSpec::new(server_address(&self.url), "pulsar")
     }
 }
 
@@ -209,4 +221,43 @@ impl Subscribe for ConnectedPulsarBroker {
 
 impl DefaultPublish for ConnectedPulsarBroker {
     type Policy = PulsarPublish;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every URL shape this broker accepts, reduced to the address a client dials.
+    #[test]
+    fn the_description_carries_the_address_alone() {
+        for (url, address) in [
+            ("pulsar://broker:6650", "broker:6650"),
+            ("pulsar+ssl://broker:6651", "broker:6651"),
+            ("pulsar://broker", "broker"),
+            ("pulsar://broker:6650/", "broker:6650"),
+            ("pulsar://admin:s3cret@broker:6650", "broker:6650"),
+            ("pulsar+ssl://admin:s3cret@broker", "broker"),
+            // A password may hold an `@`, so the userinfo ends at the last one.
+            ("pulsar://admin:p@ssw0rd@broker:6650", "broker:6650"),
+            // Pulsar takes a comma-separated broker list, which is the address as it stands.
+            ("pulsar://one:6650,two:6650", "one:6650,two:6650"),
+        ] {
+            assert_eq!(
+                PulsarBroker::new(url).describe_server().host.as_deref(),
+                Some(address),
+                "url {url}",
+            );
+        }
+    }
+
+    /// The generated document is published and shared, so what a service put in its URL to
+    /// authenticate must not be in it.
+    #[test]
+    fn credentials_never_reach_the_description() {
+        let described = PulsarBroker::new("pulsar://admin:s3cret@broker:6650").describe_server();
+        let host = described.host.expect("a URL with a host describes one");
+        assert!(!host.contains('@'), "userinfo survived in {host:?}");
+        assert!(!host.contains("admin"), "user name survived in {host:?}");
+        assert!(!host.contains("s3cret"), "password survived in {host:?}");
+    }
 }
