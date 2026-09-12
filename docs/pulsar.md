@@ -26,7 +26,7 @@ this broker does not implement does not compile at the mount site.
 | `TransactionalPublisher` | no | the client does not implement Pulsar transactions |
 | `OwnedTransactions` | no | the client does not implement Pulsar transactions |
 | `RequestReply` | no | Pulsar has no reply inbox; a reply is an ordinary publish to another topic |
-| `Partitioned` | yes | the `partition-key` header is the message's partition key, which `KeyShared` subscriptions order by (see [Payloads and headers](#payloads-and-headers)) |
+| `Partitioned` | yes | a delivery reports the message's partition key, which `KeyShared` subscriptions order by; a publish names that key with the `partition_key` step (see [Per-message settings](#per-message-settings)) |
 | `Seekable` / `Positioned` | yes | a subscription seeks over `PulsarPosition`, and a handler reads the current position and the seeker through the `Position` and `SeekHandle` context keys (see [Seeking](#seeking)) |
 | `DescribeServer` | yes | `PulsarBroker` reports the host and port from its URL and the `pulsar` protocol, never the credentials the URL carries, which the framework's AsyncAPI document names |
 
@@ -252,8 +252,10 @@ mount site names `Publish` once and runs on either broker (see [Testing](#testin
 A routes file imports `ruststream_pulsar::prelude::*`, where the policy appears under its concept
 name with the prefix stripped: `.out(Reply, Publish)` reads the same whichever broker a service
 runs on. A handler body imports `ruststream::prelude::*` instead and names framework things only,
-bounding an injected slot with the broker capability trait it needs (`Out<impl Publisher>`). The
-prefixed `PulsarPublish` stays at the crate root for a file that mounts two brokers at once.
+bounding an injected slot with the broker capability trait it needs (`Out<impl Publisher>`); the
+one exception is a body that sets the partition key (see
+[Per-message settings](#per-message-settings)). The prefixed `PulsarPublish` stays at the crate
+root for a file that mounts two brokers at once.
 
 The publisher keeps one producer per topic, created on the first publish to it and closed by
 `shutdown`. Each publish awaits the broker's send receipt, so a successful publish means the broker
@@ -261,22 +263,28 @@ stored the message. You can also take a publisher from the broker before the app
 with `PulsarBroker::publisher()`, or from the connected form with
 `ConnectedPulsarBroker::publisher()`.
 
-### Per-message publish arguments
+### Per-message settings
 
-Every publish through one publisher reaches Pulsar the same way: this crate declares no
-per-message settings, so the publish builder grows no step of its own and a handler body imports
-`ruststream::prelude::*` alone. `.out(Reply, Publish)` is the whole publish declaration.
+The partition key is what one publish differs from the next in. Keyed routing places the message
+by it, and a `KeyShared` subscription orders by it. The `partition_key` step names it for the
+message being sent:
 
-The partition key is the one value that travels per message, and it is a header rather than a
-setting: `Partitioned` is a framework contract every broker spells the same way, so keyed routing
-survives a change of broker. `PulsarPublishExt` attaches it to the publisher, ahead of the publish
-builder:
+```rust
+--8<-- "crates/ruststream-pulsar/tests/publish_options.rs:handler"
+```
 
-`publisher.with_partition_key("user-42").message(&order).publish()`
+The step writes one field of `PulsarPublishOptions`, this crate's settings type, and returns the
+publish builder. The message therefore leaves through the slot the mount site wired, in that
+slot's codec, and the slot view of the test harness records the key the call site asked for. The
+mount site declares nothing for it: `.out(Ledger, Publish)` is the whole declaration, and a
+publish that names no step goes unkeyed.
 
-The key is sent as the `partition-key` header, under the publish's own headers. A publish that
-names `partition-key` itself overrides the argument, a publish that names other headers keeps it,
-and a message with a declared header contract can carry both.
+A body that names the step imports `ruststream_pulsar::prelude::*` and states the settings type on
+its slot, as the one above does. Every other body imports `ruststream::prelude::*` alone.
+
+The `partition-key` header carries the same key in the spelling every broker reads, so a body that
+writes its own headers keys the message without naming a Pulsar type. Where a publish carries
+both, the step wins.
 
 ## Payloads and headers
 
@@ -285,8 +293,8 @@ Pulsar message, with no envelope format of the framework's own.
 
 The `partition-key` header is the exception. On publish it becomes the message's own partition key,
 which keyed routing uses to place the message and which `KeyShared` subscriptions order by. On
-delivery it comes back as that header. `PulsarPublishExt::with_partition_key` sets the same key as
-a publish argument rather than a header.
+delivery it comes back as that header. The `partition_key` step sets the same key without touching
+the headers (see [Per-message settings](#per-message-settings)).
 
 ## Local development
 
