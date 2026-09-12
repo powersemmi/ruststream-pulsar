@@ -98,7 +98,7 @@ no call to the broker.
 A descriptor sits inline in the `#[subscriber(..)]` decorator, and the same declaration mounts on
 the in-process stand-in as well (see [Testing](#testing)). One import covers a routes file:
 `ruststream_pulsar::prelude::*` carries the framework's own prelude along with this crate's
-descriptors, publish policy and publish arguments.
+descriptors, publish policy and per-message settings.
 
 ```rust
 --8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:handler"
