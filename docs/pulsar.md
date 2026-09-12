@@ -172,9 +172,24 @@ Dropping acknowledges because Pulsar has no terminal reject verb. Poison message
 dead-letter policy, which repeated redeliveries reach.
 
 The client queues acknowledgements, so a settle that returns `Ok` means the acknowledgement is
-queued on the consumer, not that the broker confirmed it. A negative acknowledgement carries no
-delay, so a `HandlerOutcome::retry_after(delay)` outcome takes the framework's own deferred
-re-publish path. A subscription that ends closes its consumer.
+queued on the consumer, not that the broker confirmed it. A subscription that ends closes its
+consumer.
+
+### Deferred retries
+
+A Pulsar negative acknowledgement carries no delay, so a `HandlerOutcome::retry_after(delay)`
+outcome takes the framework's own deferred path: the message is published again once the delay is
+over, and the subscription says where. A topic is its own address, so a subscription over one
+topic answers with that topic, and a scope wired with `retry_via(publisher)` defers its retries
+with nothing else to configure. Both spellings of one topic qualify: the
+`PulsarSubscription::new(topic, subscription)` descriptor and a bare `#[subscriber("orders")]`.
+
+A topic list and a pattern answer nothing. Either could name a topic the subscription reads, but
+the copy would arrive on a different topic from the one the message came off, and a handler that
+branches on the delivery's topic would take the wrong branch. An application that wires
+`retry_via` over such a subscription refuses to start, and the error names the subscription. Give
+each topic its own subscription, or leave the scope without a retry publisher, where
+`retry_after` degrades to an immediate redelivery.
 
 ## Seeking
 
@@ -248,8 +263,14 @@ with `PulsarBroker::publisher()`, or from the connected form with
 
 ### Per-message publish arguments
 
-`PulsarPublishExt` attaches an argument to the publisher, ahead of the publish builder. This crate
-names one, the partition key:
+Every publish through one publisher reaches Pulsar the same way: this crate declares no
+per-message settings, so the publish builder grows no step of its own and a handler body imports
+`ruststream::prelude::*` alone. `.out(Reply, Publish)` is the whole publish declaration.
+
+The partition key is the one value that travels per message, and it is a header rather than a
+setting: `Partitioned` is a framework contract every broker spells the same way, so keyed routing
+survives a change of broker. `PulsarPublishExt` attaches it to the publisher, ahead of the publish
+builder:
 
 `publisher.with_partition_key("user-42").message(&order).publish()`
 
