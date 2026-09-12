@@ -15,7 +15,7 @@ use ruststream::{
 };
 use ruststream_pulsar::{
     ConnectedPulsarBroker, DeadLetter, PARTITION_KEY_HEADER, PulsarBroker, PulsarError,
-    PulsarMessage, PulsarPosition, PulsarPublishExt, PulsarSubscription,
+    PulsarMessage, PulsarPosition, PulsarPublishSteps, PulsarSubscription,
 };
 
 const RECV_TIMEOUT: Duration = Duration::from_secs(30);
@@ -102,8 +102,10 @@ async fn roundtrip_preserves_payload_properties_and_partition_key() {
     connected.shutdown().await.expect("shutdown succeeds");
 }
 
+/// The setting has to reach the server as the message's own key, not as one more property: that
+/// key is what keyed routing places by and what `KeyShared` orders by.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_partition_key_argument_reaches_the_server() {
+async fn the_partition_key_step_reaches_the_server() {
     let Some(url) = test_url() else { return };
     let connected = connect(&url).await;
 
@@ -115,9 +117,9 @@ async fn the_partition_key_argument_reaches_the_server() {
 
     connected
         .publisher()
-        .with_partition_key("user-42")
         .message(&Record(b"{\"id\":1}"))
         .to(topic.as_str())
+        .partition_key("user-42")
         .publish()
         .await
         .expect("publish succeeds");

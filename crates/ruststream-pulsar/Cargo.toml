@@ -31,7 +31,15 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-ruststream = { workspace = true, features = ["conformance", "testing", "macros", "json"] }
+# `cbor` is a second codec for the tests alone: a publish that names a per-message setting has to
+# leave in the format its mount site named, and one codec cannot tell that apart from the default.
+ruststream = { workspace = true, features = [
+    "cbor",
+    "conformance",
+    "testing",
+    "macros",
+    "json",
+] }
 # Not a bare "1": `serde_derive` below this cannot parse a `#[derive(Serialize)]` type that also
 # carries `#[outgoing(headers = Meta)]`, whose value is a path rather than a literal, so the
 # doctests fail to expand. The floor the minimal-versions job verifies.

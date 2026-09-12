@@ -12,7 +12,8 @@ use ruststream::{
 };
 
 use crate::error::PulsarError;
-use crate::publisher::PulsarPublishExt;
+use crate::message::PARTITION_KEY_HEADER;
+use crate::publisher::PulsarPublishOptions;
 use crate::subscription::{DEFAULT_SUBSCRIPTION, PulsarSubscription, Topics};
 use crate::testing::router::{AddressRouter, Membership, Route};
 use crate::testing::subscriber::PulsarTestSubscriber;
@@ -261,25 +262,30 @@ pub struct PulsarTestPublisher {
     state: Arc<TestState>,
 }
 
-// Mirrors the real publisher's arguments, so a tested handler runs the chain it will in production.
-impl PulsarPublishExt for PulsarTestPublisher {}
-
 impl Publisher for PulsarTestPublisher {
     type Error = PulsarError;
-    /// The same empty settings the real publisher declares, so a handler bound on the options
-    /// type compiles against either broker.
-    type Options = ();
+    /// The same settings the real publisher declares, so a handler bound on the options type
+    /// compiles against either broker and the steps it names are the ones production runs.
+    type Options = PulsarPublishOptions;
 
     fn publish(
         &self,
         msg: OutgoingMessage<'_>,
-        _options: Option<&Self::Options>,
+        options: Option<&Self::Options>,
     ) -> impl Future<Output = Result<(), Self::Error>> {
-        ready(self.state.publish(
-            msg.name(),
-            Bytes::copy_from_slice(msg.payload()),
-            msg.headers().clone(),
-        ))
+        let mut headers = msg.headers().clone();
+        // Against a server the resolved key is the message's own key, which comes back as this
+        // header on delivery; in process the header is both, so a keyed publish reaches a
+        // `KeyShared` consumer here the way it does there.
+        if let Some(options) = options
+            && let Some(key) = options.partition_key.clone()
+        {
+            headers.insert(PARTITION_KEY_HEADER, key);
+        }
+        ready(
+            self.state
+                .publish(msg.name(), Bytes::copy_from_slice(msg.payload()), headers),
+        )
     }
 }
 
