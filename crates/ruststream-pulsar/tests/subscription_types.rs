@@ -40,7 +40,7 @@ fn subscription(topic: &str, name: &str, sharing: SubscriptionType) -> PulsarSub
 async fn publish(broker: &ConnectedPulsarTestBroker, topic: &str, payload: &str) {
     broker
         .publisher()
-        .publish(OutgoingMessage::new(topic, payload.as_bytes()))
+        .publish(OutgoingMessage::new(topic, payload.as_bytes()), None)
         .await
         .expect("publish");
 }
@@ -50,7 +50,10 @@ async fn publish_keyed(broker: &ConnectedPulsarTestBroker, topic: &str, key: &st
     headers.insert(PARTITION_KEY_HEADER, key.to_owned());
     broker
         .publisher()
-        .publish(OutgoingMessage::new(topic, payload.as_bytes()).with_headers(headers))
+        .publish(
+            OutgoingMessage::new(topic, payload.as_bytes()).with_headers(headers),
+            None,
+        )
         .await
         .expect("publish");
 }

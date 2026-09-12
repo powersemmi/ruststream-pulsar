@@ -10,7 +10,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use pulsar::{Authentication, Pulsar, TokioExecutor};
-use ruststream::{Broker, ConnectedBroker, DefaultPublish, DescribeServer, ServerSpec, Subscribe};
+use ruststream::{
+    Broker, ConnectedBroker, DefaultPublish, DescribeServer, RedeliveryAddress, ServerSpec,
+    Subscribe,
+};
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::error::{PulsarError, box_err};
@@ -131,26 +134,13 @@ impl Broker for PulsarBroker {
     }
 }
 
-/// The address a client dials, taken from the service URL: the host and its port, and nothing
-/// else.
-///
-/// The generated `AsyncAPI` document is published and shared, so a `user:password@` in the URL
-/// must not reach it. The userinfo is cut at the LAST `@` of the authority, because a password
-/// may contain one; the path and query are cut first, so an `@` further along the URL cannot be
-/// mistaken for the delimiter.
-fn server_address(url: &str) -> &str {
-    let after_scheme = url.split_once("://").map_or(url, |(_, rest)| rest);
-    let authority = after_scheme
-        .split_once(['/', '?', '#'])
-        .map_or(after_scheme, |(authority, _)| authority);
-    authority
-        .rsplit_once('@')
-        .map_or(authority, |(_, host)| host)
-}
-
+/// The description carries the address a client dials and nothing else: the generated `AsyncAPI`
+/// document is published and shared, so a `user:password@` in the service URL must not reach it.
+/// `ServerSpec::from_url` is the framework's own reduction, so every broker crate drops the
+/// userinfo the same way.
 impl DescribeServer for PulsarBroker {
     fn describe_server(&self) -> ServerSpec {
-        ServerSpec::new(server_address(&self.url), "pulsar")
+        ServerSpec::from_url(&self.url, "pulsar")
     }
 }
 
@@ -216,6 +206,12 @@ impl Subscribe for ConnectedPulsarBroker {
         // expectations. The stand-in reads the same constant, so the two cannot drift apart.
         self.subscribe_descriptor(PulsarSubscription::new(name, DEFAULT_SUBSCRIPTION))
             .await
+    }
+
+    /// A bare name is a topic, and a topic is what a publisher writes to, so the deferred
+    /// `retry_after` copy reaches the subscription that read the original.
+    fn redelivery_address(&self, name: &str) -> Option<RedeliveryAddress> {
+        Some(RedeliveryAddress::new(name.to_owned()))
     }
 }
 

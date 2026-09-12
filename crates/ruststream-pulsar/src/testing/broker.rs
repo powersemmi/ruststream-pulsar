@@ -7,7 +7,8 @@ use std::sync::{Arc, OnceLock};
 use bytes::Bytes;
 use ruststream::testing::{Coordinator, TestableBroker};
 use ruststream::{
-    Broker, ConnectedBroker, DefaultPublish, OutgoingMessage, Publisher, RawMessage, Subscribe,
+    Broker, ConnectedBroker, DefaultPublish, OutgoingMessage, Publisher, RawMessage,
+    RedeliveryAddress, Subscribe,
 };
 
 use crate::error::PulsarError;
@@ -218,6 +219,12 @@ impl Subscribe for ConnectedPulsarTestBroker {
         // one topic compete on the service-wide subscription here as they do there.
         ready(self.open(PulsarSubscription::new(name, DEFAULT_SUBSCRIPTION)))
     }
+
+    /// The same answer the real broker gives, so a service wired with `retry_via` starts here
+    /// wherever it starts there, and fails to start here wherever it fails there.
+    fn redelivery_address(&self, name: &str) -> Option<RedeliveryAddress> {
+        Some(RedeliveryAddress::new(name.to_owned()))
+    }
 }
 
 impl TestableBroker for ConnectedPulsarTestBroker {
@@ -259,8 +266,15 @@ impl PulsarPublishExt for PulsarTestPublisher {}
 
 impl Publisher for PulsarTestPublisher {
     type Error = PulsarError;
+    /// The same empty settings the real publisher declares, so a handler bound on the options
+    /// type compiles against either broker.
+    type Options = ();
 
-    fn publish(&self, msg: OutgoingMessage<'_>) -> impl Future<Output = Result<(), Self::Error>> {
+    fn publish(
+        &self,
+        msg: OutgoingMessage<'_>,
+        _options: Option<&Self::Options>,
+    ) -> impl Future<Output = Result<(), Self::Error>> {
         ready(self.state.publish(
             msg.name(),
             Bytes::copy_from_slice(msg.payload()),
@@ -292,7 +306,7 @@ mod tests {
 
         for publisher in [early, live] {
             let err = publisher
-                .publish(OutgoingMessage::new("orders", b"late".as_slice()))
+                .publish(OutgoingMessage::new("orders", b"late".as_slice()), None)
                 .await
                 .expect_err("a publish into a shut-down transport must not report success");
             assert!(matches!(err, PulsarError::NotConnected));

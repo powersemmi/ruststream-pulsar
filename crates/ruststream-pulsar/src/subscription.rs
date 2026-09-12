@@ -4,9 +4,10 @@
 //! exist are unrepresentable; the dead-letter policy and the ack timeout are consumer-side
 //! settings the product owns.
 
+use std::future::{Future, ready};
 use std::time::Duration;
 
-use ruststream::SubscriptionSource;
+use ruststream::{RedeliveryAddress, SubscriptionSource};
 
 use crate::broker::ConnectedPulsarBroker;
 use crate::error::PulsarError;
@@ -194,6 +195,25 @@ impl PulsarSubscription {
         }
     }
 
+    /// Where a deferred retry of this subscription is published, or `None` when this descriptor
+    /// has no single answer.
+    ///
+    /// One topic is its own address: a publish to it reaches the subscription reading it, so the
+    /// runtime's `retry_after` fallback lands the delayed copy exactly where the original
+    /// arrived. A topic list and a pattern are silent instead. Both could name a topic the
+    /// subscription reads, but the copy would then arrive on a different topic from the one the
+    /// message came from, and a handler that branches on the delivery's topic would act on the
+    /// wrong branch. A scope wired with `retry_via` over such a subscription refuses to start,
+    /// naming it, which is the honest answer to a retry this descriptor cannot place.
+    fn address(&self) -> Option<RedeliveryAddress> {
+        match &self.topics {
+            Topics::List(topics) if topics.len() == 1 => {
+                Some(RedeliveryAddress::new(topics[0].clone()))
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn display_topic(&self) -> String {
         match &self.topics {
             Topics::List(topics) => topics.join(","),
@@ -240,6 +260,13 @@ impl SubscriptionSource<ConnectedPulsarBroker> for PulsarSubscription {
     ) -> Result<PulsarSubscriber, PulsarError> {
         connected.subscribe_descriptor(self).await
     }
+
+    fn redelivery_address(
+        &self,
+        _connected: &ConnectedPulsarBroker,
+    ) -> impl Future<Output = Result<Option<RedeliveryAddress>, PulsarError>> {
+        ready(Ok(self.address()))
+    }
 }
 
 /// The descriptor is a source for the in-process stand-in too, so the declaration a service
@@ -269,6 +296,13 @@ impl SubscriptionSource<crate::testing::ConnectedPulsarTestBroker> for PulsarSub
         connected: &crate::testing::ConnectedPulsarTestBroker,
     ) -> Result<Self::Subscriber, PulsarError> {
         connected.subscribe_descriptor(self).await
+    }
+
+    fn redelivery_address(
+        &self,
+        _connected: &crate::testing::ConnectedPulsarTestBroker,
+    ) -> impl Future<Output = Result<Option<RedeliveryAddress>, PulsarError>> {
+        ready(Ok(self.address()))
     }
 }
 

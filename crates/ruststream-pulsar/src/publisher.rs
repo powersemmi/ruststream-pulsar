@@ -74,8 +74,16 @@ impl PulsarPublisher {
 
 impl Publisher for PulsarPublisher {
     type Error = PulsarError;
+    /// Nothing this crate lets one publish differ from the next in. The partition key, the one
+    /// per-message field it does expose, is the `Partitioned` capability's header contract rather
+    /// than a Pulsar setting of this publisher's own, and travels as a header on both brokers.
+    type Options = ();
 
-    async fn publish(&self, msg: OutgoingMessage<'_>) -> Result<(), Self::Error> {
+    async fn publish(
+        &self,
+        msg: OutgoingMessage<'_>,
+        _options: Option<&Self::Options>,
+    ) -> Result<(), Self::Error> {
         let core = self.core()?;
         let producer = Box::pin(self.producer_for(core, msg.name())).await?;
         let message = to_pulsar_message(&msg);
@@ -221,9 +229,17 @@ impl<'a, P> PartitionKeyed<'a, P> {
 
 impl<P: Publisher> Publisher for PartitionKeyed<'_, P> {
     type Error = P::Error;
+    /// The publisher underneath keeps its own settings: the key is a header, so it takes none of
+    /// the options positions, and a builder started here still carries whatever steps that
+    /// publisher's options admit.
+    type Options = P::Options;
 
-    async fn publish(&self, msg: OutgoingMessage<'_>) -> Result<(), Self::Error> {
-        self.inner.publish(msg).await
+    async fn publish(
+        &self,
+        msg: OutgoingMessage<'_>,
+        options: Option<&Self::Options>,
+    ) -> Result<(), Self::Error> {
+        self.inner.publish(msg, options).await
     }
 
     fn base_headers(&self) -> Option<&HeaderMap> {

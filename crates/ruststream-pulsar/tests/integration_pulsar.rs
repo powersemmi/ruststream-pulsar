@@ -76,7 +76,10 @@ async fn roundtrip_preserves_payload_properties_and_partition_key() {
     headers.insert(PARTITION_KEY_HEADER, "user-42");
     let publisher = connected.publisher();
     publisher
-        .publish(OutgoingMessage::new(&topic, b"{\"id\":1}".as_slice()).with_headers(headers))
+        .publish(
+            OutgoingMessage::new(&topic, b"{\"id\":1}".as_slice()).with_headers(headers),
+            None,
+        )
         .await
         .expect("publish succeeds");
 
@@ -144,7 +147,7 @@ async fn nack_with_requeue_redelivers() {
         .expect("subscription opens");
     let publisher = connected.publisher();
     publisher
-        .publish(OutgoingMessage::new(&topic, b"again".as_slice()))
+        .publish(OutgoingMessage::new(&topic, b"again".as_slice()), None)
         .await
         .expect("publish succeeds");
 
@@ -187,7 +190,7 @@ async fn seeking_to_earliest_replays_every_topic_of_a_multi_topic_subscription()
     let publisher = connected.publisher();
     for topic in [&first, &second] {
         publisher
-            .publish(OutgoingMessage::new(topic, topic.as_bytes()))
+            .publish(OutgoingMessage::new(topic, topic.as_bytes()), None)
             .await
             .expect("publish succeeds");
     }
@@ -251,7 +254,7 @@ async fn dead_letter_policy_routes_exhausted_messages() {
 
     let publisher = connected.publisher();
     publisher
-        .publish(OutgoingMessage::new(&topic, b"poison".as_slice()))
+        .publish(OutgoingMessage::new(&topic, b"poison".as_slice()), None)
         .await
         .expect("publish succeeds");
 
