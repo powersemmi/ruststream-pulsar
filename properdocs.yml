@@ -69,6 +69,7 @@ markdown_extensions:
 
 hooks:
   - docs/hooks/snippet_titles.py
+  - docs/hooks/i18n_banner.py
 
 plugins:
   - search
@@ -78,8 +79,7 @@ plugins:
   #
   # English is normative; a page with no translation yet falls back to the English text inside
   # the localized site rather than disappearing from it, which is what lets translations land
-  # page by page. The structure lands before any translated page does, so the first one is a
-  # file addition and nothing else.
+  # page by page.
   - i18n:
       docs_structure: folder
       fallback_to_default: true

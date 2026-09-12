@@ -1,27 +1,53 @@
-//! [`PulsarPublisher`], its [`PulsarPublish`] policy, and the crate's per-message publish
-//! arguments ([`PulsarPublishExt`]).
+//! [`PulsarPublisher`], its [`PulsarPublish`] policy, and the per-message settings a call site
+//! adjusts ([`PulsarPublishOptions`], [`PulsarPublishSteps`]).
 
 use std::future::{Future, ready};
-use std::iter::once;
 use std::sync::Arc;
 
 use pulsar::TokioExecutor;
-use ruststream::{HeaderMap, OutgoingMessage, PairError, PublishPolicy, Publisher};
+use ruststream::runtime::{PublishBuilder, PublishSink};
+use ruststream::{OutgoingMessage, PairError, PublishPolicy, Publisher};
 use tokio::sync::Mutex;
 
 use crate::broker::{ConnectedPulsarBroker, Core, CoreCell};
 use crate::error::{PulsarError, box_err};
-use crate::message::{PARTITION_KEY_HEADER, to_pulsar_message};
+use crate::message::to_pulsar_message;
 use crate::topic::PulsarTopic;
 
 pub(crate) type PulsarProducer = pulsar::Producer<TokioExecutor>;
 
+/// What one Pulsar publish differs from the next in.
+///
+/// Every field is optional: a message carries what its call site named with a step of
+/// [`PulsarPublishSteps`], and nothing else. The [`PulsarPublish`] policy fixes no key of its
+/// own, so a publish that names no step goes unkeyed.
+///
+/// # Examples
+///
+/// ```
+/// use ruststream_pulsar::PulsarPublishOptions;
+///
+/// let keyed = PulsarPublishOptions {
+///     partition_key: Some("user-42".to_owned()),
+/// };
+/// # let _ = keyed;
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PulsarPublishOptions {
+    /// The message's partition key: keyed routing places the message by it and `KeyShared`
+    /// subscriptions order by it.
+    ///
+    /// `None` leaves the key to the `partition-key` header, the portable spelling of the same
+    /// value; with neither, the message is unkeyed.
+    pub partition_key: Option<String>,
+}
+
 /// Publishes messages to Pulsar topics, one producer per topic, created lazily and shared
 /// through the broker core (so `shutdown` can close them).
 ///
-/// A `partition-key` header becomes the message's partition key, which keyed routing and
-/// `KeyShared` subscriptions order by; [`PulsarPublishExt::with_partition_key`] names that key
-/// as a publish argument instead. Awaits the broker's send receipt, so `Ok` means the
+/// The partition key travels per message: [`PulsarPublishSteps::partition_key`] names it at the
+/// call site, and a `partition-key` header names the same key for a caller that writes its
+/// headers itself. Awaits the broker's send receipt, so `Ok` means the
 /// broker stored the message. Buildable before `connect` and usable until `shutdown`;
 /// afterwards every publish reports [`PulsarError::NotConnected`].
 #[derive(Clone)]
@@ -74,11 +100,19 @@ impl PulsarPublisher {
 
 impl Publisher for PulsarPublisher {
     type Error = PulsarError;
+    /// The partition key, the one value Pulsar lets one publish differ from the next in on this
+    /// crate's surface.
+    type Options = PulsarPublishOptions;
 
-    async fn publish(&self, msg: OutgoingMessage<'_>) -> Result<(), Self::Error> {
+    async fn publish(
+        &self,
+        msg: OutgoingMessage<'_>,
+        options: Option<&Self::Options>,
+    ) -> Result<(), Self::Error> {
         let core = self.core()?;
         let producer = Box::pin(self.producer_for(core, msg.name())).await?;
-        let message = to_pulsar_message(&msg);
+        let key = options.and_then(|options| options.partition_key.as_deref());
+        let message = to_pulsar_message(&msg, key);
         let receipt = {
             let mut producer = producer.lock().await;
             Box::pin(producer.send_non_blocking(message))
@@ -95,11 +129,16 @@ impl Publisher for PulsarPublisher {
     }
 }
 
-/// Pulsar's per-message publish arguments, attached to a publisher ahead of the publish
-/// builder.
+/// Pulsar's per-message steps on the framework's publish builder.
 ///
-/// Each method returns an adapter to start the publish builder from, so the argument travels
-/// with the message without taking any of the builder's own positions.
+/// A step sets one field of [`PulsarPublishOptions`] for the publish being assembled and returns
+/// the builder, so the message still leaves through the entry the mount site named, with that
+/// entry's codec, transforms and slot attribution. The bound is on the publisher's settings type,
+/// so these steps appear on a builder over a Pulsar publisher and over no other broker's.
+///
+/// The trait is in the crate [prelude](crate::prelude). A handler body that names a step imports
+/// that glob and bounds its slot `Out<impl Publisher<Options = PulsarPublishOptions>, Marker>`;
+/// every other body imports the framework prelude alone.
 ///
 /// # Examples
 ///
@@ -108,7 +147,7 @@ impl Publisher for PulsarPublisher {
 /// # async fn demo() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 /// use ruststream::Outgoing;
 /// use ruststream::runtime::PublishExt;
-/// use ruststream_pulsar::PulsarPublishExt;
+/// use ruststream_pulsar::PulsarPublishSteps;
 /// use ruststream_pulsar::testing::PulsarTestBroker;
 ///
 /// #[derive(Outgoing, serde::Serialize)]
@@ -117,27 +156,21 @@ impl Publisher for PulsarPublisher {
 ///     id: u64,
 /// }
 ///
-/// let publisher = PulsarTestBroker::new().publisher();
-/// publisher
-///     .with_partition_key("user-42")
+/// PulsarTestBroker::new()
+///     .publisher()
 ///     .message(&Order { id: 1 })
+///     .partition_key("user-42")
 ///     .publish()
 ///     .await?;
 /// # Ok(())
 /// # }
 /// ```
-pub trait PulsarPublishExt: Publisher + Sized {
-    /// Publishes through this publisher with `key` as the message's partition key, which keyed
-    /// routing and `KeyShared` subscriptions order by.
+pub trait PulsarPublishSteps {
+    /// Sends this one message under `key` as its partition key, which keyed routing places the
+    /// message by and `KeyShared` subscriptions order by.
     ///
-    /// The key travels as the [`PARTITION_KEY_HEADER`] header, sent under the publish's own
-    /// headers: a publish that names `partition-key` itself overrides this one, and a publish
-    /// that names other keys keeps it. A message with a declared header contract can carry both.
-    ///
-    /// The key applies to publishes assembled by the builder; a direct
-    /// [`Publisher::publish`] call bypasses the header merge, as it does for any base headers.
-    ///
-    /// The returned adapter borrows the publisher and lives for the publish it is chained onto.
+    /// The key wins over a `partition-key` header the call site wrote itself; without either the
+    /// message is unkeyed.
     ///
     /// # Examples
     ///
@@ -146,7 +179,7 @@ pub trait PulsarPublishExt: Publisher + Sized {
     /// # async fn demo() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     /// use ruststream::{Outgoing, Serialized};
     /// use ruststream::runtime::PublishExt;
-    /// use ruststream_pulsar::PulsarPublishExt;
+    /// use ruststream_pulsar::PulsarPublishSteps;
     /// use ruststream_pulsar::testing::PulsarTestBroker;
     ///
     /// // An already-encoded record: the newtype says the bytes are the wire form, so no
@@ -154,85 +187,37 @@ pub trait PulsarPublishExt: Publisher + Sized {
     /// #[derive(Outgoing, Serialized)]
     /// struct Record(Vec<u8>);
     ///
-    /// let broker = PulsarTestBroker::new();
-    /// broker
+    /// PulsarTestBroker::new()
     ///     .publisher()
-    ///     .with_partition_key("user-42")
     ///     .message(&Record(b"{}".to_vec()))
     ///     .to("orders")
+    ///     .partition_key("user-42")
     ///     .publish()
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
     #[must_use]
-    fn with_partition_key(&self, key: impl Into<String>) -> PartitionKeyed<'_, Self> {
-        PartitionKeyed::new(self, key)
-    }
+    fn partition_key(self, key: impl Into<String>) -> Self;
 }
 
-impl PulsarPublishExt for PulsarPublisher {}
-
-/// A publisher that carries a partition key under every message published through it.
-///
-/// Built by [`PulsarPublishExt::with_partition_key`] and used as the publish builder's starting
-/// point, so it never appears in a type annotation.
-///
-/// # Examples
-///
-/// ```
-/// # #[cfg(feature = "testing")]
-/// # async fn demo() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-/// use ruststream::Outgoing;
-/// use ruststream::runtime::PublishExt;
-/// use ruststream_pulsar::PulsarPublishExt;
-/// use ruststream_pulsar::testing::PulsarTestBroker;
-///
-/// #[derive(Outgoing, serde::Serialize)]
-/// struct Order {
-///     id: u64,
-/// }
-///
-/// let publisher = PulsarTestBroker::new().publisher();
-/// let keyed = publisher.with_partition_key("user-42");
-/// keyed.message(&Order { id: 1 }).to("orders").publish().await?;
-/// keyed
-///     .message(&Order { id: 1 })
-///     .to("orders.audit")
-///     .publish()
-///     .await?;
-/// # Ok(())
-/// # }
-/// ```
-#[derive(Debug, Clone)]
-pub struct PartitionKeyed<'a, P> {
-    inner: &'a P,
-    base: HeaderMap,
-}
-
-impl<'a, P> PartitionKeyed<'a, P> {
-    fn new(inner: &'a P, key: impl Into<String>) -> Self {
-        Self {
-            inner,
-            base: once((PARTITION_KEY_HEADER, key.into())).collect(),
-        }
-    }
-}
-
-impl<P: Publisher> Publisher for PartitionKeyed<'_, P> {
-    type Error = P::Error;
-
-    async fn publish(&self, msg: OutgoingMessage<'_>) -> Result<(), Self::Error> {
-        self.inner.publish(msg).await
-    }
-
-    fn base_headers(&self) -> Option<&HeaderMap> {
-        Some(&self.base)
+impl<Sink, Body, Enc, Hdrs, Dest> PulsarPublishSteps for PublishBuilder<Sink, Body, Enc, Hdrs, Dest>
+where
+    Sink: PublishSink<Options = PulsarPublishOptions>,
+{
+    fn partition_key(mut self, key: impl Into<String>) -> Self {
+        self.options_mut()
+            .get_or_insert_with(PulsarPublishOptions::default)
+            .partition_key = Some(key.into());
+        self
     }
 }
 
 /// The publish policy for [`PulsarPublisher`]: pure declaration, constructible anywhere,
 /// paired with the connected broker by the runtime after `connect`.
+///
+/// It pairs against the in-process stand-in too, so a routes file writes `.out(Reply, Publish)`
+/// once and mounts it on either broker.
 ///
 /// # Examples
 ///
@@ -257,72 +242,37 @@ impl PublishPolicy<ConnectedPulsarBroker> for PulsarPublish {
     }
 }
 
+/// The policy fixes no defaults - a partition key belongs to one message, not to a mount site -
+/// so there is nothing here for the stand-in to honour or to drop quietly; what differs between
+/// the two impls is only the live form the policy pairs into, which is the publisher that broker
+/// sends with.
+#[cfg(feature = "testing")]
+impl PublishPolicy<crate::testing::ConnectedPulsarTestBroker> for PulsarPublish {
+    type Live = crate::testing::PulsarTestPublisher;
+
+    fn pair(
+        self,
+        connected: &crate::testing::ConnectedPulsarTestBroker,
+    ) -> impl Future<Output = Result<Self::Live, PairError>> {
+        ready(Ok(connected.publisher()))
+    }
+}
+
 #[cfg(all(test, feature = "testing"))]
 mod tests {
     use ruststream::runtime::PublishExt;
     use ruststream::testing::TestableBroker;
-    use ruststream::{HeaderMap, Outgoing, Serialized};
+    use ruststream::{Broker, HeaderMap, Outgoing, Serialized};
     use serde::Serialize;
 
-    use super::PulsarPublishExt;
+    use super::PulsarPublishSteps;
     use crate::PARTITION_KEY_HEADER;
     use crate::testing::{ConnectedPulsarTestBroker, PulsarTestBroker};
-    use ruststream::Broker;
 
-    /// The payload these tests carry: what they assert on is the header merge, so the body is
-    /// deliberately opaque bytes rather than a model.
+    /// The payload these tests carry: what they assert on is the key the publish carried, so the
+    /// body is deliberately opaque bytes rather than a model.
     #[derive(Outgoing, Serialized)]
     struct Record(&'static [u8]);
-
-    async fn connected() -> ConnectedPulsarTestBroker {
-        PulsarTestBroker::new()
-            .connect()
-            .await
-            .expect("the in-process broker connects")
-    }
-
-    #[tokio::test]
-    async fn the_argument_becomes_the_partition_key_header() {
-        let broker = connected().await;
-        broker
-            .publisher()
-            .with_partition_key("user-42")
-            .message(&Record(b"{}"))
-            .to("orders")
-            .publish()
-            .await
-            .expect("publish succeeds");
-
-        let sent = broker.published("orders");
-        assert_eq!(sent.len(), 1);
-        assert_eq!(
-            sent[0].headers().get(PARTITION_KEY_HEADER),
-            Some(b"user-42".as_slice())
-        );
-    }
-
-    #[tokio::test]
-    async fn the_argument_keeps_the_headers_the_caller_supplied() {
-        let broker = connected().await;
-        let mut headers = HeaderMap::new();
-        headers.insert("x-tenant", "acme");
-        broker
-            .publisher()
-            .with_partition_key("user-42")
-            .message(&Record(b"{}"))
-            .with_headers(headers)
-            .to("orders")
-            .publish()
-            .await
-            .expect("publish succeeds");
-
-        let sent = broker.published("orders");
-        assert_eq!(sent[0].headers().get_str("x-tenant"), Some("acme"));
-        assert_eq!(
-            sent[0].headers().get(PARTITION_KEY_HEADER),
-            Some(b"user-42".as_slice())
-        );
-    }
 
     #[derive(Serialize)]
     struct OrderMeta {
@@ -335,17 +285,26 @@ mod tests {
         id: u64,
     }
 
+    async fn connected() -> ConnectedPulsarTestBroker {
+        PulsarTestBroker::new()
+            .connect()
+            .await
+            .expect("the in-process broker connects")
+    }
+
+    /// The step wins over the portable spelling of the same value, so a call site that sets both
+    /// gets the one it wrote last in the chain rather than a silent merge.
     #[tokio::test]
-    async fn a_call_site_key_overrides_the_argument() {
+    async fn the_step_wins_over_a_call_site_header() {
         let broker = connected().await;
         let mut headers = HeaderMap::new();
         headers.insert(PARTITION_KEY_HEADER, "user-7");
         broker
             .publisher()
-            .with_partition_key("user-42")
             .message(&Record(b"{}"))
             .with_headers(headers)
             .to("orders")
+            .partition_key("user-42")
             .publish()
             .await
             .expect("publish succeeds");
@@ -353,20 +312,20 @@ mod tests {
         let sent = broker.published("orders");
         assert_eq!(
             sent[0].headers().get(PARTITION_KEY_HEADER),
-            Some(b"user-7".as_slice())
+            Some(b"user-42".as_slice())
         );
     }
 
-    // The case the argument exists for: a hand-written header cannot reach a publish whose
-    // headers position is taken by a declared contract.
+    /// The case a header cannot reach: the publish's headers position is taken by a declared
+    /// contract, and the key is a setting rather than one more entry in that map.
     #[tokio::test]
-    async fn the_argument_composes_with_a_declared_header_contract() {
+    async fn the_step_composes_with_a_declared_header_contract() {
         let broker = connected().await;
         broker
             .publisher()
-            .with_partition_key("user-42")
             .message(&OrderDone { id: 1 })
             .with_headers(&OrderMeta { tenant: "acme" })
+            .partition_key("user-42")
             .publish()
             .await
             .expect("publish succeeds");

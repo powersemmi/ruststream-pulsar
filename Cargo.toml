@@ -15,8 +15,10 @@ authors = ["RustStream contributors"]
 ruststream-pulsar = { path = "crates/ruststream-pulsar" }
 
 # Naming the pre-release admits the 0.7.0 release candidate: a range whose bounds carry no
-# pre-release tag excludes every pre-release, so ">=0.7.0" alone cannot resolve 0.7.0-rc.1.
-ruststream = { version = ">=0.7.0-rc.1, <0.8.0", default-features = false }
+# pre-release tag excludes every pre-release, so ">=0.7.0" alone cannot resolve 0.7.0-rc.3.
+# The floor is rc.3: a publisher declares its per-message options there, and a subscription
+# reports the address a deferred retry is published to.
+ruststream = { version = ">=0.7.0-rc.3, <0.8.0", default-features = false }
 
 # The client's default features drag in async-std, OAuth2, and mutually exclusive TLS
 # runtimes; pin the tokio runtime and the wire compressors (foreign producers may compress).

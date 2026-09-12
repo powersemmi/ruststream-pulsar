@@ -18,7 +18,7 @@ use crate::message::PulsarPosition;
 use crate::subscriber::PulsarSeeker;
 use crate::subscription::DEFAULT_BATCH_WAIT;
 use crate::testing::broker::TestState;
-use crate::testing::router::{Delivery, SubscriptionId};
+use crate::testing::router::{ConsumerId, Delivery};
 use crate::testing::seek::LogSeeker;
 
 /// Subscriber returned by [`ConnectedPulsarTestBroker`](crate::testing::ConnectedPulsarTestBroker).
@@ -36,7 +36,7 @@ pub struct PulsarTestSubscriber {
 /// The stand-in's wire form: the subscription's queue in the router, one delivery at a time.
 struct Queued {
     state: Arc<TestState>,
-    id: SubscriptionId,
+    id: ConsumerId,
     /// A clone of the broker's harness coordinator, threaded into each yielded message so a
     /// requeue re-counts and a consumed delivery decrements. `None` outside a harness run.
     coordinator: Option<Coordinator>,
@@ -58,7 +58,7 @@ impl std::fmt::Debug for Queued {
 impl PulsarTestSubscriber {
     pub(crate) fn new(
         state: Arc<TestState>,
-        id: SubscriptionId,
+        id: ConsumerId,
         coordinator: Option<Coordinator>,
     ) -> Self {
         Self {
@@ -162,7 +162,7 @@ impl BatchSubscriber for PulsarTestSubscriber {
 pub struct PulsarTestMessage {
     delivery: Option<Delivery>,
     state: Arc<TestState>,
-    id: SubscriptionId,
+    id: ConsumerId,
     /// The subscription's seeker, shared by every delivery it yields; the per-delivery and batch
     /// contexts clone it out of here.
     seek: Arc<PulsarSeeker>,
@@ -191,7 +191,7 @@ impl PulsarTestMessage {
     pub(crate) fn new(
         delivery: Delivery,
         state: Arc<TestState>,
-        id: SubscriptionId,
+        id: ConsumerId,
         seek: Arc<PulsarSeeker>,
         coordinator: Option<Coordinator>,
     ) -> Self {

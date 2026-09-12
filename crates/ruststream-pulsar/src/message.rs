@@ -3,6 +3,8 @@
 //! Message properties carry headers directly - no envelope format is invented - and the
 //! partition key rides the message's own `partition_key` in both directions.
 
+use std::collections::HashMap;
+
 use bytes::Bytes;
 use pulsar::proto::MessageIdData;
 use ruststream::{AckError, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned};
@@ -230,14 +232,23 @@ impl IncomingMessage for PulsarMessage {
 }
 
 /// Builds the client message for an outgoing publish.
-pub(crate) fn to_pulsar_message(msg: &OutgoingMessage<'_>) -> pulsar::producer::Message {
+///
+/// `key` is the partition key the call site named with
+/// [`partition_key`](crate::PulsarPublishSteps::partition_key); it wins over a
+/// [`PARTITION_KEY_HEADER`] header the call site wrote itself, and with neither the message
+/// leaves unkeyed. Either way the key becomes the message's own `partition_key` rather than a
+/// property, which is how it comes back on delivery.
+pub(crate) fn to_pulsar_message(
+    msg: &OutgoingMessage<'_>,
+    key: Option<&str>,
+) -> pulsar::producer::Message {
     let headers = msg.headers();
-    let mut properties = std::collections::HashMap::with_capacity(headers.len());
-    let mut partition_key = None;
+    let mut properties = HashMap::with_capacity(headers.len());
+    let mut partition_key = key.map(ToOwned::to_owned);
     for (name, value) in headers.iter() {
         let text = String::from_utf8_lossy(value).into_owned();
         if name == PARTITION_KEY_HEADER {
-            partition_key = Some(text);
+            partition_key.get_or_insert(text);
         } else {
             properties.insert(name.to_owned(), text);
         }
@@ -261,12 +272,31 @@ mod tests {
         headers.insert("x-tenant", "acme");
         let outgoing = OutgoingMessage::new("orders", b"{}".as_slice()).with_headers(headers);
 
-        let message = to_pulsar_message(&outgoing);
+        let message = to_pulsar_message(&outgoing, None);
         assert_eq!(message.partition_key.as_deref(), Some("user-42"));
         assert_eq!(
             message.properties.get("x-tenant").map(String::as_str),
             Some("acme")
         );
         assert!(!message.properties.contains_key(PARTITION_KEY_HEADER));
+    }
+
+    #[test]
+    fn the_call_site_key_wins_over_the_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(PARTITION_KEY_HEADER, "user-7");
+        let outgoing = OutgoingMessage::new("orders", b"{}".as_slice()).with_headers(headers);
+
+        let message = to_pulsar_message(&outgoing, Some("user-42"));
+        assert_eq!(message.partition_key.as_deref(), Some("user-42"));
+        assert!(!message.properties.contains_key(PARTITION_KEY_HEADER));
+    }
+
+    #[test]
+    fn a_publish_that_names_no_key_leaves_unkeyed() {
+        let outgoing = OutgoingMessage::new("orders", b"{}".as_slice());
+
+        let message = to_pulsar_message(&outgoing, None);
+        assert_eq!(message.partition_key, None);
     }
 }

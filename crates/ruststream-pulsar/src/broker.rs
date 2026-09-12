@@ -10,13 +10,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use pulsar::{Authentication, Pulsar, TokioExecutor};
-use ruststream::{Broker, ConnectedBroker, DefaultPublish, DescribeServer, ServerSpec, Subscribe};
+use ruststream::{
+    Broker, ConnectedBroker, DefaultPublish, DescribeServer, RedeliveryAddress, ServerSpec,
+    Subscribe,
+};
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::error::{PulsarError, box_err};
 use crate::publisher::{PulsarProducer, PulsarPublish, PulsarPublisher};
 use crate::subscriber::PulsarSubscriber;
-use crate::subscription::PulsarSubscription;
+use crate::subscription::{DEFAULT_SUBSCRIPTION, PulsarSubscription};
 
 /// The live client state shared by the connected form and every handle derived from it.
 ///
@@ -131,14 +134,13 @@ impl Broker for PulsarBroker {
     }
 }
 
+/// The description carries the address a client dials and nothing else: the generated `AsyncAPI`
+/// document is published and shared, so a `user:password@` in the service URL must not reach it.
+/// `ServerSpec::from_url` is the framework's own reduction, so every broker crate drops the
+/// userinfo the same way.
 impl DescribeServer for PulsarBroker {
     fn describe_server(&self) -> ServerSpec {
-        ServerSpec::new(
-            self.url
-                .trim_start_matches("pulsar+ssl://")
-                .trim_start_matches("pulsar://"),
-            "pulsar",
-        )
+        ServerSpec::from_url(&self.url, "pulsar")
     }
 }
 
@@ -200,13 +202,58 @@ impl Subscribe for ConnectedPulsarBroker {
     type Subscriber = PulsarSubscriber;
 
     async fn subscribe(&self, name: &str) -> Result<Self::Subscriber, Self::Error> {
-        // By-name subscriptions share one durable subscription named after the service-wide
-        // convention "ruststream", matching competing-consumer expectations.
-        self.subscribe_descriptor(PulsarSubscription::new(name, "ruststream"))
+        // By-name subscriptions share one durable subscription, matching competing-consumer
+        // expectations. The stand-in reads the same constant, so the two cannot drift apart.
+        self.subscribe_descriptor(PulsarSubscription::new(name, DEFAULT_SUBSCRIPTION))
             .await
+    }
+
+    /// A bare name is a topic, and a topic is what a publisher writes to, so the deferred
+    /// `retry_after` copy reaches the subscription that read the original.
+    fn redelivery_address(&self, name: &str) -> Option<RedeliveryAddress> {
+        Some(RedeliveryAddress::new(name.to_owned()))
     }
 }
 
 impl DefaultPublish for ConnectedPulsarBroker {
     type Policy = PulsarPublish;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every URL shape this broker accepts, reduced to the address a client dials.
+    #[test]
+    fn the_description_carries_the_address_alone() {
+        for (url, address) in [
+            ("pulsar://broker:6650", "broker:6650"),
+            ("pulsar+ssl://broker:6651", "broker:6651"),
+            ("pulsar://broker", "broker"),
+            ("pulsar://broker:6650/", "broker:6650"),
+            ("pulsar://admin:s3cret@broker:6650", "broker:6650"),
+            ("pulsar+ssl://admin:s3cret@broker", "broker"),
+            // A password may hold an `@`, so the userinfo ends at the last one.
+            ("pulsar://admin:p@ssw0rd@broker:6650", "broker:6650"),
+            // Pulsar takes a comma-separated broker list, which is the address as it stands.
+            ("pulsar://one:6650,two:6650", "one:6650,two:6650"),
+        ] {
+            assert_eq!(
+                PulsarBroker::new(url).describe_server().host.as_deref(),
+                Some(address),
+                "url {url}",
+            );
+        }
+    }
+
+    /// The generated document is published and shared, so what a service put in its URL to
+    /// authenticate must not be in it.
+    #[test]
+    fn credentials_never_reach_the_description() {
+        let described = PulsarBroker::new("pulsar://admin:s3cret@broker:6650").describe_server();
+        let host = described.host.expect("a URL with a host describes one");
+        assert!(!host.contains('@'), "userinfo survived in {host:?}");
+        assert!(!host.contains("admin"), "user name survived in {host:?}");
+        assert!(!host.contains("s3cret"), "password survived in {host:?}");
+    }
 }

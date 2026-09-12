@@ -17,8 +17,9 @@
 //!   assembled on the client from the size the mount site names; only the deadline that closes a
 //!   partial batch is this crate's own, on [`PulsarSubscription::batch_wait`].
 //! - Key sharing maps onto the partition key; message properties carry headers directly, with no
-//!   extra envelope format. [`PulsarPublishExt`] names the key as a publish argument, ahead of
-//!   the framework's publish builder.
+//!   extra envelope format. The key is the one per-message setting
+//!   ([`PulsarPublishOptions`]), named at the call site by the
+//!   [`partition_key`](PulsarPublishSteps::partition_key) step of the publish builder.
 //!
 //! Transactions and the schema registry are out of scope: the client does not implement them,
 //! and the capability traits they would back are optional.
@@ -41,7 +42,7 @@ pub use broker::{ConnectedPulsarBroker, PulsarBroker};
 pub use context::{Position, PulsarBatchContext, PulsarContext, SeekHandle};
 pub use error::PulsarError;
 pub use message::{PARTITION_KEY_HEADER, PulsarMessage, PulsarPosition};
-pub use publisher::{PartitionKeyed, PulsarPublish, PulsarPublishExt, PulsarPublisher};
+pub use publisher::{PulsarPublish, PulsarPublishOptions, PulsarPublishSteps, PulsarPublisher};
 pub use subscriber::{PulsarSeeker, PulsarSubscriber};
 pub use subscription::{DeadLetter, PulsarSubscription, SubscriptionType};
 pub use topic::PulsarTopic;

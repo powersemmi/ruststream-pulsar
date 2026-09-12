@@ -15,7 +15,7 @@ use ruststream::{
 };
 use ruststream_pulsar::{
     ConnectedPulsarBroker, DeadLetter, PARTITION_KEY_HEADER, PulsarBroker, PulsarError,
-    PulsarMessage, PulsarPosition, PulsarPublishExt, PulsarSubscription,
+    PulsarMessage, PulsarPosition, PulsarPublishSteps, PulsarSubscription,
 };
 
 const RECV_TIMEOUT: Duration = Duration::from_secs(30);
@@ -25,10 +25,21 @@ const RECV_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Outgoing, Serialized)]
 struct Record(&'static [u8]);
 
+/// The broker to run the live checks against, or `None` to skip them.
+///
+/// Skipping quietly is what keeps these usable on a laptop with no stand running. It is also
+/// what would let a renamed variable or a dropped `env:` block turn the whole live job green
+/// without running anything, so CI sets `RUSTSTREAM_REQUIRE_LIVE` and the skip becomes a
+/// failure there.
 fn test_url() -> Option<String> {
     match std::env::var("PULSAR_TEST_URL") {
         Ok(url) if !url.is_empty() => Some(url),
         _ => {
+            assert!(
+                std::env::var_os("RUSTSTREAM_REQUIRE_LIVE").is_none(),
+                "RUSTSTREAM_REQUIRE_LIVE is set, so the live suites must run, but \
+                 PULSAR_TEST_URL is missing or empty",
+            );
             eprintln!("PULSAR_TEST_URL is not set; skipping the live integration test");
             None
         }
@@ -65,7 +76,10 @@ async fn roundtrip_preserves_payload_properties_and_partition_key() {
     headers.insert(PARTITION_KEY_HEADER, "user-42");
     let publisher = connected.publisher();
     publisher
-        .publish(OutgoingMessage::new(&topic, b"{\"id\":1}".as_slice()).with_headers(headers))
+        .publish(
+            OutgoingMessage::new(&topic, b"{\"id\":1}".as_slice()).with_headers(headers),
+            None,
+        )
         .await
         .expect("publish succeeds");
 
@@ -88,8 +102,10 @@ async fn roundtrip_preserves_payload_properties_and_partition_key() {
     connected.shutdown().await.expect("shutdown succeeds");
 }
 
+/// The setting has to reach the server as the message's own key, not as one more property: that
+/// key is what keyed routing places by and what `KeyShared` orders by.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_partition_key_argument_reaches_the_server() {
+async fn the_partition_key_step_reaches_the_server() {
     let Some(url) = test_url() else { return };
     let connected = connect(&url).await;
 
@@ -101,9 +117,9 @@ async fn the_partition_key_argument_reaches_the_server() {
 
     connected
         .publisher()
-        .with_partition_key("user-42")
         .message(&Record(b"{\"id\":1}"))
         .to(topic.as_str())
+        .partition_key("user-42")
         .publish()
         .await
         .expect("publish succeeds");
@@ -133,7 +149,7 @@ async fn nack_with_requeue_redelivers() {
         .expect("subscription opens");
     let publisher = connected.publisher();
     publisher
-        .publish(OutgoingMessage::new(&topic, b"again".as_slice()))
+        .publish(OutgoingMessage::new(&topic, b"again".as_slice()), None)
         .await
         .expect("publish succeeds");
 
@@ -176,7 +192,7 @@ async fn seeking_to_earliest_replays_every_topic_of_a_multi_topic_subscription()
     let publisher = connected.publisher();
     for topic in [&first, &second] {
         publisher
-            .publish(OutgoingMessage::new(topic, topic.as_bytes()))
+            .publish(OutgoingMessage::new(topic, topic.as_bytes()), None)
             .await
             .expect("publish succeeds");
     }
@@ -240,7 +256,7 @@ async fn dead_letter_policy_routes_exhausted_messages() {
 
     let publisher = connected.publisher();
     publisher
-        .publish(OutgoingMessage::new(&topic, b"poison".as_slice()))
+        .publish(OutgoingMessage::new(&topic, b"poison".as_slice()), None)
         .await
         .expect("publish succeeds");
 

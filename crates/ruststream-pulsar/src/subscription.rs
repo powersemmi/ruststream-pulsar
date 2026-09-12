@@ -4,9 +4,10 @@
 //! exist are unrepresentable; the dead-letter policy and the ack timeout are consumer-side
 //! settings the product owns.
 
+use std::future::{Future, ready};
 use std::time::Duration;
 
-use ruststream::SubscriptionSource;
+use ruststream::{RedeliveryAddress, SubscriptionSource};
 
 use crate::broker::ConnectedPulsarBroker;
 use crate::error::PulsarError;
@@ -74,14 +75,23 @@ pub(crate) enum Topics {
 /// trading latency for fuller batches raises it with [`PulsarSubscription::batch_wait`].
 pub(crate) const DEFAULT_BATCH_WAIT: Duration = Duration::from_millis(10);
 
+/// The subscription a bare topic name joins, on the real broker and on the stand-in alike.
+///
+/// A `#[subscriber("orders")]` names no subscription and Pulsar has no anonymous consumer, so
+/// the crate supplies one: by-name handlers share this durable subscription under the default
+/// [`SubscriptionType::Shared`], which is what makes two instances of a service competing
+/// consumers rather than two independent readers of one topic.
+pub(crate) const DEFAULT_SUBSCRIPTION: &str = "ruststream";
+
 /// A subscription descriptor for one Pulsar subscription over one or more topics.
 ///
 /// Where the subscription starts reading is not a descriptor option: it is the framework's
 /// `start_at(..)` clause over [`PulsarPosition`](crate::PulsarPosition), which the `Seekable`
 /// capability backs.
 ///
-/// Implements [`SubscriptionSource`], so it can sit inline in the `#[subscriber(..)]`
-/// decorator:
+/// Implements [`SubscriptionSource`] for the real broker and, behind the `testing` feature, for
+/// the in-process stand-in, so the declaration below sits inline in the `#[subscriber(..)]`
+/// decorator and mounts on either:
 ///
 /// ```
 /// use std::time::Duration;
@@ -174,6 +184,36 @@ impl PulsarSubscription {
         &self.subscription
     }
 
+    /// The name the framework reports for a subscription on this descriptor: the topic when
+    /// there is exactly one, the subscription name otherwise, since a list and a pattern have no
+    /// single topic to name. Both [`SubscriptionSource`] impls read it, so a handler is reported
+    /// under one name whichever broker it mounted on.
+    fn source_name(&self) -> &str {
+        match &self.topics {
+            Topics::List(topics) if topics.len() == 1 => &topics[0],
+            _ => &self.subscription,
+        }
+    }
+
+    /// Where a deferred retry of this subscription is published, or `None` when this descriptor
+    /// has no single answer.
+    ///
+    /// One topic is its own address: a publish to it reaches the subscription reading it, so the
+    /// runtime's `retry_after` fallback lands the delayed copy exactly where the original
+    /// arrived. A topic list and a pattern are silent instead. Both could name a topic the
+    /// subscription reads, but the copy would then arrive on a different topic from the one the
+    /// message came from, and a handler that branches on the delivery's topic would act on the
+    /// wrong branch. A scope wired with `retry_via` over such a subscription refuses to start,
+    /// naming it, which is the honest answer to a retry this descriptor cannot place.
+    fn address(&self) -> Option<RedeliveryAddress> {
+        match &self.topics {
+            Topics::List(topics) if topics.len() == 1 => {
+                Some(RedeliveryAddress::new(topics[0].clone()))
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn display_topic(&self) -> String {
         match &self.topics {
             Topics::List(topics) => topics.join(","),
@@ -211,10 +251,7 @@ impl SubscriptionSource<ConnectedPulsarBroker> for PulsarSubscription {
     type Subscriber = PulsarSubscriber;
 
     fn name(&self) -> &str {
-        match &self.topics {
-            Topics::List(topics) if topics.len() == 1 => &topics[0],
-            _ => &self.subscription,
-        }
+        self.source_name()
     }
 
     async fn subscribe(
@@ -222,6 +259,50 @@ impl SubscriptionSource<ConnectedPulsarBroker> for PulsarSubscription {
         connected: &ConnectedPulsarBroker,
     ) -> Result<PulsarSubscriber, PulsarError> {
         connected.subscribe_descriptor(self).await
+    }
+
+    fn redelivery_address(
+        &self,
+        _connected: &ConnectedPulsarBroker,
+    ) -> impl Future<Output = Result<Option<RedeliveryAddress>, PulsarError>> {
+        ready(Ok(self.address()))
+    }
+}
+
+/// The descriptor is a source for the in-process stand-in too, so the declaration a service
+/// ships is the one its tests run: the same `#[subscriber(PulsarSubscription::new(..))]` mounts
+/// on [`PulsarTestBroker`](crate::testing::PulsarTestBroker) under a
+/// [`TestApp`](ruststream::testing::TestApp), with no second descriptor and nothing to change at
+/// the mount site.
+///
+/// All three forms route: one topic, the list of
+/// [`topics`](PulsarSubscription::topics), and the regular expression of
+/// [`pattern`](PulsarSubscription::pattern), which the stand-in matches against every topic
+/// published to, including topics that first appear after the subscription opened. The
+/// [`subscription_type`](PulsarSubscription::subscription_type) decides which consumer of the
+/// subscription takes a message, so competing consumers split a stream in process as they do in
+/// production. What is left to the server - the dead-letter policy, the ack timeout, redelivery
+/// timing - the [`testing` module docs](crate::testing) name.
+#[cfg(feature = "testing")]
+impl SubscriptionSource<crate::testing::ConnectedPulsarTestBroker> for PulsarSubscription {
+    type Subscriber = crate::testing::PulsarTestSubscriber;
+
+    fn name(&self) -> &str {
+        self.source_name()
+    }
+
+    async fn subscribe(
+        self,
+        connected: &crate::testing::ConnectedPulsarTestBroker,
+    ) -> Result<Self::Subscriber, PulsarError> {
+        connected.subscribe_descriptor(self).await
+    }
+
+    fn redelivery_address(
+        &self,
+        _connected: &crate::testing::ConnectedPulsarTestBroker,
+    ) -> impl Future<Output = Result<Option<RedeliveryAddress>, PulsarError>> {
+        ready(Ok(self.address()))
     }
 }
 
