@@ -1,7 +1,14 @@
-//! Conformance: the routing suite against the in-process transport, and the lifecycle check
-//! against a standalone broker (gated behind `PULSAR_TEST_URL`).
+//! Conformance: every suite this crate's capabilities justify, run twice.
 //!
-//! Start one with `just brokers-up`, then:
+//! The in-process legs hold the stand-in to the same contract as the server - routing,
+//! lifecycle, seeking, batches - because a service is unit-tested against it and a stand-in that
+//! quietly disagrees with the contract is worse than no stand-in. The server legs, gated behind
+//! `PULSAR_TEST_URL`, are what says the stand-in is not merely agreeing with itself.
+//!
+//! Request-reply and transactions have no legs here: the crate implements neither capability, so
+//! neither suite applies to either broker.
+//!
+//! Start a broker with `just brokers-up`, then:
 //! `PULSAR_TEST_URL=pulsar://127.0.0.1:6650 cargo test --all-features`.
 
 #![cfg(feature = "testing")]
@@ -35,6 +42,23 @@ fn test_url() -> Option<String> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pulsar_test_broker_passes_conformance_suite() {
     harness::run_suite(PulsarTestBroker::new).await;
+}
+
+/// The lifecycle ladder against the stand-in, through the crate's own descriptor: synchronous
+/// construction, the consuming `connect`, a subscription, a delivery it acks, the consuming
+/// `shutdown`, and the publisher that aliased the connection erroring afterwards rather than
+/// swallowing the message. A service is unit-tested against this broker, so the contract it
+/// claims to follow has to hold here and not only against a server; the live leg below runs the
+/// same suite, which is what says the two agree.
+#[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_test_broker_passes_lifecycle() {
+    harness::lifecycle(
+        PulsarTestBroker::new,
+        |name| PulsarSubscription::new(name, "conformance"),
+        |connected| connected.publisher(),
+    )
+    .await;
 }
 
 /// The stand-in retains a log, so the framework's own seeking suite is what says its

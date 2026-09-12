@@ -16,7 +16,7 @@ use tokio::sync::{Mutex, OnceCell};
 use crate::error::{PulsarError, box_err};
 use crate::publisher::{PulsarProducer, PulsarPublish, PulsarPublisher};
 use crate::subscriber::PulsarSubscriber;
-use crate::subscription::PulsarSubscription;
+use crate::subscription::{DEFAULT_SUBSCRIPTION, PulsarSubscription};
 
 /// The live client state shared by the connected form and every handle derived from it.
 ///
@@ -212,9 +212,9 @@ impl Subscribe for ConnectedPulsarBroker {
     type Subscriber = PulsarSubscriber;
 
     async fn subscribe(&self, name: &str) -> Result<Self::Subscriber, Self::Error> {
-        // By-name subscriptions share one durable subscription named after the service-wide
-        // convention "ruststream", matching competing-consumer expectations.
-        self.subscribe_descriptor(PulsarSubscription::new(name, "ruststream"))
+        // By-name subscriptions share one durable subscription, matching competing-consumer
+        // expectations. The stand-in reads the same constant, so the two cannot drift apart.
+        self.subscribe_descriptor(PulsarSubscription::new(name, DEFAULT_SUBSCRIPTION))
             .await
     }
 }

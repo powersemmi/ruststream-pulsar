@@ -234,6 +234,9 @@ impl<P: Publisher> Publisher for PartitionKeyed<'_, P> {
 /// The publish policy for [`PulsarPublisher`]: pure declaration, constructible anywhere,
 /// paired with the connected broker by the runtime after `connect`.
 ///
+/// It pairs against the in-process stand-in too, so a routes file writes `.out(Reply, Publish)`
+/// once and mounts it on either broker.
+///
 /// # Examples
 ///
 /// ```
@@ -252,6 +255,21 @@ impl PublishPolicy<ConnectedPulsarBroker> for PulsarPublish {
     fn pair(
         self,
         connected: &ConnectedPulsarBroker,
+    ) -> impl Future<Output = Result<Self::Live, PairError>> {
+        ready(Ok(connected.publisher()))
+    }
+}
+
+/// The policy declares no settings, so there is nothing here for the stand-in to honour or to
+/// drop quietly; what differs between the two impls is only the live form the policy pairs
+/// into, which is the publisher that broker sends with.
+#[cfg(feature = "testing")]
+impl PublishPolicy<crate::testing::ConnectedPulsarTestBroker> for PulsarPublish {
+    type Live = crate::testing::PulsarTestPublisher;
+
+    fn pair(
+        self,
+        connected: &crate::testing::ConnectedPulsarTestBroker,
     ) -> impl Future<Output = Result<Self::Live, PairError>> {
         ready(Ok(connected.publisher()))
     }

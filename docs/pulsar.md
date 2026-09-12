@@ -102,9 +102,11 @@ A descriptor is validated before any I/O: an empty subscription name, an empty t
 malformed topic name, or a pattern that is not a valid regular expression fails with
 `PulsarError::Invalid` at subscribe time, without a call to the broker.
 
-`PulsarSubscription` implements `SubscriptionSource`, so it sits inline in the `#[subscriber(..)]`
-decorator. The one import is `ruststream_pulsar::prelude::*`, which carries the framework's own
-prelude along with this crate's descriptors, publish policy and publish arguments:
+`PulsarSubscription` implements `SubscriptionSource` for the real broker and, behind the `testing`
+feature, for the in-process stand-in, so it sits inline in the `#[subscriber(..)]` decorator and
+the same declaration mounts on either (see [Testing](#testing)). The one import is
+`ruststream_pulsar::prelude::*`, which carries the framework's own prelude along with this crate's
+descriptors, publish policy and publish arguments:
 
 ```rust
 --8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:handler"
@@ -263,7 +265,9 @@ constructed anywhere - in a router, in configuration, at a mount site - and the 
 with the broker at startup. `PulsarPublish` pairs into `PulsarPublisher`, and it is the connected
 broker's default publish policy, so a handler mounted with plain `include` replies through it. The
 reply type names the topic the reply goes to, with `#[outgoing(name = "receipts")]`. A reply type
-that names none goes to the topic the `publish("receipts")` clause names.
+that names none goes to the topic the `publish("receipts")` clause names. The same policy pairs
+against the in-process stand-in, where it becomes that broker's publisher, so a mount site names
+`Publish` once and runs on either (see [Testing](#testing)).
 
 Which name you write depends on which prelude the file writes, and the two do not overlap. A
 routes file imports `ruststream_pulsar::prelude::*` and gets the mount-site vocabulary, where each
@@ -335,15 +339,33 @@ suites.
 ## Testing
 
 The `testing` feature ships `PulsarTestBroker`: an in-process broker that reproduces the crate's
-core routing with no server and no network. It follows the same ladder as the real broker, and its
-connected form implements `ruststream::testing::TestableBroker`, so the same broker drives the
-`TestApp` harness and the framework's conformance suite in process; inject traffic with
-`broker.inject(OutgoingMessage::new(..))` and assert on published output with the free
-`ruststream::testing::expect_published`. See
+core routing with no server and no network. It follows the same ladder as the real broker, terminal
+state included, and it drives the `TestApp` harness. See
 [Unit-testing a service with TestApp](https://powersemmi.github.io/ruststream/latest/guides/testing/#unit-testing-a-service-with-testapp).
 
-It routes by exact address match over a retained log, so it is a log broker like the real one,
-not a pipe. That is what lets a service that repositions itself be unit-tested at all: the
+`PulsarSubscription` is a subscription source for it as well as for the real broker, so a test
+mounts the declaration the service ships instead of a bare-topic rewrite of it - the descriptor
+below is the one from [Subscription descriptors](#subscription-descriptors), unchanged:
+
+```rust
+--8<-- "crates/ruststream-pulsar/tests/descriptor_sources.rs:descriptor"
+```
+
+Its addressing is honoured in full: a single topic, the list of `topics([..])`, and the regular
+expression of `pattern(..)`, matched against every topic published to, so a topic that first
+appears after the subscription opened reaches the handler as it does on a server.
+
+The publishing half carries over the same way. `PulsarPublish` pairs against the stand-in as well,
+and it is that broker's default policy, so the include site is the production one - `.out(Reply,
+Publish)`, or nothing at all for the broker default - and the reply is read back off the publish
+log:
+
+```rust
+--8<-- "crates/ruststream-pulsar/tests/descriptor_sources.rs:reply_mount"
+```
+
+It routes over a retained log, so it is a log broker like the real one, not a pipe. That is what
+lets a service that repositions itself be unit-tested at all: the
 stand-in carries the same `PulsarContext` and `PulsarBatchContext` with the same `Position` and
 `SeekHandle` keys, a subscription opens with `start_at(..)` over the retained log, and a seek
 really discards what was queued and refills from the target. A handler that seeks therefore
@@ -353,12 +375,45 @@ mounts on `PulsarTestBroker` unchanged, and the assertions are the harness's own
 --8<-- "crates/ruststream-pulsar/tests/seek_context.rs:delivery"
 ```
 
-The framework's `capabilities::seeking` and `capabilities::batches` conformance suites run against
-the stand-in as well as against a real broker, so its repositioning and its batches are held to
-the same contract rather than merely looking right. The stand-in batches exactly as the real
-subscriber does - the same client-side buffer over a one-at-a-time queue - so a batch handler
-under test runs the code path it will in production.
+Every framework suite this crate's capabilities justify runs against the stand-in as well as
+against a real broker: the routing suite, `harness::lifecycle`, `capabilities::seeking` and
+`capabilities::batches`. A service is unit-tested against this broker, so it is held to the
+contract rather than to whatever it happens to do, and the server legs are what say the two
+agree. `harness::lifecycle` is the reason a publisher that outlives `shutdown` reports
+`NotConnected` here rather than quietly accepting the message, exactly as a handle aliasing a
+closed connection does. Request-reply and transactions have no leg either way: the crate
+implements neither capability, for the reasons in the [capability matrix](#capabilities), so
+neither suite applies to either broker. The stand-in also batches exactly as the
+real subscriber does - the same client-side buffer over a one-at-a-time queue - so a batch
+handler under test runs the code path it will in production.
 
-What the stand-in does not simulate is Pulsar product behaviour: subscription types,
-dead-lettering, ack timeouts and redelivery timing are broker semantics, and the live suite
-against a real server covers those.
+The subscription type is honoured, because it is the thing a service writes tests about. A
+message reaches every subscription over its topic, and within one subscription the type picks the
+consumer that takes it: `Exclusive` holds the subscription for one consumer and refuses a second
+attach, `Failover` delivers to the active consumer and promotes a standby when it leaves, `Shared`
+rotates, and `KeyShared` splits by partition key. Two handlers on one shared subscription
+therefore split a run between them here as they do in production, and a `nack(requeue = true)`
+goes back to the subscription, so a retry can land on a sibling.
+
+Four things still stop short of a server, and a test that leans on them is leaning on the wrong
+broker:
+
+- `KeyShared` assigns by the key's hash modulo the consumer count rather than by Pulsar's hash
+  ranges. One key stays on one consumer, which is the property worth testing, but which consumer
+  that is differs from a server's, and so does what a consumer joining or leaving reshuffles.
+- A seek moves the consumer that asked for it; on a server the cursor belongs to the subscription,
+  so a seek from one consumer of a shared subscription moves its siblings too.
+- A delivery nacked past `max_deliveries` keeps coming back instead of moving to the dead-letter
+  topic: `dead_letter` needs the server's per-message delivery count, which this transport does
+  not keep.
+- `ack_timeout`, credit and redelivery timing carry no behaviour here; they are the server's
+  clock, not the transport's.
+
+The last two are product behaviour the live suite covers against a real broker; the first two are
+where this model is coarser than the server's.
+
+Topic names route literally, with no namespace to resolve them against: `orders` and
+`persistent://public/default/orders` are two addresses here and one topic on a server. A pattern
+is matched against that same literal name, while a server matches it against the fully qualified
+one, so an unanchored `orders-.*` selects the same topics either way and a `^`-anchored pattern
+over a bare name matches here and nowhere else.

@@ -16,14 +16,14 @@ use ruststream::testing::Coordinator;
 
 use crate::message::PulsarPosition;
 use crate::testing::broker::TestState;
-use crate::testing::router::SubscriptionId;
+use crate::testing::router::ConsumerId;
 
 /// Repositions one in-process subscription; the value behind
 /// [`PulsarSeeker`](crate::PulsarSeeker) on the stand-in.
 #[derive(Debug, Clone)]
 pub(crate) struct LogSeeker {
     state: Arc<TestState>,
-    id: SubscriptionId,
+    id: ConsumerId,
     /// A clone of the broker's harness coordinator, so a reposition keeps the in-flight count
     /// balanced. `None` outside a harness run.
     coordinator: Option<Coordinator>,
@@ -32,7 +32,7 @@ pub(crate) struct LogSeeker {
 impl LogSeeker {
     pub(crate) fn new(
         state: Arc<TestState>,
-        id: SubscriptionId,
+        id: ConsumerId,
         coordinator: Option<Coordinator>,
     ) -> Self {
         Self {
