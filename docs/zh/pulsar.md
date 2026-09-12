@@ -26,7 +26,7 @@ serde = { version = "1", features = ["derive"] }
 | `RequestReply` | 否 | Pulsar 没有回复信箱，回复就是向另一个主题的普通发布 |
 | `Partitioned` | 是 | 投递会报告消息的分区键，`KeyShared` 订阅按它排序；发布时用 `partition_key` 步骤点名这个键（见[逐条消息的设置](#per-message-settings)） |
 | `Seekable` / `Positioned` | 是 | 订阅按 `PulsarPosition` 定位，处理器通过 `Position` 和 `SeekHandle` 两个上下文键读取当前位置和定位句柄（见[定位](#seeking)） |
-| `DescribeServer` | 是 | `PulsarBroker` 报告 URL 里的主机和端口，以及 `pulsar` 协议：框架的 AsyncAPI 文档写的就是这些。URL 里带的凭据，它从不报告 |
+| `DescribeServer` | 是 | 框架的 AsyncAPI 文档写的是 `PulsarBroker` 从自己 URL 里读出的主机、端口和 `pulsar` 协议；URL 里带的凭据从不进入文档 |
 
 ## 生命周期 { #the-lifecycle }
 
@@ -145,9 +145,10 @@ Pulsar 的客户端一次只交出一条投递，因此批由框架自己的缓�
 
 ### 进死信 { #dead-lettering }
 
-`DeadLetter::new("orders-dlq").max_deliveries(5)` 在一条消息被重新投递五次之后，把它送进
-`orders-dlq`。一次否定确认（nack）让投递计数加一。`ack_timeout` 不靠否定确认也能让它加一：超过
-该超时仍未确认的消息，它都重新投递。两者都是 Pulsar 消费者上的设置，不是这个 crate 跑的机制。
+`DeadLetter::new("orders-dlq")` 在一条消息被重新投递五次之后，把它送进 `orders-dlq`，
+`max_deliveries(n)` 则换成别的上限。一次否定确认（nack）让投递计数加一。`ack_timeout` 不靠否定
+确认也能让它加一：超过该超时仍未确认的消息，它都重新投递。两者都是 Pulsar 消费者上的设置，不是
+这个 crate 跑的机制。
 
 ## 确认 { #acknowledgement }
 
@@ -292,7 +293,7 @@ PULSAR_TEST_URL=pulsar://127.0.0.1:6650 cargo test --workspace --all-features --
 ```
 
 CI 跑的是同一套：集成测试、生命周期检查（`new` -> `connect` -> 订阅 -> 发布 -> 接收 -> ack ->
-`shutdown`，并断言关闭之前创建的发布者在关闭之后返回错误），以及定位和批的能力套件。
+`shutdown`，并断言关闭之前创建的发布者在关闭之后返回错误），以及定位和批的检查。
 
 ## 测试 { #testing }
 
@@ -328,14 +329,13 @@ Broker 交出同样的 `PulsarContext` 和 `PulsarBatchContext`，带同样的 `
 --8<-- "crates/ruststream-pulsar/tests/seek_context.rs:delivery"
 ```
 
-这个 crate 的能力所证成的每一套框架测试，在进程内 Broker 和真实 Broker 上都会跑：路由套件、
-`harness::lifecycle`、`capabilities::seeking` 和 `capabilities::batches`。服务对着这个 Broker 做
-单元测试，因此衡量它的是契约，而不是它碰巧做了什么；两者是否一致，由服务器那一侧的运行来回答。
-正因为有 `harness::lifecycle`，比 `shutdown` 活得更久的发布者在这里报 `NotConnected`，而不是悄悄
-收下消息，这和指向已关闭连接的句柄完全一样。请求-响应和事务两边都没有测试可跑：这个 crate 两种
-能力都没实现，原因见[能力矩阵](#capabilities)，因此两套测试对两个 Broker 都不适用。进程内 Broker
-攒批的方式也和真实订阅者完全一致（同一个客户端缓冲区，架在一次一条的队列之上），因此被测的批量
-处理器走的就是它在生产中要走的那条代码路径。
+框架对具备这些能力的 Broker 所做的全部检查，在这里和在真实服务器上都会跑：路由、从 `connect` 到
+`shutdown` 的生命周期、定位和批。服务对着这个 Broker 做单元测试，因此衡量它的是契约，而不是这个
+传输碰巧做了什么；两者是否一致，由真实服务器那一侧的运行来回答。正因为有生命周期这项检查，比
+`shutdown` 活得更久的发布者在这里报 `NotConnected`，而不是悄悄收下消息，这和指向已关闭连接的句柄
+完全一样。请求-响应和事务在两个 Broker 上都不检查：这个 crate 两种能力都没实现，原因见
+[能力矩阵](#capabilities)。进程内 Broker 攒批的方式也和真实订阅者完全一致（同一个客户端缓冲区，
+架在一次一条的队列之上），因此被测的批量处理器走的就是它在生产中要走的那条代码路径。
 
 订阅类型是生效的，因为服务正是围着它写测试。一条消息会到达其主题上的每一条订阅，而在一条订阅
 内部，由类型挑出接收它的那个消费者：`Exclusive` 让一个消费者独占订阅并拒绝第二次接入，`Failover`

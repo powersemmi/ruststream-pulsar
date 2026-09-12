@@ -28,7 +28,7 @@ this broker does not implement does not compile at the mount site.
 | `RequestReply` | no | Pulsar has no reply inbox; a reply is an ordinary publish to another topic |
 | `Partitioned` | yes | a delivery reports the message's partition key, which `KeyShared` subscriptions order by; a publish names that key with the `partition_key` step (see [Per-message settings](#per-message-settings)) |
 | `Seekable` / `Positioned` | yes | a subscription seeks over `PulsarPosition`, and a handler reads the current position and the seeker through the `Position` and `SeekHandle` context keys (see [Seeking](#seeking)) |
-| `DescribeServer` | yes | `PulsarBroker` reports the host and port from its URL and the `pulsar` protocol, never the credentials the URL carries, which the framework's AsyncAPI document names |
+| `DescribeServer` | yes | the framework's AsyncAPI document names the host, the port and the `pulsar` protocol, which `PulsarBroker` reads off its URL; the credentials the URL carries never reach the document |
 
 ## The lifecycle
 
@@ -155,10 +155,10 @@ batch body repositions it through `PulsarBatchContext` (see
 
 ### Dead-lettering
 
-`DeadLetter::new("orders-dlq").max_deliveries(5)` sends a message to `orders-dlq` after five
-redeliveries of it. A negative acknowledgement advances the delivery count. `ack_timeout` advances
-it without one, by redelivering anything left unacknowledged for longer than the timeout. Both are
-settings on the Pulsar consumer, not machinery this crate runs.
+`DeadLetter::new("orders-dlq")` sends a message to `orders-dlq` after five redeliveries of it, and
+`max_deliveries(n)` sets another limit. A negative acknowledgement advances the delivery count.
+`ack_timeout` advances it without one, by redelivering anything left unacknowledged for longer than
+the timeout. Both are settings on the Pulsar consumer, not machinery this crate runs.
 
 ## Acknowledgement
 
@@ -322,7 +322,7 @@ PULSAR_TEST_URL=pulsar://127.0.0.1:6650 cargo test --workspace --all-features --
 
 CI runs the same suite: the integration tests, the lifecycle check (`new` -> `connect` -> subscribe
 -> publish -> receive -> ack -> `shutdown`, with a publisher created before shutdown asserted to
-return an error afterwards), and the seeking and batching capability suites.
+return an error afterwards), and the seeking and batching checks.
 
 ## Testing
 
@@ -361,17 +361,16 @@ retained log, and a seek discards what was queued and refills from the target:
 --8<-- "crates/ruststream-pulsar/tests/seek_context.rs:delivery"
 ```
 
-Every framework suite this crate's capabilities justify runs against the stand-in as well as
-against a real broker: the routing suite, `harness::lifecycle`, `capabilities::seeking` and
-`capabilities::batches`. A service is unit-tested against this broker, so it is held to the
-contract rather than to whatever it happens to do, and the server legs are what say the two
-agree. `harness::lifecycle` is the reason a publisher that outlives `shutdown` reports
+Everything the framework checks of a broker with these capabilities is checked here as well as
+against a real server: routing, the lifecycle from `connect` to `shutdown`, seeking and batching.
+A service is unit-tested against this broker, so it is held to the contract rather than to
+whatever the transport happens to do, and the runs against a real server are what say the two
+agree. The lifecycle check is the reason a publisher that outlives `shutdown` reports
 `NotConnected` here rather than quietly accepting the message, exactly as a handle aliasing a
-closed connection does. Request-reply and transactions have no leg either way: the crate
-implements neither capability, for the reasons in the [capability matrix](#capabilities), so
-neither suite applies to either broker. The stand-in also batches exactly as the
-real subscriber does - the same client-side buffer over a one-at-a-time queue - so a batch
-handler under test runs the code path it will in production.
+closed connection does. Request-reply and transactions are checked on neither broker: the crate
+implements neither capability, for the reasons in the [capability matrix](#capabilities). The
+stand-in also batches exactly as the real subscriber does - the same client-side buffer over a
+one-at-a-time queue - so a batch handler under test runs the code path it will in production.
 
 The subscription type is honoured, because it is the thing a service writes tests about. A
 message reaches every subscription over its topic, and within one subscription the type picks the
