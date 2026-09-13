@@ -19,6 +19,9 @@ default = []
 # The in-process test broker (TestableBroker + TestApp support). The conformance harness is a
 # broker-author tool and stays in this repo's dev-dependencies, not in the user-facing feature.
 testing = ["ruststream/testing"]
+# The protocol bindings this crate contributes to the generated AsyncAPI document. Forwarded
+# from the core, because the hooks that carry them live behind the core's own feature.
+asyncapi = ["ruststream/asyncapi", "dep:serde"]
 
 [dependencies]
 ruststream = { workspace = true, default-features = false }
@@ -26,6 +29,8 @@ pulsar.workspace = true
 regex.workspace = true
 bytes.workspace = true
 futures.workspace = true
+# Only the binding bodies are serialized here; the payload codecs are the core's.
+serde = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -40,8 +45,6 @@ ruststream = { workspace = true, features = [
     "macros",
     "json",
 ] }
-# Not a bare "1": `serde_derive` below this cannot parse a `#[derive(Serialize)]` type that also
-# carries `#[outgoing(headers = Meta)]`, whose value is a path rather than a literal, so the
-# doctests fail to expand. The floor the minimal-versions job verifies.
-serde = { version = "1.0.103", features = ["derive"] }
+serde.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }

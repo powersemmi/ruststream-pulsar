@@ -219,6 +219,12 @@ where
 /// It pairs against the in-process stand-in too, so a routes file writes `out_reply(Publish)`
 /// once and mounts it on either broker.
 ///
+/// It adds nothing to the generated `AsyncAPI` document. The specification's `pulsar` channel
+/// binding is a namespace and a persistence, both of which live in the topic name, and the
+/// destination of a publish is the mount site's or the message type's rather than the policy's;
+/// its operation and message objects are empty. Replies go to the declared destination too, so
+/// there is no reply-to header for a client to read an address out of.
+///
 /// # Examples
 ///
 /// ```

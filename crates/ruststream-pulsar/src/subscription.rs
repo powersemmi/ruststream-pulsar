@@ -6,12 +6,20 @@
 
 use std::time::Duration;
 
+#[cfg(feature = "asyncapi")]
+use ruststream::asyncapi::{Binding, Bindings};
 use ruststream::{BrokerMoves, RetryDeclaration, SubscriptionSource};
+#[cfg(feature = "asyncapi")]
+use serde::Serialize;
 
 use crate::broker::ConnectedPulsarBroker;
 use crate::error::PulsarError;
 use crate::subscriber::PulsarSubscriber;
 use crate::topic::PulsarTopic;
+
+/// The version of the `pulsar` binding object this crate writes, as the specification numbers it.
+#[cfg(feature = "asyncapi")]
+const BINDING_VERSION: &str = "0.1.0";
 
 /// How competing consumers on one subscription share its messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -25,6 +33,72 @@ pub enum SubscriptionType {
     Failover,
     /// Competing consumers with per-key ordering (the `Partitioned` capability's transport).
     KeyShared,
+}
+
+#[cfg(feature = "asyncapi")]
+impl SubscriptionType {
+    /// Pulsar's own spelling, which is what the generated document reports.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Exclusive => "Exclusive",
+            Self::Shared => "Shared",
+            Self::Failover => "Failover",
+            Self::KeyShared => "KeyShared",
+        }
+    }
+}
+
+/// One standard binding, or none when the body will not serialize.
+///
+/// A binding that fails to build is a binding the document goes without: a broker never holds up
+/// a service over a description of itself.
+#[cfg(feature = "asyncapi")]
+fn one<T: Serialize>(protocol: &'static str, body: &T) -> Bindings {
+    Binding::new(protocol, BINDING_VERSION, body)
+        .map(|binding| Bindings::new().with(binding))
+        .unwrap_or_default()
+}
+
+/// One extension binding, for what the specification has no field for.
+#[cfg(feature = "asyncapi")]
+fn extension<T: Serialize>(name: &'static str, body: &T) -> Bindings {
+    Binding::extension(name, body)
+        .map(|binding| Bindings::new().with(binding))
+        .unwrap_or_default()
+}
+
+/// The `pulsar` channel binding of the `AsyncAPI` specification, as far as a consumer knows it.
+///
+/// `compaction`, `geo-replication`, `retention`, `ttl` and `deduplication` are namespace and
+/// topic policies an operator sets outside the client, so this crate has no value to report for
+/// them and reports none rather than a guess.
+#[cfg(feature = "asyncapi")]
+#[derive(Serialize)]
+struct PulsarChannel<'a> {
+    namespace: &'a str,
+    persistence: &'a str,
+}
+
+/// What a Pulsar consumer is, in the crate's own vocabulary.
+///
+/// The specification's `pulsar` operation object is empty, so the subscription's name, its type
+/// and its acknowledgement timeout travel under an extension key instead of being squeezed into
+/// a field that means something else.
+#[cfg(feature = "asyncapi")]
+#[derive(Serialize)]
+struct PulsarOperation<'a> {
+    subscription: &'a str,
+    #[serde(rename = "subscriptionType")]
+    subscription_type: &'static str,
+    #[serde(rename = "ackTimeoutMillis", skip_serializing_if = "Option::is_none")]
+    ack_timeout_millis: Option<u64>,
+    /// The topics a multi-topic subscription reads. Absent for a single topic, which the
+    /// channel address already names, and for a pattern, which names none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    topics: Option<&'a [String]>,
+    /// The regular expression a pattern subscription selects its topics with.
+    #[serde(rename = "topicPattern", skip_serializing_if = "Option::is_none")]
+    topic_pattern: Option<&'a str>,
 }
 
 /// The consumer's dead-letter policy, as the registration declared it: a delivery limit and the
@@ -207,6 +281,62 @@ impl PulsarSubscription {
         }
     }
 
+    /// What this subscription adds to its channel in the generated document.
+    ///
+    /// The namespace and the persistence come out of the topic name the descriptor was built
+    /// with, which is the only place a consumer learns them. A subscription over several topics
+    /// reports them only when every topic agrees, and a pattern subscription reports nothing:
+    /// the specification's fields are single-valued, and a document that picks one topic's
+    /// namespace to stand for all of them describes a deployment that does not exist.
+    #[cfg(feature = "asyncapi")]
+    fn describe_channel(&self) -> Bindings {
+        let Topics::List(topics) = &self.topics else {
+            return Bindings::new();
+        };
+        let mut parsed = topics.iter().map(|topic| PulsarTopic::parse(topic));
+        let Some(Ok(first)) = parsed.next() else {
+            return Bindings::new();
+        };
+        for rest in parsed {
+            match rest {
+                Ok(topic)
+                    if topic.namespace() == first.namespace()
+                        && topic.persistence() == first.persistence() => {}
+                _ => return Bindings::new(),
+            }
+        }
+        let body = PulsarChannel {
+            namespace: first.namespace(),
+            persistence: first.persistence(),
+        };
+        one("pulsar", &body)
+    }
+
+    /// What this subscription adds to its `receive` operation.
+    ///
+    /// The specification's `pulsar` operation object is empty, so this is an extension: the
+    /// subscription's name and type decide how competing consumers share the stream, and the
+    /// acknowledgement timeout decides when an unsettled delivery comes back, all of which a
+    /// reader of the document wants and no standard field carries.
+    #[cfg(feature = "asyncapi")]
+    fn describe_operation(&self) -> Bindings {
+        let (topics, topic_pattern) = match &self.topics {
+            Topics::List(topics) if topics.len() > 1 => (Some(topics.as_slice()), None),
+            Topics::List(_) => (None, None),
+            Topics::Pattern(pattern) => (None, Some(pattern.as_str())),
+        };
+        let body = PulsarOperation {
+            subscription: &self.subscription,
+            subscription_type: self.sub_type.as_str(),
+            ack_timeout_millis: self
+                .ack_timeout
+                .map(|timeout| u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX)),
+            topics,
+            topic_pattern,
+        };
+        extension("x-ruststream-pulsar", &body)
+    }
+
     pub(crate) fn display_topic(&self) -> String {
         match &self.topics {
             Topics::List(topics) => topics.join(","),
@@ -267,6 +397,16 @@ impl SubscriptionSource<ConnectedPulsarBroker> for PulsarSubscription {
         self.retry = declaration.clone();
         self
     }
+
+    #[cfg(feature = "asyncapi")]
+    fn channel_bindings(&self) -> Bindings {
+        self.describe_channel()
+    }
+
+    #[cfg(feature = "asyncapi")]
+    fn operation_bindings(&self) -> Bindings {
+        self.describe_operation()
+    }
 }
 
 /// The descriptor is a source for the in-process stand-in too, so the declaration a service
@@ -304,6 +444,18 @@ impl SubscriptionSource<crate::testing::ConnectedPulsarTestBroker> for PulsarSub
     fn declare_retry(mut self, declaration: &RetryDeclaration) -> Self {
         self.retry = declaration.clone();
         self
+    }
+
+    /// The same values the real broker reports, so a document built against the stand-in is the
+    /// document the service publishes.
+    #[cfg(feature = "asyncapi")]
+    fn channel_bindings(&self) -> Bindings {
+        self.describe_channel()
+    }
+
+    #[cfg(feature = "asyncapi")]
+    fn operation_bindings(&self) -> Bindings {
+        self.describe_operation()
     }
 }
 

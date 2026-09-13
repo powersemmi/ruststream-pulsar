@@ -29,6 +29,12 @@ futures = "0.3"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tracing = "0.1"
+# Not a bare "1": `serde_derive` below this cannot parse a `#[derive(Serialize)]` type that also
+# carries `#[outgoing(headers = Meta)]`, whose value is a path rather than a literal, so the
+# doctests fail to expand. The floor the minimal-versions job verifies.
+serde = { version = "1.0.103", features = ["derive"] }
+# Tests alone: the generated document is navigated as a tree rather than matched as a string.
+serde_json = "1"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
