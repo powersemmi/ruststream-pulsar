@@ -15,10 +15,10 @@ authors = ["RustStream contributors"]
 ruststream-pulsar = { path = "crates/ruststream-pulsar" }
 
 # Naming the pre-release admits the 0.7.0 release candidate: a range whose bounds carry no
-# pre-release tag excludes every pre-release, so ">=0.7.0" alone cannot resolve 0.7.0-rc.4.
-# The floor is rc.4: the deferred-retry publisher is bound at the mount site with `out_retry`,
-# and a publish transform carries the per-message options of the position it runs on.
-ruststream = { version = ">=0.7.0-rc.4, <0.8.0", default-features = false }
+# pre-release tag excludes every pre-release, so ">=0.7.0" alone cannot resolve 0.7.0-rc.5.
+# The floor is rc.5: a registration declares its retry cap and dead-letter destination at the
+# mount site, and the subscription descriptor says who publishes the copies a retry is made of.
+ruststream = { version = ">=0.7.0-rc.5, <0.8.0", default-features = false }
 
 # The client's default features drag in async-std, OAuth2, and mutually exclusive TLS
 # runtimes; pin the tokio runtime and the wire compressors (foreign producers may compress).
