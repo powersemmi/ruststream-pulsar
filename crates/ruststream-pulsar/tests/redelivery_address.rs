@@ -10,17 +10,25 @@
 //! the copy would then arrive on a different topic from the one the original came off, and a
 //! handler that branches on the delivery's topic would take the wrong branch. The application
 //! refuses to start instead, naming the subscription.
+//!
+//! The position is an ordinary publishing slot, so what the registration wires on it travels with
+//! the copy.
 #![cfg(feature = "testing")]
 
 use std::time::Duration;
 
-use ruststream::runtime::RETRY_COUNT_HEADER;
+// The derive and the publish pipeline's message type share the name in different namespaces: the
+// derive is the macro the prelude carries, the value a transform edits is this type.
+use ruststream::runtime::{Outgoing, RETRY_COUNT_HEADER, SlotContext};
 use ruststream::testing::{Outcome, TestApp};
 use ruststream_pulsar::prelude::*;
 use ruststream_pulsar::testing::PulsarTestBroker;
 use serde::{Deserialize, Serialize};
 
 const RETRY_DELAY: Duration = Duration::from_secs(5);
+
+/// The stamp the retry transform writes, so a deferred copy is recognisable downstream.
+const LEFT_THROUGH_HEADER: &str = "x-left-through";
 
 #[derive(Debug, Deserialize, Eq, Outgoing, PartialEq, Serialize)]
 struct Order {
@@ -162,4 +170,54 @@ async fn a_multi_topic_descriptor_starts_when_the_scope_defers_nothing() {
 
     let tb = TestApp::start(app).await.expect("start harness");
     tb.shutdown().await.expect("graceful shutdown");
+}
+
+/// A transform on the retry position stamps the deferred copy: the position is an ordinary
+/// publishing slot, so the copy travels the pipeline the registration wired before it reaches
+/// the topic the subscription reported.
+struct DeferredStamp;
+
+impl<Options> PublishTransform<ForSlot, Options> for DeferredStamp {
+    type Destination = Reads;
+
+    fn apply(&self, out: &mut Outgoing<'_>, _options: &mut Option<Options>, cx: &SlotContext<'_>) {
+        out.headers_mut()
+            .insert(LEFT_THROUGH_HEADER, cx.slot().to_owned());
+    }
+}
+
+/// The stamp reaches the topic: the deferred copy carries the header the transform wrote, and the
+/// handler settles the redelivery.
+#[tokio::test(start_paused = true)]
+async fn a_transform_on_the_retry_position_stamps_the_deferred_copy() {
+    let app = RustStream::new(AppInfo::new("redelivery", "0.1.0")).with_broker(
+        PulsarTestBroker::new(),
+        |b| {
+            b.include(reconcile)
+                .out_retry(Publish)
+                .transform(DeferredStamp);
+        },
+    );
+    let tb = TestApp::start(app).await.expect("start harness");
+
+    tb.broker::<PulsarTestBroker>()
+        .message(&Order { id: 3 })
+        .to("orders")
+        .publish()
+        .await
+        .expect("publish");
+    tb.advance(RETRY_DELAY).await.expect("settle");
+
+    assert_eq!(
+        tb.broker::<PulsarTestBroker>()
+            .subscriber("orders")
+            .outcomes(),
+        [Outcome::Nack, Outcome::Ack],
+        "the deferred copy must reach the handler and settle",
+    );
+    // The original was injected unstamped, so the stamped one is the copy the retry published.
+    tb.broker::<PulsarTestBroker>()
+        .published::<Order>("orders")
+        .assert_called(2)
+        .with_header(LEFT_THROUGH_HEADER, "Retry");
 }
