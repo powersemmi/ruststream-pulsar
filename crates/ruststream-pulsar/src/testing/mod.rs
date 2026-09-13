@@ -50,16 +50,21 @@
 //!   that is differs from a server's, and so does what a consumer joining or leaving reshuffles.
 //! * A seek moves the consumer that asked for it. On a server the cursor belongs to the
 //!   subscription, so a seek from one consumer of a shared subscription moves its siblings too.
-//! * A delivery nacked past [`max_deliveries`](crate::DeadLetter::max_deliveries) keeps coming
-//!   back instead of moving to the dead-letter topic:
-//!   [`dead_letter`](crate::PulsarSubscription::dead_letter) needs the server's per-message
-//!   delivery count, which this transport does not keep.
 //! * [`ack_timeout`](crate::PulsarSubscription::ack_timeout), credit and redelivery timing carry
-//!   no behaviour here either; they are the server's clock, not the transport's.
+//!   no behaviour here; they are the server's clock, not the transport's.
 //!
-//! The last two are product behaviour the live suite covers against a real broker; the first two
+//! The last one is product behaviour the live suite covers against a real broker; the first two
 //! are where this model is coarser than the server's, and a test that leans on either is leaning
 //! on the wrong broker.
+//!
+//! The registration's retry declaration does carry behaviour. A consumer counts the redeliveries
+//! of a message and, at the `max_attempts(..)` limit, produces it to the declared
+//! `dead_letter(..)` topic and settles the original - the same place and the same arithmetic the
+//! Pulsar client uses, since the client applies the policy itself rather than the server. So a
+//! cap and a dead-letter destination are driven on the harness, and the live suite is what says
+//! the client agrees. What neither transport shows the handler is the count itself: the client
+//! keeps the broker's redelivery count for its own decision and does not put it on the message,
+//! so `IncomingMessage::redelivery_count` answers nothing here and nothing in production.
 //!
 //! Topic names route literally: the stand-in has no namespace to resolve them against, so
 //! `orders` and `persistent://public/default/orders` are two addresses here and one topic on a

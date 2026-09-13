@@ -97,10 +97,13 @@ impl PulsarSubscriber {
                 builder = builder.with_topic_regex(regex);
             }
         }
-        if let Some(dead_letter) = &descriptor.dead_letter {
+        if let Some(dead_letter) = descriptor.dead_letter_policy()? {
+            // The client delivers while the redelivery count is below the limit, so the limit is
+            // the number of deliveries the registration asked for.
             builder = builder.with_dead_letter_policy(DeadLetterPolicy {
-                max_redeliver_count: dead_letter.max_deliveries,
-                dead_letter_topic: dead_letter.topic.clone(),
+                max_redeliver_count: usize::try_from(dead_letter.max_deliveries)
+                    .unwrap_or(usize::MAX),
+                dead_letter_topic: dead_letter.topic,
             });
         }
         if descriptor.ack_timeout.is_some() {

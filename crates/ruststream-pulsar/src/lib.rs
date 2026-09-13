@@ -5,9 +5,11 @@
 //!
 //! - Four subscription types as an enum with per-variant meaning (exclusive, shared, failover,
 //!   key-shared) - combinations that do not exist are unrepresentable.
-//! - The consumer-side dead-letter policy carries its delivery-attempt limit, and the ack
-//!   timeout redelivers automatically; the Pulsar server enforces both, this crate does not
-//!   emulate them.
+//! - A registration's retry cap and dead-letter destination become the consumer's own
+//!   `DeadLetterPolicy`: the client counts a message's redeliveries and moves it on at the
+//!   limit, so nothing is republished from the service.
+//! - The ack timeout redelivers what a handler left unacknowledged; that is the consumer's
+//!   clock, not this crate's.
 //! - [`PulsarTopic`] validates the four meanings a topic name carries (persistence, tenant,
 //!   namespace, topic) on construction instead of at first use.
 //! - Multi-topic and pattern subscriptions are descriptor variants.
@@ -44,5 +46,5 @@ pub use error::PulsarError;
 pub use message::{PARTITION_KEY_HEADER, PulsarMessage, PulsarPosition};
 pub use publisher::{PulsarPublish, PulsarPublishOptions, PulsarPublishSteps, PulsarPublisher};
 pub use subscriber::{PulsarSeeker, PulsarSubscriber};
-pub use subscription::{DeadLetter, PulsarSubscription, SubscriptionType};
+pub use subscription::{PulsarSubscription, SubscriptionType};
 pub use topic::PulsarTopic;

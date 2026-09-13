@@ -10,8 +10,10 @@
 //!
 //! The per-name log is what makes the stand-in a log broker rather than a pipe: it backs the
 //! publish assertions, and a consumer can be repositioned over it, so the crate's seek surface
-//! works in process. What is still not simulated is the reliability machinery a Pulsar server
-//! runs: dead-letter policies and their delivery counts, ack timeouts, and credit.
+//! works in process. A consumer also counts the redeliveries of a message and, at the limit the
+//! registration declared, produces it to the dead-letter topic, which is where the Pulsar client
+//! does it too. What is still not simulated is the machinery a Pulsar server runs on its own
+//! clock: ack timeouts and credit.
 //!
 //! Every consumer's queue lives here, under the one lock the log lives under. That is what makes
 //! a reposition atomic: a seek drains the queue and refills it from the log in a single critical
@@ -35,7 +37,7 @@ use ruststream::{HeaderMap, RawMessage, testing::Coordinator};
 
 use crate::PARTITION_KEY_HEADER;
 use crate::message::PulsarPosition;
-use crate::subscription::SubscriptionType;
+use crate::subscription::{DeadLetterRoute, SubscriptionType};
 
 /// Opaque handle identifying one consumer inside an [`AddressRouter`].
 ///
@@ -49,13 +51,17 @@ pub(crate) struct ConsumerId(u64);
 /// `seq` is the message's index in its address's log, assigned at fanout and preserved across
 /// requeues, so a redelivered message reports the position it always had. `address` travels with
 /// it because a requeue goes back to the subscription rather than to the consumer that gave up
-/// on it, and choosing the consumer again needs the topic it was published to.
+/// on it, and choosing the consumer again needs the topic it was published to. `redeliveries`
+/// is the count the Pulsar client keeps on the wire and compares against the consumer's
+/// dead-letter limit; it is not on the message the handler sees, because the client does not put
+/// it there either.
 #[derive(Debug, Clone)]
 pub(crate) struct Delivery {
     pub(crate) payload: Bytes,
     pub(crate) headers: HeaderMap,
     pub(crate) seq: usize,
     address: String,
+    redeliveries: u32,
 }
 
 /// Which addresses one consumer covers.
@@ -143,10 +149,12 @@ impl fmt::Display for ExclusiveHeld {
 
 impl std::error::Error for ExclusiveHeld {}
 
-/// One attached consumer: what it covers, which subscription it belongs to, and its queue.
+/// One attached consumer: what it covers, which subscription it belongs to, the dead-letter
+/// policy the registration declared for it, and its queue.
 struct Consumer {
     route: Route,
     membership: Membership,
+    dead_letter: Option<DeadLetterRoute>,
     queue: VecDeque<Delivery>,
     waker: AtomicWaker,
 }
@@ -242,6 +250,41 @@ impl RouterState {
         }
     }
 
+    /// Appends a message to `address` and hands it to every subscription reading that address,
+    /// once each. Runs under the caller's lock, so a dead-letter produce can share it with the
+    /// requeue that triggered it.
+    fn deliver(
+        &mut self,
+        address: &str,
+        payload: Bytes,
+        headers: HeaderMap,
+        coordinator: Option<&Coordinator>,
+    ) {
+        let snapshot = RawMessage::new(address, payload.clone()).with_headers(headers.clone());
+        let entries = self.log.entry(address.to_owned()).or_default();
+        let seq = entries.len();
+        entries.push(LogEntry {
+            message: snapshot,
+            at: now_millis(),
+        });
+
+        let delivery = Delivery {
+            payload,
+            headers,
+            seq,
+            address: address.to_owned(),
+            redeliveries: 0,
+        };
+        for (name, sharing, members) in self.subscriptions_over(address) {
+            let target = self.choose(&name, sharing, &members, &delivery);
+            if self.enqueue(target, delivery.clone())
+                && let Some(coordinator) = coordinator
+            {
+                coordinator.enqueued();
+            }
+        }
+    }
+
     /// Queues `delivery` for `id` and wakes it. Reports whether the consumer was still there.
     fn enqueue(&mut self, id: ConsumerId, delivery: Delivery) -> bool {
         let Some(consumer) = self.consumers.get_mut(&id) else {
@@ -300,6 +343,7 @@ impl AddressRouter {
         &self,
         route: Route,
         membership: Membership,
+        dead_letter: Option<DeadLetterRoute>,
     ) -> Result<ConsumerId, ExclusiveHeld> {
         let mut state = self.lock();
         let contested = state.consumers.values().any(|consumer| {
@@ -320,6 +364,7 @@ impl AddressRouter {
             Consumer {
                 route,
                 membership,
+                dead_letter,
                 queue: VecDeque::new(),
                 waker: AtomicWaker::new(),
             },
@@ -353,16 +398,41 @@ impl AddressRouter {
     /// The redelivery goes to the subscription rather than back at the consumer that gave up on
     /// it, so the type picks a consumer again: on a `Shared` subscription the retry can land on a
     /// sibling, as it can on a server, while `Exclusive`, `Failover` and a `KeyShared` key all
-    /// resolve to the consumer they resolved to before. Reports whether a consumer was still
-    /// there to take it.
+    /// resolve to the consumer they resolved to before.
+    ///
+    /// A consumer carrying the registration's dead-letter policy counts the redelivery first,
+    /// and at the limit produces the message to the dead-letter topic instead of handing it
+    /// back. That is where the Pulsar client applies the policy too: on the client, against the
+    /// redelivery count the broker puts on the wire.
+    ///
+    /// Reports whether a consumer was still there to take it; a dead-lettered message reports
+    /// `false`, because the produce has already counted its own enqueues.
     // significant_drop_tightening misfires: the guard is used up to the last statement.
     #[allow(clippy::significant_drop_tightening)]
-    pub(crate) fn requeue(&self, id: ConsumerId, delivery: Delivery) -> bool {
+    pub(crate) fn requeue(
+        &self,
+        id: ConsumerId,
+        mut delivery: Delivery,
+        coordinator: Option<&Coordinator>,
+    ) -> bool {
         let mut state = self.lock();
         let Some(consumer) = state.consumers.get(&id) else {
             return false;
         };
         let membership = consumer.membership.clone();
+        let dead_letter = consumer.dead_letter.clone();
+        delivery.redeliveries = delivery.redeliveries.saturating_add(1);
+        if let Some(policy) = dead_letter
+            && delivery.redeliveries >= policy.max_deliveries
+        {
+            state.deliver(
+                &policy.topic,
+                delivery.payload,
+                delivery.headers,
+                coordinator,
+            );
+            return false;
+        }
         let members = state.members_of(&delivery.address, &membership.name);
         if members.is_empty() {
             return false;
@@ -383,29 +453,7 @@ impl AddressRouter {
         headers: HeaderMap,
         coordinator: Option<&Coordinator>,
     ) {
-        let snapshot = RawMessage::new(address, payload.clone()).with_headers(headers.clone());
-        let mut state = self.lock();
-        let entries = state.log.entry(address.to_owned()).or_default();
-        let seq = entries.len();
-        entries.push(LogEntry {
-            message: snapshot,
-            at: now_millis(),
-        });
-
-        let delivery = Delivery {
-            payload,
-            headers,
-            seq,
-            address: address.to_owned(),
-        };
-        for (name, sharing, members) in state.subscriptions_over(address) {
-            let target = state.choose(&name, sharing, &members, &delivery);
-            if state.enqueue(target, delivery.clone())
-                && let Some(coordinator) = coordinator
-            {
-                coordinator.enqueued();
-            }
-        }
+        self.lock().deliver(address, payload, headers, coordinator);
     }
 
     /// Returns every message recorded for `address`, in publish order.
@@ -464,6 +512,9 @@ impl AddressRouter {
                         headers: entry.message.headers().clone(),
                         seq,
                         address: address.clone(),
+                        // A replay is a fresh delivery of the log entry, which is how a server
+                        // counts one after a seek.
+                        redeliveries: 0,
                     },
                 )
             }));

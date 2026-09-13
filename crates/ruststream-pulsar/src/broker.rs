@@ -11,8 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use pulsar::{Authentication, Pulsar, TokioExecutor};
 use ruststream::{
-    Broker, ConnectedBroker, DefaultPublish, DescribeServer, RedeliveryAddress, ServerSpec,
-    Subscribe,
+    Broker, BrokerMoves, ConnectedBroker, DefaultPublish, DescribeServer, ServerSpec, Subscribe,
 };
 use tokio::sync::{Mutex, OnceCell};
 
@@ -200,18 +199,17 @@ impl ConnectedBroker for ConnectedPulsarBroker {
 
 impl Subscribe for ConnectedPulsarBroker {
     type Subscriber = PulsarSubscriber;
+    /// A bare name opens the same consumer a descriptor does, so a spent delivery moves at the
+    /// client here too. What a bare name cannot carry is the declaration itself: the
+    /// registration's cap and dead-letter topic reach a consumer only through
+    /// [`PulsarSubscription`], which is the form to name when a handler needs them.
+    type Copies = BrokerMoves;
 
     async fn subscribe(&self, name: &str) -> Result<Self::Subscriber, Self::Error> {
         // By-name subscriptions share one durable subscription, matching competing-consumer
         // expectations. The stand-in reads the same constant, so the two cannot drift apart.
         self.subscribe_descriptor(PulsarSubscription::new(name, DEFAULT_SUBSCRIPTION))
             .await
-    }
-
-    /// A bare name is a topic, and a topic is what a publisher writes to, so the deferred
-    /// `retry_after` copy reaches the subscription that read the original.
-    fn redelivery_address(&self, name: &str) -> Option<RedeliveryAddress> {
-        Some(RedeliveryAddress::new(name.to_owned()))
     }
 }
 

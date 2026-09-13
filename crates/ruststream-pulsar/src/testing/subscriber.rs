@@ -262,9 +262,13 @@ impl IncomingMessage for PulsarTestMessage {
             .take()
             .expect("PulsarTestMessage ack/nack invoked twice");
         if requeue {
-            let queued = self.state.router.requeue(self.id, delivery);
+            let queued = self
+                .state
+                .router
+                .requeue(self.id, delivery, self.coordinator.as_ref());
             // The requeue bypasses fanout, so count the re-enqueue here to balance this
-            // message's `Drop` decrement. The redelivered copy is consumed in turn.
+            // message's `Drop` decrement. The redelivered copy is consumed in turn. A delivery
+            // that reached the dead-letter limit reports no requeue and counts its own produce.
             if queued && let Some(coordinator) = &self.coordinator {
                 coordinator.enqueued();
             }

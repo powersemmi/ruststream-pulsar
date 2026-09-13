@@ -29,13 +29,13 @@ fn order(id: u64) -> Order {
 }
 
 // --8<-- [start:descriptor]
-/// The declaration a service ships, settings and all: the subscription type, the dead-letter
-/// policy and the ack timeout describe work the Pulsar server does, and the stand-in ignores
-/// them, so the same handler mounts on either broker.
+/// The declaration a service ships, settings and all: the subscription type decides which
+/// consumer takes a message here as it does on a server, while the ack timeout describes work
+/// the server's clock does and carries none in process, so the same handler mounts on either
+/// broker.
 #[subscriber(
     PulsarSubscription::new("orders", "workers")
         .subscription_type(SubscriptionType::Shared)
-        .dead_letter(DeadLetter::new("orders-dlq").max_deliveries(5))
         .ack_timeout(Duration::from_secs(30))
 )]
 async fn handle(order: &Order) -> HandlerOutcome {

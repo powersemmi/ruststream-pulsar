@@ -11,11 +11,11 @@ use futures::StreamExt;
 use ruststream::runtime::PublishExt;
 use ruststream::{
     Broker, ConnectedBroker, HeaderMap, IncomingMessage, Outgoing, OutgoingMessage, Publisher,
-    Seekable, Seeker, Serialized, Subscriber,
+    RetryDeclaration, Seekable, Seeker, Serialized, Subscriber, SubscriptionSource,
 };
 use ruststream_pulsar::{
-    ConnectedPulsarBroker, DeadLetter, PARTITION_KEY_HEADER, PulsarBroker, PulsarError,
-    PulsarMessage, PulsarPosition, PulsarPublishSteps, PulsarSubscription,
+    ConnectedPulsarBroker, PARTITION_KEY_HEADER, PulsarBroker, PulsarError, PulsarMessage,
+    PulsarPosition, PulsarPublishSteps, PulsarSubscription,
 };
 
 const RECV_TIMEOUT: Duration = Duration::from_secs(30);
@@ -234,6 +234,27 @@ async fn drain(
     payloads
 }
 
+/// The registration's declaration reaching the real consumer.
+///
+/// The mount site's `max_attempts(..)` and `dead_letter(..)` arrive at the descriptor through
+/// `declare_retry`, and this is the live proof that the client turns them into the topology it
+/// says it does: a message nacked past the limit turns up on the declared topic. The call is
+/// spelled out because the descriptor is a source for two brokers, so the bare method names no
+/// impl.
+fn declaring(
+    subscription: PulsarSubscription,
+    max_attempts: u32,
+    dead_letter: String,
+) -> PulsarSubscription {
+    let declaration = RetryDeclaration::new()
+        .with_max_attempts(max_attempts.try_into().expect("a non-zero cap"))
+        .with_dead_letter(dead_letter);
+    <PulsarSubscription as SubscriptionSource<ConnectedPulsarBroker>>::declare_retry(
+        subscription,
+        &declaration,
+    )
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dead_letter_policy_routes_exhausted_messages() {
     let Some(url) = test_url() else { return };
@@ -247,10 +268,11 @@ async fn dead_letter_policy_routes_exhausted_messages() {
         .await
         .expect("dlq subscription opens");
     let mut subscriber = connected
-        .subscribe_descriptor(
-            PulsarSubscription::new(&topic, unique("sub"))
-                .dead_letter(DeadLetter::new(&dlq).max_deliveries(2)),
-        )
+        .subscribe_descriptor(declaring(
+            PulsarSubscription::new(&topic, unique("sub")),
+            2,
+            dlq.clone(),
+        ))
         .await
         .expect("subscription opens");
 

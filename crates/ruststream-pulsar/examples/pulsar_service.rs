@@ -1,4 +1,4 @@
-//! A minimal Pulsar service: a shared subscription with a dead-letter policy.
+//! A minimal Pulsar service: a shared subscription with a retry cap and a dead-letter topic.
 //!
 //! Run a broker first (`just brokers-up`), then:
 //! `cargo run --example pulsar_service -- run`
@@ -17,7 +17,6 @@ struct Order {
 #[subscriber(
     PulsarSubscription::new("orders", "workers")
         .subscription_type(SubscriptionType::Shared)
-        .dead_letter(DeadLetter::new("orders-dlq").max_deliveries(5))
         .ack_timeout(Duration::from_secs(30))
 )]
 async fn handle(order: &Order) -> HandlerOutcome {
@@ -32,7 +31,9 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
-            b.include(handle);
+            b.include(handle)
+                .max_attempts(nonzero!(5))
+                .dead_letter("orders-dlq");
         },
     )
 }

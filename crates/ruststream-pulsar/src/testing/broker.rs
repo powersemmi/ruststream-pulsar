@@ -7,14 +7,14 @@ use std::sync::{Arc, OnceLock};
 use bytes::Bytes;
 use ruststream::testing::{Coordinator, TestableBroker};
 use ruststream::{
-    Broker, ConnectedBroker, DefaultPublish, OutgoingMessage, Publisher, RawMessage,
-    RedeliveryAddress, Subscribe,
+    Broker, BrokerMoves, ConnectedBroker, DefaultPublish, OutgoingMessage, Publisher, RawMessage,
+    Subscribe,
 };
 
 use crate::error::PulsarError;
 use crate::message::PARTITION_KEY_HEADER;
 use crate::publisher::PulsarPublishOptions;
-use crate::subscription::{DEFAULT_SUBSCRIPTION, PulsarSubscription, Topics};
+use crate::subscription::{DEFAULT_SUBSCRIPTION, DeadLetterRoute, PulsarSubscription, Topics};
 use crate::testing::router::{AddressRouter, Membership, Route};
 use crate::testing::subscriber::PulsarTestSubscriber;
 
@@ -163,6 +163,9 @@ impl ConnectedPulsarTestBroker {
         descriptor.validate()?;
         self.state.ensure_open()?;
         let display = descriptor.display_topic();
+        // Read before the descriptor is taken apart, so the stand-in and the live consumer are
+        // built from one resolution of the registration's declaration.
+        let dead_letter = descriptor.dead_letter_policy()?;
         let route = match descriptor.topics {
             Topics::List(topics) => Route::Topics(topics),
             // `validate` already compiled the pattern, so this cannot fail; it is mapped rather
@@ -172,7 +175,7 @@ impl ConnectedPulsarTestBroker {
             })?,
         };
         let membership = Membership::new(descriptor.subscription, descriptor.sub_type);
-        self.attach(route, membership, &display)
+        self.attach(route, membership, dead_letter, &display)
     }
 
     /// Attaches a consumer to the router and wraps it in the subscriber the harness drives.
@@ -183,12 +186,13 @@ impl ConnectedPulsarTestBroker {
         &self,
         route: Route,
         membership: Membership,
+        dead_letter: Option<DeadLetterRoute>,
         topic: &str,
     ) -> Result<PulsarTestSubscriber, PulsarError> {
         let id = self
             .state
             .router
-            .subscribe(route, membership)
+            .subscribe(route, membership, dead_letter)
             .map_err(|held| PulsarError::Subscribe {
                 topic: topic.to_owned(),
                 source: Box::new(held),
@@ -214,17 +218,14 @@ impl ConnectedBroker for ConnectedPulsarTestBroker {
 
 impl Subscribe for ConnectedPulsarTestBroker {
     type Subscriber = PulsarTestSubscriber;
+    /// The same answer the real broker gives, so a mount site that compiles against one compiles
+    /// against the other.
+    type Copies = BrokerMoves;
 
     fn subscribe(&self, name: &str) -> impl Future<Output = Result<Self::Subscriber, Self::Error>> {
         // The same descriptor the real broker builds for a bare name, so two handlers mounted on
         // one topic compete on the service-wide subscription here as they do there.
         ready(self.open(PulsarSubscription::new(name, DEFAULT_SUBSCRIPTION)))
-    }
-
-    /// The same answer the real broker gives, so a registration bound with `out_retry` starts
-    /// here wherever it starts there, and fails to start here wherever it fails there.
-    fn redelivery_address(&self, name: &str) -> Option<RedeliveryAddress> {
-        Some(RedeliveryAddress::new(name.to_owned()))
     }
 }
 

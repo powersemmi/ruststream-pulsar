@@ -27,11 +27,11 @@
 //!
 //! let broker = PulsarBroker::new("pulsar://localhost:6650");
 //! let orders = PulsarSubscription::new("orders", "workers")
-//!     .subscription_type(SubscriptionType::Shared)
-//!     .dead_letter(DeadLetter::new("orders-dlq").max_deliveries(5));
+//!     .subscription_type(SubscriptionType::Shared);
 //!
 //! // The policy is a unit struct: `Publish` is both the type and the value a mount site passes
-//! // to `out_reply(..)`, to `out_retry(..)` or to a slot marker's `.out(..)`.
+//! // to `out_reply(..)` or to a slot marker's `.out(..)`. Pulsar has no retry position: the
+//! // client moves a spent delivery to the dead-letter topic itself.
 //! let policy: Publish = Publish;
 //! # let _ = (broker, orders, policy);
 //! ```
@@ -43,7 +43,7 @@ pub use ruststream::{Positioned, Seeker};
 pub use crate::PulsarPublish as Publish;
 
 pub use crate::{
-    DeadLetter, Position, PulsarBatchContext, PulsarBroker, PulsarContext, PulsarPosition,
+    Position, PulsarBatchContext, PulsarBroker, PulsarContext, PulsarPosition,
     PulsarPublishOptions, PulsarPublishSteps, PulsarSeeker, PulsarSubscription, PulsarTopic,
     SeekHandle, SubscriptionType,
 };
