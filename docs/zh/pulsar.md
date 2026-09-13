@@ -168,14 +168,19 @@ drop 之所以也是确认，是因为 Pulsar 没有终态拒绝这个动作。�
 
 Pulsar 的否定确认不带延迟，因此 `HandlerOutcome::retry_after(delay)` 这个结果走框架自己的延迟
 路径：延迟过去之后消息被重新发布，而发到哪里由订阅给出。主题就是自己的地址，因此读单个主题的
-订阅答的就是那个主题，接了 `retry_via(publisher)` 的作用域再没有别的要配。同一个主题的两种写法
-都算数：`PulsarSubscription::new(topic, subscription)` 描述符，以及光秃秃的
+订阅答的就是那个主题，全部接线就是 `b.include(reconcile).out_retry(Publish)`。同一个主题的两种
+写法都算数：`PulsarSubscription::new(topic, subscription)` 描述符，以及光秃秃的
 `#[subscriber("orders")]`。
 
+重试位置属于一次注册，而不属于整个 Broker，因此同一个 Broker 上的两个处理器各用各的策略延迟。
+它是一个普通的发布槽位，接得下槽位的各个步骤，`.codec(..)` 和 `.transform(..)`。延迟的那份副本
+带着投递本身的字节走这条流水线：变换给副本盖上标记，而这里点名的编解码器只解析位置，不编码任何
+东西。
+
 主题列表和主题模式什么都答不出。两者都可以点一个订阅在读的主题，但那份副本会落在与消息来处不同
-的主题上，而按投递主题分支的处理器就会走错分支。在这样的订阅上接了 `retry_via` 的应用拒绝启动，
-错误里会写出是哪条订阅。给每个主题各一条订阅，或者让作用域不带重试发布者，那里 `retry_after`
-退化成立即重新投递。
+的主题上，而按投递主题分支的处理器就会走错分支。在这样的订阅上接了 `out_retry` 的那次注册拒绝
+启动，错误里会写出是哪条订阅。给每个主题各一条订阅，或者让这次注册不带重试位置，那里
+`retry_after` 退化成立即重新投递。
 
 ## 定位 { #seeking }
 
@@ -229,7 +234,7 @@ Broker 侧的持久状态，因此 `start_at(PulsarPosition::earliest())` 会回
 `Publish`，两个 Broker 上都能跑（见[测试](#testing)）。
 
 路由文件导入 `ruststream_pulsar::prelude::*`，策略在那里以去掉前缀的概念名出现：无论服务跑在哪个
-Broker 上，`.out(Reply, Publish)` 读起来都一样。处理器函数体改为导入 `ruststream::prelude::*`，
+Broker 上，`out_reply(Publish)` 读起来都一样。处理器函数体改为导入 `ruststream::prelude::*`，
 只点名框架的东西，并用它需要的那个 Broker 能力 trait 约束注入的槽位（`Out<impl Publisher>`）；
 唯一的例外是设置分区键的函数体（见[逐条消息的设置](#per-message-settings)）。带前缀的
 `PulsarPublish` 留在 crate 根上，供一次挂载两个 Broker 的文件使用。
@@ -314,7 +319,7 @@ crate 的核心路由。它的生命周期和真实 Broker 一样，`TestApp` �
 每一个被发布到的主题做匹配，因此订阅打开之后才首次出现的主题，也像在服务器上那样到达处理器。
 
 发布这一半照样搬得过来。`PulsarPublish` 在这个进程内 Broker 上也构造发布者，而且是它的默认策略，
-因此挂载点就是生产环境的那一个（`.out(Reply, Publish)`，或者用 Broker 默认策略时什么都不写），
+因此挂载点就是生产环境的那一个（`out_reply(Publish)`，或者用 Broker 默认策略时什么都不写），
 回复从发布日志里读回来：
 
 ```rust

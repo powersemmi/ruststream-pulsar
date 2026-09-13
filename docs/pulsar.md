@@ -180,16 +180,22 @@ consumer.
 A Pulsar negative acknowledgement carries no delay, so a `HandlerOutcome::retry_after(delay)`
 outcome takes the framework's own deferred path: the message is published again once the delay is
 over, and the subscription says where. A topic is its own address, so a subscription over one
-topic answers with that topic, and a scope wired with `retry_via(publisher)` defers its retries
-with nothing else to configure. Both spellings of one topic qualify: the
-`PulsarSubscription::new(topic, subscription)` descriptor and a bare `#[subscriber("orders")]`.
+topic answers with that topic, and `b.include(reconcile).out_retry(Publish)` is the whole wiring.
+Both spellings of one topic qualify: the `PulsarSubscription::new(topic, subscription)` descriptor
+and a bare `#[subscriber("orders")]`.
+
+The retry position belongs to one registration rather than to the whole broker, so two handlers on
+one broker defer through policies of their own. It is an ordinary publishing slot and takes the
+slot steps, `.codec(..)` and `.transform(..)`. The deferred copy travels that pipeline carrying the
+delivery's own bytes: a transform stamps the copy, while the codec named there resolves the
+position and encodes nothing.
 
 A topic list and a pattern answer nothing. Either could name a topic the subscription reads, but
 the copy would arrive on a different topic from the one the message came off, and a handler that
-branches on the delivery's topic would take the wrong branch. An application that wires
-`retry_via` over such a subscription refuses to start, and the error names the subscription. Give
-each topic its own subscription, or leave the scope without a retry publisher, where
-`retry_after` degrades to an immediate redelivery.
+branches on the delivery's topic would take the wrong branch. A registration that binds `out_retry`
+over such a subscription refuses to start, and the error names the subscription. Give each topic
+its own subscription, or leave the registration without the retry position, where `retry_after`
+degrades to an immediate redelivery.
 
 ## Seeking
 
@@ -250,7 +256,7 @@ with `#[outgoing(name = "receipts")]`. A reply type that names none goes to the 
 mount site names `Publish` once and runs on either broker (see [Testing](#testing)).
 
 A routes file imports `ruststream_pulsar::prelude::*`, where the policy appears under its concept
-name with the prefix stripped: `.out(Reply, Publish)` reads the same whichever broker a service
+name with the prefix stripped: `out_reply(Publish)` reads the same whichever broker a service
 runs on. A handler body imports `ruststream::prelude::*` instead and names framework things only,
 bounding an injected slot with the broker capability trait it needs (`Out<impl Publisher>`); the
 one exception is a body that sets the partition key (see
@@ -344,9 +350,9 @@ expression of `pattern(..)`, matched against every topic published to, so a topi
 appears after the subscription opened reaches the handler as it does on a server.
 
 The publishing half carries over the same way. `PulsarPublish` pairs against the stand-in as well,
-and it is that broker's default policy, so the include site is the production one - `.out(Reply,
-Publish)`, or nothing at all for the broker default - and the reply is read back off the publish
-log:
+and it is that broker's default policy, so the include site is the production one -
+`out_reply(Publish)`, or nothing at all for the broker default - and the reply is read back off
+the publish log:
 
 ```rust
 --8<-- "crates/ruststream-pulsar/tests/descriptor_sources.rs:reply_mount"

@@ -34,7 +34,7 @@
 - **Repositioning from a handler, by key.** A delivery's context carries where it sits and the handle that moves the subscription, read as `Ctx<Position>` and `Ctx<SeekHandle>` parameters (or `ctx.context(..)`); a batch body reads the handle off the subscription-scoped `PulsarBatchContext`. Nothing is attached at the include site, and asking for a key the broker does not carry is a compile error rather than a runtime miss.
 - **Batches, assembled on the client.** The Pulsar client has no consumer-side batch receive, so a `&[T]` batch handler is served from single deliveries: the mount site names the batch size with `.batch(nonzero!(n))`, the descriptor's `batch_wait` names how long a partial batch waits for the rest, and a batch never carries more than the size that was asked for. Nothing at the mount site or in the body says which side the batch was built on.
 - **Key sharing as the partition key.** The partition key is the one per-message setting (`PulsarPublishOptions`), named at the call site by the `partition_key` step of the publish builder: `ledger.message(&receipt).to("receipts").partition_key("user-42").publish()`. The step keeps the publish on the slot the mount site wired, so the message leaves in that slot's codec and the test harness reads the key back off the slot. Keyed routing places the message by it, `KeyShared` subscriptions order by it, and a delivery reports it. The `partition-key` header carries the same key in the spelling every broker reads, for a body that writes its own headers.
-- **Deferred retries land where the message came from.** A Pulsar negative acknowledgement carries no delay, so `HandlerOutcome::retry_after(delay)` publishes the message again once the delay is over. A subscription over one topic reports that topic as the address, so `retry_via` works with nothing else to configure. A topic list and a pattern report none - the copy would arrive on a different topic than the original - and an application that wires `retry_via` over one refuses to start rather than misrouting the retry.
+- **Deferred retries land where the message came from.** A Pulsar negative acknowledgement carries no delay, so `HandlerOutcome::retry_after(delay)` publishes the message again once the delay is over. A subscription over one topic reports that topic as the address, so `b.include(reconcile).out_retry(Publish)` is the whole wiring. The position is an ordinary publishing slot, so a transform wired there stamps the deferred copy. A topic list and a pattern report none - the copy would arrive on a different topic than the original - and a registration that binds `out_retry` over one refuses to start rather than misrouting the retry.
 - **Properties carry headers directly.** Headers map onto Pulsar message properties with no extra envelope, so non-Rust peers see plain Pulsar messages.
 - **In-process test broker** (feature `testing`). `PulsarTestBroker` reproduces core routing with no server, implements `ruststream::testing::TestableBroker`, and passes every framework suite this crate's capabilities justify - routing, lifecycle, seeking, batches - in process as well as against a real broker. It takes the crate's own routes file: `PulsarSubscription` is a source for it - single-topic, multi-topic and pattern alike - and `PulsarPublish` pairs against it, so a service is tested through the declaration it ships rather than a test-only rewrite of it. The subscription type is honoured as well, so competing consumers on one `Shared` subscription split the stream in process instead of each replaying all of it.
 
@@ -88,19 +88,19 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
-            b.include(confirm).out(Reply, Publish);
+            b.include(confirm).out_reply(Publish);
         },
     )
 }
 ```
 
-`.out(marker, policy)` fills a publishing slot, marker first; `Reply` is the slot the handler's return value goes out on.
+`out_reply(policy)` binds the slot a handler's return value goes out on; `.out(marker, policy)` fills a slot the handler publishes through itself, marker first.
 
 The one glob `ruststream_pulsar::prelude::*` carries the framework's prelude along with this crate's descriptors, contexts, seek keys and policy. The policy arrives under the uniform name `Publish`, so the include line reads the same whichever broker a service mounts, and the absence of a `TransactionalPublish` name is the statement that Pulsar's client has no transactions. A handler body imports `ruststream::prelude::*` instead and names framework things only, bounding an injected slot as `Out<impl Publisher>`.
 
 ## Test it
 
-The `testing` feature runs handlers against an in-process Pulsar stand-in - no server, same routing, same ladder - and the `TestApp` harness drives a whole service against it. `PulsarSubscription` is a subscription source for it as well as for the real broker, and `PulsarPublish` pairs against both, so the service above is tested through the declaration it ships: swap the broker, keep the handlers and the include sites - `.out(Reply, Publish)` included.
+The `testing` feature runs handlers against an in-process Pulsar stand-in - no server, same routing, same ladder - and the `TestApp` harness drives a whole service against it. `PulsarSubscription` is a subscription source for it as well as for the real broker, and `PulsarPublish` pairs against both, so the service above is tested through the declaration it ships: swap the broker, keep the handlers and the include sites - `out_reply(Publish)` included.
 
 ```rust
 use ruststream::testing::TestApp;
@@ -108,7 +108,7 @@ use ruststream_pulsar::testing::PulsarTestBroker;
 
 let app = RustStream::new(AppInfo::new("orders", "0.1.0"))
     .with_broker(PulsarTestBroker::new(), |b| {
-        b.include(confirm).out(Reply, Publish);
+        b.include(confirm).out_reply(Publish);
     });
 let tb = TestApp::start(app).await?;
 
