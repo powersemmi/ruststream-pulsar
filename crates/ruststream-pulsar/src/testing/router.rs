@@ -64,6 +64,13 @@ pub(crate) struct Delivery {
     redeliveries: u32,
 }
 
+impl Delivery {
+    /// The topic this delivery was published to.
+    pub(crate) fn address(&self) -> &str {
+        &self.address
+    }
+}
+
 /// Which addresses one consumer covers.
 ///
 /// The variants are the descriptor's own, so a route cannot be half a list and half a pattern:

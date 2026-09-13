@@ -20,6 +20,10 @@ use ruststream_pulsar::{
 
 const RECV_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// The wait a deferred redelivery asks for. Long enough that half of it is a real gap on a live
+/// broker, short enough to keep the suite quick.
+const NACK_DELAY: Duration = Duration::from_secs(4);
+
 /// The payload the builder-driven publishes carry: these tests assert on the transport, not on
 /// a model, so the bytes name themselves as the wire form and no codec runs on them.
 #[derive(Outgoing, Serialized)]
@@ -232,6 +236,100 @@ async fn drain(
         message.ack().await.expect("ack succeeds");
     }
     payloads
+}
+
+/// The wait a `retry_after` outcome asks for, against a real consumer.
+///
+/// Pulsar's negative acknowledgement carries no delay, so the crate holds the delivery
+/// unacknowledged and sends the negative acknowledgement when the delay is over. The proof is on
+/// both sides of the deadline: nothing comes back while the wait runs, and the redelivery arrives
+/// once it is done. The subscription names no `ack_timeout`, so the only timer in play is ours.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delayed_nack_is_redelivered_after_the_delay() {
+    let Some(url) = test_url() else { return };
+    let connected = connect(&url).await;
+
+    let topic = unique("deferred");
+    let mut subscriber = connected
+        .subscribe_descriptor(PulsarSubscription::new(&topic, unique("sub")))
+        .await
+        .expect("subscription opens");
+
+    connected
+        .publisher()
+        .publish(OutgoingMessage::new(&topic, b"defer".as_slice()), None)
+        .await
+        .expect("publish succeeds");
+
+    let mut stream = pin!(subscriber.stream());
+    let first = tokio::time::timeout(RECV_TIMEOUT, stream.next())
+        .await
+        .expect("the first delivery arrives")
+        .expect("the subscription is open")
+        .expect("the delivery is ok");
+    assert_eq!(first.payload(), b"defer");
+    first
+        .nack_after(NACK_DELAY)
+        .await
+        .expect("a delay shorter than any consumer timer is accepted");
+
+    // Well inside the wait: a redelivery here would mean the delay was dropped.
+    assert!(
+        tokio::time::timeout(NACK_DELAY / 2, stream.next())
+            .await
+            .is_err(),
+        "the delivery came back before the delay was over",
+    );
+
+    let again = tokio::time::timeout(RECV_TIMEOUT, stream.next())
+        .await
+        .expect("the delayed redelivery arrives")
+        .expect("the subscription is open")
+        .expect("the delivery is ok");
+    assert_eq!(again.payload(), b"defer");
+    again.ack().await.expect("ack succeeds");
+
+    connected.shutdown().await.expect("shutdown succeeds");
+}
+
+/// A delay the consumer's own timer would cut short is refused before anything waits, so a
+/// service never holds a message past the point where the broker takes it back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delay_past_the_ack_timeout_is_refused() {
+    let Some(url) = test_url() else { return };
+    let connected = connect(&url).await;
+
+    let topic = unique("bounded");
+    let mut subscriber = connected
+        .subscribe_descriptor(
+            PulsarSubscription::new(&topic, unique("sub")).ack_timeout(NACK_DELAY),
+        )
+        .await
+        .expect("subscription opens");
+
+    connected
+        .publisher()
+        .publish(OutgoingMessage::new(&topic, b"bounded".as_slice()), None)
+        .await
+        .expect("publish succeeds");
+
+    let mut stream = pin!(subscriber.stream());
+    let delivery = tokio::time::timeout(RECV_TIMEOUT, stream.next())
+        .await
+        .expect("the delivery arrives")
+        .expect("the subscription is open")
+        .expect("the delivery is ok");
+
+    let refused = delivery
+        .nack_after(NACK_DELAY * 2)
+        .await
+        .expect_err("a delay past the ack timeout must be refused");
+    assert!(
+        format!("{refused:?}").contains("ack_timeout"),
+        "{refused:?}"
+    );
+
+    connected.shutdown().await.expect("shutdown succeeds");
 }
 
 /// The registration's declaration reaching the real consumer.

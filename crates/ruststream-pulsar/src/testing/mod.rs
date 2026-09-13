@@ -50,8 +50,9 @@
 //!   that is differs from a server's, and so does what a consumer joining or leaving reshuffles.
 //! * A seek moves the consumer that asked for it. On a server the cursor belongs to the
 //!   subscription, so a seek from one consumer of a shared subscription moves its siblings too.
-//! * [`ack_timeout`](crate::PulsarSubscription::ack_timeout), credit and redelivery timing carry
-//!   no behaviour here; they are the server's clock, not the transport's.
+//! * [`ack_timeout`](crate::PulsarSubscription::ack_timeout) bounds a delayed retry here as it
+//!   does against a server, but it redelivers nothing on its own: credit and the server's own
+//!   redelivery timers are its clock, not the transport's.
 //!
 //! The last one is product behaviour the live suite covers against a real broker; the first two
 //! are where this model is coarser than the server's, and a test that leans on either is leaning
@@ -65,6 +66,11 @@
 //! the client agrees. What neither transport shows the handler is the count itself: the client
 //! keeps the broker's redelivery count for its own decision and does not put it on the message,
 //! so `IncomingMessage::redelivery_count` answers nothing here and nothing in production.
+//!
+//! A delayed retry runs on the harness clock. `retry_after(delay)` holds the delivery for the
+//! delay and returns it to the subscription afterwards, registered with the coordinator rather
+//! than slept on, so [`TestApp::advance`](ruststream::testing::TestApp) drives it and a test sees
+//! nothing come back early.
 //!
 //! Topic names route literally: the stand-in has no namespace to resolve them against, so
 //! `orders` and `persistent://public/default/orders` are two addresses here and one topic on a

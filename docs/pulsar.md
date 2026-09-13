@@ -159,6 +159,7 @@ batch body repositions it through `PulsarBatchContext` (see
 | --- | --- |
 | `HandlerOutcome::ack()` | acknowledge the message |
 | `HandlerOutcome::retry()` | negative acknowledgement, asking for redelivery |
+| `HandlerOutcome::retry_after(delay)` | hold the delivery unacknowledged for `delay`, then negatively acknowledge it |
 | `HandlerOutcome::drop()` | acknowledge the message |
 
 Dropping acknowledges because Pulsar has no terminal reject verb. Poison messages are routed by the
@@ -190,10 +191,18 @@ nothing else, and a cap written on such a registration reaches no consumer. Name
 `HandlerOutcome::retry()` is the negative acknowledgement that advances the count. `ack_timeout`
 advances it without one, by redelivering anything left unacknowledged for longer than the timeout.
 
-A `HandlerOutcome::retry_after(delay)` outcome keeps the retry and loses the delay. The Pulsar
-client has no delayed negative acknowledgement to hand it, so the message comes back at once and
-the framework logs that the delay was dropped. Publish the message to a topic of your own where
-the wait itself is the point.
+A `HandlerOutcome::retry_after(delay)` outcome waits before the negative acknowledgement goes
+out. Pulsar's negative acknowledgement carries no delay of its own, so the wait is this process's:
+the delivery stays unacknowledged for `delay`, and the crate negatively acknowledges it when the
+delay is over. Nothing is republished, so the redelivery that follows is an ordinary one and the
+dead-letter policy counts it like any other.
+
+Two consequences follow from the wait being held here. A process that exits mid-wait loses the
+wait, not the message: the delivery was never acknowledged, so the broker redelivers it once the
+consumer's `ack_timeout` elapses, and at once when the consumer disconnects. And a delay must be
+shorter than that `ack_timeout`, because the consumer would otherwise redeliver the message before
+the wait was over; a delay that is not is refused at the call, with an error naming both values.
+A subscription that sets no `ack_timeout` accepts any delay.
 
 ## The generated document
 
@@ -421,8 +430,9 @@ broker:
   that is differs from a server's, and so does what a consumer joining or leaving reshuffles.
 - A seek moves the consumer that asked for it; on a server the cursor belongs to the subscription,
   so a seek from one consumer of a shared subscription moves its siblings too.
-- `ack_timeout`, credit and redelivery timing carry no behaviour here; they are the server's
-  clock, not the transport's.
+- `ack_timeout` bounds a delayed retry here as it does against a server, but it redelivers
+  nothing on its own; credit and the server's own redelivery timers are its clock, not the
+  transport's.
 
 The last one is product behaviour the live suite covers against a real broker; the first two are
 where this model is coarser than the server's.
@@ -431,7 +441,9 @@ The registration's retry declaration does carry behaviour. A consumer counts a m
 redeliveries and, at the `max_attempts(..)` limit, produces it to the declared `dead_letter(..)`
 topic - the same place and the same arithmetic the real client uses, since the client applies the
 policy itself rather than the server. So a cap and a dead-letter destination are driven on the
-harness, and the live suite is what says the client agrees.
+harness, and the live suite is what says the client agrees. So does a delayed retry: it is
+registered with the harness clock, so a test drives it with `advance(..)` and sees nothing come
+back early.
 
 Topic names route literally, with no namespace to resolve them against: `orders` and
 `persistent://public/default/orders` are two addresses here and one topic on a server. A pattern

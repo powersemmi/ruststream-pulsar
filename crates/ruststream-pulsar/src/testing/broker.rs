@@ -3,6 +3,7 @@
 use std::future::{Future, ready};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use bytes::Bytes;
 use ruststream::testing::{Coordinator, TestableBroker};
@@ -175,7 +176,13 @@ impl ConnectedPulsarTestBroker {
             })?,
         };
         let membership = Membership::new(descriptor.subscription, descriptor.sub_type);
-        self.attach(route, membership, dead_letter, &display)
+        self.attach(
+            route,
+            membership,
+            dead_letter,
+            descriptor.ack_timeout,
+            &display,
+        )
     }
 
     /// Attaches a consumer to the router and wraps it in the subscriber the harness drives.
@@ -187,6 +194,7 @@ impl ConnectedPulsarTestBroker {
         route: Route,
         membership: Membership,
         dead_letter: Option<DeadLetterRoute>,
+        ack_timeout: Option<Duration>,
         topic: &str,
     ) -> Result<PulsarTestSubscriber, PulsarError> {
         let id = self
@@ -201,6 +209,7 @@ impl ConnectedPulsarTestBroker {
             Arc::clone(&self.state),
             id,
             self.state.coordinator().cloned(),
+            ack_timeout,
         ))
     }
 }

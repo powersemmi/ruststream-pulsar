@@ -127,6 +127,7 @@ impl PulsarSubscriber {
             settle_rx,
             display.clone(),
             Arc::clone(&epoch),
+            descriptor.ack_timeout,
         ));
 
         Ok(Self::batching(
@@ -298,6 +299,7 @@ impl BatchSubscriber for PulsarSubscriber {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn drive(
     mut consumer: Consumer<Vec<u8>, TokioExecutor>,
     client: pulsar::Pulsar<TokioExecutor>,
@@ -306,6 +308,9 @@ async fn drive(
     mut settle_rx: mpsc::UnboundedReceiver<DriverCmd>,
     topic: String,
     epoch: Arc<AtomicU64>,
+    // Carried onto every delivery: a delayed retry has to know when the consumer would
+    // redeliver the message on its own.
+    ack_timeout: Option<Duration>,
 ) {
     // Deliveries carry the generation captured when they were pulled off the consumer:
     // stamping at send time would let a seek's bump - which lands before the seek command is
@@ -353,7 +358,10 @@ async fn drive(
                 () = out.closed() => break, // subscriber dropped
                 next = consumer.next() => match next {
                     Some(Ok(message)) => {
-                        pending = Some((current, PulsarMessage::new(&message, settle_tx.clone())));
+                        pending = Some((
+                            current,
+                            PulsarMessage::new(&message, settle_tx.clone(), ack_timeout),
+                        ));
                     }
                     Some(Err(err)) => {
                         // Single-topic consumers surface transient errors here while the

@@ -3,6 +3,7 @@
 use std::future::{Future, ready};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use futures::Stream;
 
@@ -11,10 +12,11 @@ use ruststream::{
     AckError, BatchSubscriber, BufferedSubscriber, HeaderMap, IncomingMessage, Partitioned,
     Positioned, Seekable, Subscriber, testing::Coordinator,
 };
+use tokio::time::sleep;
 
 use crate::PARTITION_KEY_HEADER;
 use crate::error::PulsarError;
-use crate::message::PulsarPosition;
+use crate::message::{PulsarPosition, within_ack_timeout};
 use crate::subscriber::PulsarSeeker;
 use crate::subscription::DEFAULT_BATCH_WAIT;
 use crate::testing::broker::TestState;
@@ -40,6 +42,9 @@ struct Queued {
     /// A clone of the broker's harness coordinator, threaded into each yielded message so a
     /// requeue re-counts and a consumed delivery decrements. `None` outside a harness run.
     coordinator: Option<Coordinator>,
+    /// The subscription's acknowledgement timeout, carried for the same reason the real
+    /// subscriber carries it: a delayed retry that outlasts it would be redelivered early.
+    ack_timeout: Option<Duration>,
 }
 
 impl std::fmt::Debug for PulsarTestSubscriber {
@@ -60,12 +65,14 @@ impl PulsarTestSubscriber {
         state: Arc<TestState>,
         id: ConsumerId,
         coordinator: Option<Coordinator>,
+        ack_timeout: Option<Duration>,
     ) -> Self {
         Self {
             inner: BufferedSubscriber::new(Queued {
                 state,
                 id,
                 coordinator,
+                ack_timeout,
             })
             .max_wait(DEFAULT_BATCH_WAIT),
         }
@@ -102,6 +109,7 @@ impl Subscriber for Queued {
         let state = Arc::clone(&self.state);
         let id = self.id;
         let coordinator = self.coordinator.clone();
+        let ack_timeout = self.ack_timeout;
         // Minted once per stream rather than once per delivery: a message clones the `Arc`, so
         // building a per-delivery context costs reference-count bumps and nothing else.
         let seeker = Arc::new(Seekable::seeker(self));
@@ -117,6 +125,7 @@ impl Subscriber for Queued {
                         id,
                         Arc::clone(&seeker),
                         coordinator.clone(),
+                        ack_timeout,
                     ))
                 })
             })
@@ -169,6 +178,11 @@ pub struct PulsarTestMessage {
     /// A clone of the broker's harness coordinator. When set, this delivery is counted in
     /// flight and is decremented exactly once when the message is consumed or dropped.
     coordinator: Option<Coordinator>,
+    /// The subscription's acknowledgement timeout, which bounds a delayed retry here as it does
+    /// against a server.
+    ack_timeout: Option<Duration>,
+    /// The topic the delivery arrived on, for the diagnostics a refused delay carries.
+    topic: String,
 }
 
 impl Drop for PulsarTestMessage {
@@ -194,13 +208,16 @@ impl PulsarTestMessage {
         id: ConsumerId,
         seek: Arc<PulsarSeeker>,
         coordinator: Option<Coordinator>,
+        ack_timeout: Option<Duration>,
     ) -> Self {
         Self {
+            topic: delivery.address().to_owned(),
             delivery: Some(delivery),
             state,
             id,
             seek,
             coordinator,
+            ack_timeout,
         }
     }
 
@@ -273,6 +290,50 @@ impl IncomingMessage for PulsarTestMessage {
                 coordinator.enqueued();
             }
         }
+        ready(Ok(()))
+    }
+
+    /// The same answer the real delivery gives: the delay is held in process and the redelivery
+    /// that follows is the transport's, counted against the consumer's dead-letter limit.
+    fn supports_nack_after(&self) -> bool {
+        true
+    }
+
+    /// Holds the delivery for `delay`, then returns it to the subscription.
+    ///
+    /// Under the harness the wait is registered with the coordinator rather than slept on
+    /// directly, so a test drives it with `TestApp::advance` and sees nothing come back before
+    /// the delay is over.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AckError::Broker`] for a delay that is not shorter than the subscription's
+    /// `ack_timeout`, which is the answer the real delivery gives for the same call.
+    fn nack_after(mut self, delay: Duration) -> impl Future<Output = Result<(), AckError>> {
+        if let Err(err) = within_ack_timeout(delay, self.ack_timeout, &self.topic) {
+            return ready(Err(err));
+        }
+        let delivery = self
+            .delivery
+            .take()
+            .expect("PulsarTestMessage ack/nack invoked twice");
+        let state = Arc::clone(&self.state);
+        let id = self.id;
+        if let Some(coordinator) = self.coordinator.clone() {
+            let counter = coordinator.clone();
+            coordinator.schedule_redelivery(delay, move || {
+                // The same accounting a requeue does: a delivery that reached the dead-letter
+                // limit is produced there instead and counts its own enqueues.
+                if state.router.requeue(id, delivery, Some(&counter)) {
+                    counter.enqueued();
+                }
+            });
+            return ready(Ok(()));
+        }
+        tokio::spawn(async move {
+            sleep(delay).await;
+            state.router.requeue(id, delivery, None);
+        });
         ready(Ok(()))
     }
 
