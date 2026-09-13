@@ -203,8 +203,8 @@ impl PulsarSubscription {
     /// arrived. A topic list and a pattern are silent instead. Both could name a topic the
     /// subscription reads, but the copy would then arrive on a different topic from the one the
     /// message came from, and a handler that branches on the delivery's topic would act on the
-    /// wrong branch. A scope wired with `retry_via` over such a subscription refuses to start,
-    /// naming it, which is the honest answer to a retry this descriptor cannot place.
+    /// wrong branch. A registration bound with `out_retry` over such a subscription refuses to
+    /// start, naming it, which is the honest answer to a retry this descriptor cannot place.
     fn address(&self) -> Option<RedeliveryAddress> {
         match &self.topics {
             Topics::List(topics) if topics.len() == 1 => {

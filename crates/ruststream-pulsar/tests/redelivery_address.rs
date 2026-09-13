@@ -63,12 +63,12 @@ async fn reconcile_regional(order: &Order) -> HandlerOutcome {
 /// delay and not before.
 #[tokio::test(start_paused = true)]
 async fn a_descriptor_over_one_topic_addresses_its_own_retries() {
-    let broker = PulsarTestBroker::new();
-    let retries = broker.publisher();
-    let app = RustStream::new(AppInfo::new("redelivery", "0.1.0")).with_broker(broker, |b| {
-        b.retry_via(retries);
-        b.include(reconcile);
-    });
+    let app = RustStream::new(AppInfo::new("redelivery", "0.1.0")).with_broker(
+        PulsarTestBroker::new(),
+        |b| {
+            b.include(reconcile).out_retry(Publish);
+        },
+    );
     let tb = TestApp::start(app).await.expect("start harness");
 
     tb.broker::<PulsarTestBroker>()
@@ -100,16 +100,16 @@ async fn a_descriptor_over_one_topic_addresses_its_own_retries() {
     );
 }
 
-/// A bare topic name is an address too, so `#[subscriber("payments")]` composes with a retry
-/// publisher without a descriptor.
+/// A bare topic name is an address too, so `#[subscriber("payments")]` takes `out_retry` without
+/// a descriptor.
 #[tokio::test(start_paused = true)]
 async fn a_topic_name_subscriber_addresses_its_own_retries() {
-    let broker = PulsarTestBroker::new();
-    let retries = broker.publisher();
-    let app = RustStream::new(AppInfo::new("redelivery", "0.1.0")).with_broker(broker, |b| {
-        b.retry_via(retries);
-        b.include(settle);
-    });
+    let app = RustStream::new(AppInfo::new("redelivery", "0.1.0")).with_broker(
+        PulsarTestBroker::new(),
+        |b| {
+            b.include(settle).out_retry(Publish);
+        },
+    );
     let tb = TestApp::start(app).await.expect("start harness");
 
     tb.broker::<PulsarTestBroker>()
@@ -129,16 +129,16 @@ async fn a_topic_name_subscriber_addresses_its_own_retries() {
     );
 }
 
-/// A subscription over several topics has no single address, so a scope that defers through a
-/// publisher refuses to start rather than relocating the retried message.
+/// A subscription over several topics has no single address, so a registration that binds the
+/// retry position refuses to start rather than relocating the retried message.
 #[tokio::test]
 async fn a_multi_topic_descriptor_refuses_to_defer() {
-    let broker = PulsarTestBroker::new();
-    let retries = broker.publisher();
-    let app = RustStream::new(AppInfo::new("redelivery", "0.1.0")).with_broker(broker, |b| {
-        b.retry_via(retries);
-        b.include(reconcile_regional);
-    });
+    let app = RustStream::new(AppInfo::new("redelivery", "0.1.0")).with_broker(
+        PulsarTestBroker::new(),
+        |b| {
+            b.include(reconcile_regional).out_retry(Publish);
+        },
+    );
 
     let failed = TestApp::start(app)
         .await
@@ -146,10 +146,10 @@ async fn a_multi_topic_descriptor_refuses_to_defer() {
     let message = failed.to_string();
     assert!(message.contains("regional"), "{message}");
     assert!(message.contains("PulsarSubscription"), "{message}");
-    assert!(message.contains("retry_via"), "{message}");
+    assert!(message.contains("out_retry"), "{message}");
 }
 
-/// Without a retry publisher the same subscription starts: `retry_after` degrades to an
+/// Without the retry position the same subscription starts: `retry_after` degrades to an
 /// immediate requeue, which is what Pulsar's own nack does anyway.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_multi_topic_descriptor_starts_when_the_scope_defers_nothing() {

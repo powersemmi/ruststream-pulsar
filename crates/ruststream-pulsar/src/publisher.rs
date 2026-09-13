@@ -216,7 +216,7 @@ where
 /// The publish policy for [`PulsarPublisher`]: pure declaration, constructible anywhere,
 /// paired with the connected broker by the runtime after `connect`.
 ///
-/// It pairs against the in-process stand-in too, so a routes file writes `.out(Reply, Publish)`
+/// It pairs against the in-process stand-in too, so a routes file writes `out_reply(Publish)`
 /// once and mounts it on either broker.
 ///
 /// # Examples

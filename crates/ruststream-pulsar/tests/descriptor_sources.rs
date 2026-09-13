@@ -2,7 +2,7 @@
 //!
 //! `PulsarSubscription` is a subscription source for `PulsarTestBroker` as well as for the real
 //! broker, and `PulsarPublish` pairs against both, so a `TestApp` run mounts the very
-//! `#[subscriber(PulsarSubscription::..)]` and the very `.out(Reply, Publish)` a production
+//! `#[subscriber(PulsarSubscription::..)]` and the very `out_reply(Publish)` a production
 //! routes file writes: no bare-topic rewrite of the declaration, no test-only descriptor or
 //! policy, nothing changed at the include site. Each addressing form the descriptor offers
 //! (one topic, a list, a pattern) gets a run here, because each is a different route through
@@ -188,8 +188,8 @@ async fn a_production_routes_file_publishes_its_reply_on_the_stand_in() {
     let app = RustStream::new(AppInfo::new("payments", "0.1.0")).with_broker(
         PulsarTestBroker::new(),
         |b| {
-            b.include(confirm).out(Reply, Publish);
-            // No `.out(..)`: the reply takes the broker's default policy, which is `Publish` too.
+            b.include(confirm).out_reply(Publish);
+            // No reply position: the reply takes the broker's default policy, `Publish` too.
             b.include(confirm_by_default);
         },
     );

@@ -221,8 +221,8 @@ impl Subscribe for ConnectedPulsarTestBroker {
         ready(self.open(PulsarSubscription::new(name, DEFAULT_SUBSCRIPTION)))
     }
 
-    /// The same answer the real broker gives, so a service wired with `retry_via` starts here
-    /// wherever it starts there, and fails to start here wherever it fails there.
+    /// The same answer the real broker gives, so a registration bound with `out_retry` starts
+    /// here wherever it starts there, and fails to start here wherever it fails there.
     fn redelivery_address(&self, name: &str) -> Option<RedeliveryAddress> {
         Some(RedeliveryAddress::new(name.to_owned()))
     }

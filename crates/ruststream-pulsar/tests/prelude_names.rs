@@ -3,7 +3,7 @@
 //!
 //! The glob re-exports `ruststream::prelude::*` and aliases this broker's policies over it, so
 //! the two vocabularies meet here and nowhere else: a routes file writing this glob has to get
-//! the mount-site name `Publish` for the policy and reach it through `.out(Reply, ..)`, while the
+//! the mount-site name `Publish` for the policy and reach it through `out_reply(..)`, while the
 //! capability trait a handler body bounds an injected slot with has to stay reachable. All of it
 //! is checked by compiling, so a re-export that took the wrong name fails in this crate's own
 //! suite rather than in a user's service file.
@@ -86,8 +86,8 @@ fn the_policy_binds_the_reply_position() {
     let _app = RustStream::new(AppInfo::new("prelude", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
-            b.include(confirm).out(Reply, Publish);
-            b.include(issue_receipt).out(Reply, Publish);
+            b.include(confirm).out_reply(Publish);
+            b.include(issue_receipt).out_reply(Publish);
         },
     );
 }

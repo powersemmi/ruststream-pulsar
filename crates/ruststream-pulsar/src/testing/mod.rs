@@ -21,7 +21,7 @@
 //!
 //! The crate's routes-file vocabulary is the same here as in production.
 //! [`PulsarPublish`](crate::PulsarPublish) pairs against this broker into
-//! [`PulsarTestPublisher`], and is its default publish policy, so `.out(Reply, Publish)` and the
+//! [`PulsarTestPublisher`], and is its default publish policy, so `out_reply(Publish)` and the
 //! unadorned `include` both mount unchanged; there is no test-only policy to name.
 //!
 //! [`PulsarSubscription`](crate::PulsarSubscription) is a source for this broker as well as for
