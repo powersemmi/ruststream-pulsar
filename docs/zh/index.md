@@ -2,7 +2,7 @@
 
 **`ruststream-pulsar`** 在 Apache Pulsar 上运行 [RustStream](https://powersemmi.github.io/ruststream/)
 服务。主题是一份保留下来的日志，订阅可以在它上面回放。你从四种订阅类型里挑一种，订阅一组主题或者
-一个主题模式，并设定消费者侧的死信策略。`testing` feature 提供一个进程内 Broker。
+一个主题模式，并用一个死信主题给消息的重试次数封顶。`testing` feature 提供一个进程内 Broker。
 
 传输建立在 StreamNative 维护的 [`pulsar`](https://docs.rs/pulsar) 客户端之上。
 

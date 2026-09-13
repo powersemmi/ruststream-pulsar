@@ -27,14 +27,14 @@
 
 - **Lazy startup contract.** `PulsarBroker::new(url)` is synchronous and does no I/O (JWT auth and `pulsar+ssl://` as options); the runtime connects once at startup, so the broker composes with `#[ruststream::app]`. The client reconnects consumers and producers transparently after broker restarts.
 - **Subscription types as an enum.** Exclusive, shared, failover, and key-shared - with per-variant meaning, so combinations that do not exist are unrepresentable.
-- **Server-side reliability.** The dead-letter policy (with its delivery-attempt limit) and the ack timeout are consumer settings the Pulsar server enforces, not behaviour emulated in this crate; a `HandlerOutcome::retry()` negatively acknowledges the message, asking for redelivery and advancing the delivery count towards the policy's limit.
+- **The retry declaration becomes Pulsar's own policy.** `b.include(handle).max_attempts(nonzero!(5)).dead_letter("orders-dlq")` is the framework's spelling on every broker; here it becomes the consumer's dead-letter policy, so the client counts a message's redeliveries and produces the spent one to that topic. A `HandlerOutcome::retry()` is the negative acknowledgement that advances the count, and the ack timeout advances it without one. Nothing is republished by the service, so `out_retry(..)` over a Pulsar subscription is a compile error; a `retry_after(delay)` outcome keeps the retry and loses the delay, which the client has no way to carry.
 - **Validated addressing.** `PulsarTopic` parses and validates the four meanings a topic name carries (persistence, tenant, namespace, topic) on construction, not at first use.
 - **Multi-topic and pattern subscriptions.** `PulsarSubscription::topics(["orders", "returns"], "workers")` subscribes to a fixed list; `::pattern("orders-.*", "audit")` follows every topic in the namespace whose name matches, including topics created after the consumer attached.
 - **Start position on the framework's own surface.** `PulsarPosition` (`earliest()`, `latest()`, `timestamp(ms)`, or a captured message id) is the `Seekable` capability's position type, so a subscription's start position is the `start_at(..)` clause; the descriptor itself carries no separate start options. A `start_at` seek runs on every startup, unlike Pulsar's server-side initial position, which applies only when a subscription is first created.
 - **Repositioning from a handler, by key.** A delivery's context carries where it sits and the handle that moves the subscription, read as `Ctx<Position>` and `Ctx<SeekHandle>` parameters (or `ctx.context(..)`); a batch body reads the handle off the subscription-scoped `PulsarBatchContext`. Nothing is attached at the include site, and asking for a key the broker does not carry is a compile error rather than a runtime miss.
 - **Batches, assembled on the client.** The Pulsar client has no consumer-side batch receive, so a `&[T]` batch handler is served from single deliveries: the mount site names the batch size with `.batch(nonzero!(n))`, the descriptor's `batch_wait` names how long a partial batch waits for the rest, and a batch never carries more than the size that was asked for. Nothing at the mount site or in the body says which side the batch was built on.
 - **Key sharing as the partition key.** The partition key is the one per-message setting (`PulsarPublishOptions`), named at the call site by the `partition_key` step of the publish builder: `ledger.message(&receipt).to("receipts").partition_key("user-42").publish()`. The step keeps the publish on the slot the mount site wired, so the message leaves in that slot's codec and the test harness reads the key back off the slot. Keyed routing places the message by it, `KeyShared` subscriptions order by it, and a delivery reports it. The `partition-key` header carries the same key in the spelling every broker reads, for a body that writes its own headers.
-- **Deferred retries land where the message came from.** A Pulsar negative acknowledgement carries no delay, so `HandlerOutcome::retry_after(delay)` publishes the message again once the delay is over. A subscription over one topic reports that topic as the address, so `b.include(reconcile).out_retry(Publish)` is the whole wiring. The position is an ordinary publishing slot, so a transform wired there stamps the deferred copy. A topic list and a pattern report none - the copy would arrive on a different topic than the original - and a registration that binds `out_retry` over one refuses to start rather than misrouting the retry.
+- **The document describes the topology** (feature `asyncapi`). A subscription fills the specification's `pulsar` channel binding with its topic's namespace and persistence, and carries the consumer itself - the subscription name, the subscription type, the ack timeout - under `x-ruststream-pulsar`, because the specification's Pulsar operation object is empty. Every value is read off the descriptor before anything connects, so a subscription whose topics span two namespaces reports neither, and the credentials a service URL carries never reach a published document.
 - **Properties carry headers directly.** Headers map onto Pulsar message properties with no extra envelope, so non-Rust peers see plain Pulsar messages.
 - **In-process test broker** (feature `testing`). `PulsarTestBroker` reproduces core routing with no server, implements `ruststream::testing::TestableBroker`, and passes every framework suite this crate's capabilities justify - routing, lifecycle, seeking, batches - in process as well as against a real broker. It takes the crate's own routes file: `PulsarSubscription` is a source for it - single-topic, multi-topic and pattern alike - and `PulsarPublish` pairs against it, so a service is tested through the declaration it ships rather than a test-only rewrite of it. The subscription type is honoured as well, so competing consumers on one `Shared` subscription split the stream in process instead of each replaying all of it.
 
@@ -75,7 +75,6 @@ struct Confirmation {
 #[subscriber(
     PulsarSubscription::new("orders", "workers")
         .subscription_type(SubscriptionType::Shared)
-        .dead_letter(DeadLetter::new("orders-dlq").max_deliveries(5))
         .ack_timeout(Duration::from_secs(30)),
     publish("confirmations")
 )]
@@ -88,7 +87,10 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
-            b.include(confirm).out_reply(Publish);
+            b.include(confirm)
+                .out_reply(Publish)
+                .max_attempts(nonzero!(5))
+                .dead_letter("orders-dlq");
         },
     )
 }

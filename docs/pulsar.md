@@ -2,8 +2,8 @@
 
 `ruststream-pulsar` runs a RustStream service on Apache Pulsar. A topic is a retained log, so a
 subscription rewinds over it. You can choose one of the four subscription types, subscribe to a
-list of topics or to a pattern, and set the consumer-side dead-letter policy. The `testing` feature
-ships an in-process broker. For framework concepts (writing subscribers, routing, codecs,
+list of topics or to a pattern, and cap a message's retries at a dead-letter topic. The `testing`
+feature ships an in-process broker. For framework concepts (writing subscribers, routing, codecs,
 middleware), see the [RustStream documentation](https://powersemmi.github.io/ruststream/).
 
 ```toml
@@ -28,7 +28,7 @@ this broker does not implement does not compile at the mount site.
 | `RequestReply` | no | Pulsar has no reply inbox; a reply is an ordinary publish to another topic |
 | `Partitioned` | yes | a delivery reports the message's partition key, which `KeyShared` subscriptions order by; a publish names that key with the `partition_key` step (see [Per-message settings](#per-message-settings)) |
 | `Seekable` / `Positioned` | yes | a subscription seeks over `PulsarPosition`, and a handler reads the current position and the seeker through the `Position` and `SeekHandle` context keys (see [Seeking](#seeking)) |
-| `DescribeServer` | yes | the framework's AsyncAPI document names the host, the port and the `pulsar` protocol, which `PulsarBroker` reads off its URL; the credentials the URL carries never reach the document |
+| `DescribeServer` | yes | the framework's AsyncAPI document names the host, the port and the `pulsar` protocol, which `PulsarBroker` reads off its URL; the credentials the URL carries never reach the document (see [The generated document](#the-generated-document)) |
 
 ## The lifecycle
 
@@ -78,7 +78,6 @@ it reads, and the settings its consumer opens with.
 | `PulsarSubscription::topics([..], subscription)` | a fixed list of topics | - |
 | `PulsarSubscription::pattern(regex, subscription)` | every matching topic in the lookup namespace | - |
 | `subscription_type(SubscriptionType)` | how competing consumers share the subscription | `Shared` |
-| `dead_letter(DeadLetter)` | the consumer-side dead-letter policy | none |
 | `ack_timeout(Duration)` | redeliver messages left unacknowledged for longer than this | none |
 | `batch_wait(Duration)` | how long a partial batch waits for more deliveries (see [Batches](#batches)) | 10 ms |
 
@@ -104,7 +103,8 @@ descriptors, publish policy and per-message settings.
 --8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:handler"
 ```
 
-Mount it on the broker:
+Mount it on the broker. The two steps after `include` cap how often a message is retried and name
+where it goes afterwards; [Retries and dead-lettering](#retries-and-dead-lettering) covers them.
 
 ```rust
 --8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:app"
@@ -153,13 +153,6 @@ A batch subscription seeks like any other: it opens at a chosen position with `s
 batch body repositions it through `PulsarBatchContext` (see
 [Repositioning from a handler](#repositioning-from-a-handler)).
 
-### Dead-lettering
-
-`DeadLetter::new("orders-dlq")` sends a message to `orders-dlq` after five redeliveries of it, and
-`max_deliveries(n)` sets another limit. A negative acknowledgement advances the delivery count.
-`ack_timeout` advances it without one, by redelivering anything left unacknowledged for longer than
-the timeout. Both are settings on the Pulsar consumer, not machinery this crate runs.
-
 ## Acknowledgement
 
 | Handler outcome | Pulsar operation |
@@ -175,27 +168,61 @@ The client queues acknowledgements, so a settle that returns `Ok` means the ackn
 queued on the consumer, not that the broker confirmed it. A subscription that ends closes its
 consumer.
 
-### Deferred retries
+### Retries and dead-lettering
 
-A Pulsar negative acknowledgement carries no delay, so a `HandlerOutcome::retry_after(delay)`
-outcome takes the framework's own deferred path: the message is published again once the delay is
-over, and the subscription says where. A topic is its own address, so a subscription over one
-topic answers with that topic, and `b.include(reconcile).out_retry(Publish)` is the whole wiring.
-Both spellings of one topic qualify: the `PulsarSubscription::new(topic, subscription)` descriptor
-and a bare `#[subscriber("orders")]`.
+How many times a message is retried, and where it goes afterwards, is the pair of steps the mount
+site above writes. `max_attempts(nonzero!(5))` is how many times one message reaches the handler,
+counting the first delivery. `dead_letter("orders-dlq")` is the topic it moves to once those are
+spent. Together they become the consumer's own dead-letter policy: the Pulsar client counts a
+message's redeliveries, produces the spent one to that topic, and acknowledges the original. The
+service publishes nothing, which is why a Pulsar registration has no retry position at all -
+`out_retry(..)` over a Pulsar subscription is a compile error, and the message it prints says so.
 
-The retry position belongs to one registration rather than to the whole broker, so two handlers on
-one broker defer through policies of their own. It is an ordinary publishing slot and takes the
-slot steps, `.codec(..)` and `.transform(..)`. The deferred copy travels that pipeline carrying the
-delivery's own bytes: a transform stamps the copy, while the codec named there resolves the
-position and encodes nothing.
+Write both steps or neither. A limit with nowhere to send the spent message, and a topic nothing
+ever reaches, are each half a policy, and the client applies neither, so a registration that
+writes one without the other refuses to start and the error names the missing step.
 
-A topic list and a pattern answer nothing. Either could name a topic the subscription reads, but
-the copy would arrive on a different topic from the one the message came off, and a handler that
-branches on the delivery's topic would take the wrong branch. A registration that binds `out_retry`
-over such a subscription refuses to start, and the error names the subscription. Give each topic
-its own subscription, or leave the registration without the retry position, where `retry_after`
-degrades to an immediate redelivery.
+The declaration travels through the subscription descriptor, so a handler needs one:
+`#[subscriber("orders")]` opens the framework's service-wide subscription by name and carries
+nothing else, and a cap written on such a registration reaches no consumer. Name a
+`PulsarSubscription` where a handler needs the policy.
+
+`HandlerOutcome::retry()` is the negative acknowledgement that advances the count. `ack_timeout`
+advances it without one, by redelivering anything left unacknowledged for longer than the timeout.
+
+A `HandlerOutcome::retry_after(delay)` outcome keeps the retry and loses the delay. The Pulsar
+client has no delayed negative acknowledgement to hand it, so the message comes back at once and
+the framework logs that the delay was dropped. Publish the message to a topic of your own where
+the wait itself is the point.
+
+## The generated document
+
+The framework builds an AsyncAPI document out of a service's registrations. The `asyncapi`
+feature of this crate fills in what only Pulsar knows:
+
+```toml
+ruststream-pulsar = { version = "0.7", features = ["asyncapi"] }
+```
+
+A subscription over one topic reports that topic's namespace and persistence in the
+specification's `pulsar` channel binding. The specification leaves the Pulsar operation object
+empty, so the consumer travels under the extension key `x-ruststream-pulsar`: the subscription it
+joins, the type that decides how the subscription shares its stream, and the acknowledgement
+timeout.
+
+```json
+--8<-- "crates/ruststream-pulsar/tests/data/pulsar_document.json"
+```
+
+Every value there is read off the descriptor, before anything connects. A subscription over
+several topics reports a namespace only when all of its topics agree on one, and a pattern
+subscription reports none at all, since it has no topic until it resolves against a server; both
+report their topics, or their pattern, in the extension instead. A subscription opened by a bare
+topic name has no descriptor to read, and describes nothing.
+
+The server carries the host and the port. A service URL may hold a token and a published document
+is shared, so credentials never reach it. The protocol version stays out as well: a Pulsar client
+negotiates it per connection, so there is no number for a reader to match.
 
 ## Seeking
 
@@ -386,7 +413,7 @@ rotates, and `KeyShared` splits by partition key. Two handlers on one shared sub
 therefore split a run between them here as they do in production, and a `nack(requeue = true)`
 goes back to the subscription, so a retry can land on a sibling.
 
-Four things still stop short of a server, and a test that leans on them is leaning on the wrong
+Three things still stop short of a server, and a test that leans on them is leaning on the wrong
 broker:
 
 - `KeyShared` assigns by the key's hash modulo the consumer count rather than by Pulsar's hash
@@ -394,14 +421,17 @@ broker:
   that is differs from a server's, and so does what a consumer joining or leaving reshuffles.
 - A seek moves the consumer that asked for it; on a server the cursor belongs to the subscription,
   so a seek from one consumer of a shared subscription moves its siblings too.
-- A delivery nacked past `max_deliveries` keeps coming back instead of moving to the dead-letter
-  topic: `dead_letter` needs the server's per-message delivery count, which this transport does
-  not keep.
 - `ack_timeout`, credit and redelivery timing carry no behaviour here; they are the server's
   clock, not the transport's.
 
-The last two are product behaviour the live suite covers against a real broker; the first two are
+The last one is product behaviour the live suite covers against a real broker; the first two are
 where this model is coarser than the server's.
+
+The registration's retry declaration does carry behaviour. A consumer counts a message's
+redeliveries and, at the `max_attempts(..)` limit, produces it to the declared `dead_letter(..)`
+topic - the same place and the same arithmetic the real client uses, since the client applies the
+policy itself rather than the server. So a cap and a dead-letter destination are driven on the
+harness, and the live suite is what says the client agrees.
 
 Topic names route literally, with no namespace to resolve them against: `orders` and
 `persistent://public/default/orders` are two addresses here and one topic on a server. A pattern

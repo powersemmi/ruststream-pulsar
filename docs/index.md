@@ -2,8 +2,8 @@
 
 **`ruststream-pulsar`** runs a [RustStream](https://powersemmi.github.io/ruststream/) service on
 Apache Pulsar. A topic is a retained log, so a subscription rewinds over it. You pick one of the
-four subscription types, subscribe to a list of topics or to a pattern, and set the consumer-side
-dead-letter policy. The `testing` feature ships an in-process broker.
+four subscription types, subscribe to a list of topics or to a pattern, and cap a message's
+retries at a dead-letter topic. The `testing` feature ships an in-process broker.
 
 The transport is implemented over the [`pulsar`](https://docs.rs/pulsar) client maintained by
 StreamNative.

@@ -168,3 +168,43 @@ async fn a_destination_without_a_cap_refuses_to_start() {
     assert!(message.contains("workers"), "{message}");
     assert!(message.contains("max_attempts"), "{message}");
 }
+
+#[derive(Debug, Deserialize, Eq, Outgoing, PartialEq, Serialize)]
+struct Receipt {
+    id: u64,
+}
+
+#[subscriber(PulsarSubscription::new("payments", "workers"), publish("receipts"))]
+async fn confirm(order: &Order) -> Receipt {
+    Receipt { id: order.id }
+}
+
+/// The declaration composes with the rest of the mount chain: a replying registration names its
+/// reply policy and its cap in one statement, which is the spelling the README and the guide
+/// show.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_declaration_composes_with_a_reply_position() {
+    let app = RustStream::new(AppInfo::new("payments", "0.1.0")).with_broker(
+        PulsarTestBroker::new(),
+        |b| {
+            b.include(confirm)
+                .out_reply(Publish)
+                .max_attempts(nonzero!(5))
+                .dead_letter("payments-dlq");
+        },
+    );
+    let tb = TestApp::start(app).await.expect("start harness");
+
+    tb.broker::<PulsarTestBroker>()
+        .message(&Order { id: 7 })
+        .to("payments")
+        .publish()
+        .await
+        .expect("publish");
+    tb.settle().await.expect("settle");
+
+    tb.broker::<PulsarTestBroker>()
+        .published::<Receipt>("receipts")
+        .assert_called_once()
+        .with(&Receipt { id: 7 });
+}

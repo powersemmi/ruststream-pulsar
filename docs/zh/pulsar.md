@@ -1,8 +1,8 @@
 # Apache Pulsar { #apache-pulsar }
 
 `ruststream-pulsar` 在 Apache Pulsar 上运行 RustStream 服务。主题是一份保留下来的日志，因此订阅可以
-在它上面回放。你可以从四种订阅类型里选一种，订阅一组主题或者一个主题模式，并设定消费者侧的死信
-策略。`testing` feature 提供一个进程内 Broker。框架本身的概念（编写订阅者、路由、编解码器和中间件）
+在它上面回放。你可以从四种订阅类型里选一种，订阅一组主题或者一个主题模式，并用一个死信主题给消息
+的重试次数封顶。`testing` feature 提供一个进程内 Broker。框架本身的概念（编写订阅者、路由、编解码器和中间件）
 参见 [RustStream 文档](https://powersemmi.github.io/ruststream/)。
 
 ```toml
@@ -73,7 +73,6 @@ URL 写成 `pulsar://` 或 `pulsar+ssl://`，你可以用 `token(jwt)` 附上 JW
 | `PulsarSubscription::topics([..], subscription)` | 一组固定的主题 | - |
 | `PulsarSubscription::pattern(regex, subscription)` | 查找命名空间里每一个匹配的主题 | - |
 | `subscription_type(SubscriptionType)` | 竞争的消费者如何共享这条订阅 | `Shared` |
-| `dead_letter(DeadLetter)` | 消费者侧的死信策略 | 无 |
 | `ack_timeout(Duration)` | 超过这个时长仍未确认的消息，重新投递 | 无 |
 | `batch_wait(Duration)` | 未满的批等待更多投递多久（见[批](#batches)） | 10 毫秒 |
 
@@ -97,7 +96,8 @@ URL 写成 `pulsar://` 或 `pulsar+ssl://`，你可以用 `token(jwt)` 附上 JW
 --8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:handler"
 ```
 
-把它挂到 Broker 上：
+把它挂到 Broker 上。`include` 之后的两个步骤给消息的重试次数封顶，并写出重试用尽之后消息去哪里；
+它们见[重试与死信](#retries-and-dead-lettering)。
 
 ```rust
 --8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:app"
@@ -143,13 +143,6 @@ Pulsar 的客户端一次只交出一条投递，因此批由框架自己的缓�
 批量订阅和其他订阅一样可以定位：它用 `start_at(..)` 在选定的位置打开，批量函数体通过
 `PulsarBatchContext` 给它重新定位（见[在处理器里重新定位](#repositioning-from-a-handler)）。
 
-### 进死信 { #dead-lettering }
-
-`DeadLetter::new("orders-dlq")` 在一条消息被重新投递五次之后，把它送进 `orders-dlq`，
-`max_deliveries(n)` 则换成别的上限。一次否定确认（nack）让投递计数加一。`ack_timeout` 不靠否定
-确认也能让它加一：超过该超时仍未确认的消息，它都重新投递。两者都是 Pulsar 消费者上的设置，不是
-这个 crate 跑的机制。
-
 ## 确认 { #acknowledgement }
 
 | 处理器结果 | Pulsar 操作 |
@@ -164,23 +157,53 @@ drop 之所以也是确认，是因为 Pulsar 没有终态拒绝这个动作。�
 客户端把确认排进队列，因此一次结算返回 `Ok`，意思是确认已经排在消费者的队列上，而不是 Broker
 已经确认。订阅结束时会关闭自己的消费者。
 
-### 延迟重试 { #deferred-retries }
+### 重试与死信 { #retries-and-dead-lettering }
 
-Pulsar 的否定确认不带延迟，因此 `HandlerOutcome::retry_after(delay)` 这个结果走框架自己的延迟
-路径：延迟过去之后消息被重新发布，而发到哪里由订阅给出。主题就是自己的地址，因此读单个主题的
-订阅答的就是那个主题，全部接线就是 `b.include(reconcile).out_retry(Publish)`。同一个主题的两种
-写法都算数：`PulsarSubscription::new(topic, subscription)` 描述符，以及光秃秃的
-`#[subscriber("orders")]`。
+一条消息重试多少次、用尽之后去哪里，就是上面那个挂载点写的两个步骤。`max_attempts(nonzero!(5))`
+是一条消息送到处理器的次数，第一次投递也算在内。`dead_letter("orders-dlq")` 是它用尽之后去的
+主题。两者合起来成为消费者自己的死信策略：Pulsar 客户端数一条消息被重新投递了多少次，把用尽的
+那条发到这个主题，并确认原来那条。服务本身什么都不发布，所以 Pulsar 上的一次注册根本没有重试
+位置：在 Pulsar 订阅上写 `out_retry(..)` 是编译错误，错误文本会说明原因。
 
-重试位置属于一次注册，而不属于整个 Broker，因此同一个 Broker 上的两个处理器各用各的策略延迟。
-它是一个普通的发布槽位，接得下槽位的各个步骤，`.codec(..)` 和 `.transform(..)`。延迟的那份副本
-带着投递本身的字节走这条流水线：变换给副本盖上标记，而这里点名的编解码器只解析位置，不编码任何
-东西。
+两个步骤要么都写，要么都不写。有上限却没有地方安置用尽的消息，或者有主题却没有东西会走到那里，
+都只是半条策略，客户端两者都不会应用，因此只写了一个步骤的注册拒绝启动，错误里会写出缺的是哪
+一个。
 
-主题列表和主题模式什么都答不出。两者都可以点一个订阅在读的主题，但那份副本会落在与消息来处不同
-的主题上，而按投递主题分支的处理器就会走错分支。在这样的订阅上接了 `out_retry` 的那次注册拒绝
-启动，错误里会写出是哪条订阅。给每个主题各一条订阅，或者让这次注册不带重试位置，那里
-`retry_after` 退化成立即重新投递。
+这份声明经描述符送到消费者，所以处理器需要一个描述符：`#[subscriber("orders")]` 按名字打开框架
+那条服务级订阅，此外什么都不带，写在这种注册上的上限到不了任何消费者。处理器需要这条策略时，
+请点名 `PulsarSubscription`。
+
+`HandlerOutcome::retry()` 就是推动这个计数的否定确认。`ack_timeout` 不靠否定确认也能推动它：
+超过该超时仍未确认的消息，它都重新投递。
+
+`HandlerOutcome::retry_after(delay)` 这个结果保住重试，丢掉延迟。Pulsar 客户端没有带延迟的否定
+确认可以承载它，因此消息立刻回来，框架在日志里写明延迟被丢弃了。等待本身才是重点的地方，请把
+消息发布到你自己的主题上。
+
+## 生成的文档 { #the-generated-document }
+
+框架从服务的各次注册生成一份 AsyncAPI 文档。这个 crate 的 `asyncapi` feature 把只有 Pulsar 知道
+的东西填进去：
+
+```toml
+ruststream-pulsar = { version = "0.7", features = ["asyncapi"] }
+```
+
+读单个主题的订阅，在规范的 `pulsar` 信道绑定里写出该主题的命名空间和持久化。规范给 Pulsar 的
+operation 对象是空的，因此消费者本身走扩展键 `x-ruststream-pulsar`：它加入的订阅、决定这条订阅
+如何分享自己那份流的类型，以及确认超时。
+
+```json
+--8<-- "crates/ruststream-pulsar/tests/data/pulsar_document.json"
+```
+
+这里的每一个值都是在任何连接之前从描述符上读出来的。读多个主题的订阅，只有在它的所有主题都落在
+同一个命名空间时才写出命名空间；按模式订阅则一个都不写，因为模式在服务器上解析之前它没有主题。
+两者改为在扩展里写出自己的主题或自己的模式。按光秃秃的主题名打开的订阅没有描述符可读，什么都
+不描述。
+
+服务器只带主机和端口。服务 URL 里可能有令牌，而发布出去的文档是给很多人看的，因此凭据不会进入
+文档。协议版本同样留在外面：Pulsar 客户端在每条连接上协商它，读者没有东西要对照。
 
 ## 定位 { #seeking }
 
@@ -348,18 +371,21 @@ Broker 交出同样的 `PulsarContext` 和 `PulsarBatchContext`，带同样的 `
 订阅上的两个处理器，在这里也像在生产中一样分摊一次运行，而 `nack(requeue = true)` 会回到订阅，
 于是重试可能落到兄弟消费者上。
 
-还有四件事没有做到服务器那一步，依赖它们的测试就是在依赖错的 Broker：
+还有三件事没有做到服务器那一步，依赖它们的测试就是在依赖错的 Broker：
 
 - `KeyShared` 按键的哈希对消费者数量取模来分配，而不是按 Pulsar 的哈希区间。一个键始终落在一个
   消费者上，这才是值得测的性质；但具体是哪个消费者，与服务器上不同，消费者加入或离开时重新洗牌
   的结果也不同。
 - 一次定位只移动提出请求的那个消费者；在服务器上游标属于订阅，因此共享订阅里一个消费者的定位也会
   移动它的兄弟消费者。
-- 被 nack 超过 `max_deliveries` 次的投递会一直回来，而不是转进死信主题：`dead_letter` 需要服务器
-  按消息维护的投递计数，这个传输不保存它。
 - `ack_timeout`、信用额度和重新投递的时序在这里没有行为，它们属于服务器的时钟，不属于传输。
 
-后两条是真实 Broker 的测试套件覆盖的产品行为；前两条是这个模型比服务器粗的地方。
+最后一条是真实 Broker 的测试套件覆盖的产品行为；前两条是这个模型比服务器粗的地方。
+
+注册的重试声明在这里是有行为的。消费者数一条消息被重新投递了多少次，到 `max_attempts(..)` 这个
+上限时，把它发到声明的 `dead_letter(..)` 主题，地点和算法都与真实客户端一致，因为这条策略是客户端
+自己应用的，不是服务器。于是上限和死信去处在测试夹具上就能验证，而真实 Broker 上的运行回答客户端
+是否与之一致。
 
 主题名按字面路由，没有命名空间去解析它们：`orders` 和 `persistent://public/default/orders` 在这里
 是两个地址，在服务器上是一个主题。主题模式也对着同一个字面名字匹配，而服务器拿它匹配完全限定名，
