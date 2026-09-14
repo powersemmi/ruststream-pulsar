@@ -111,8 +111,8 @@ pub fn sources() -> (PulsarSubscription, PulsarSubscription, PulsarSubscription)
 
 `#[subscriber("orders")]` is the short form: a bare name opens a `Shared` subscription called
 `ruststream` on that topic, which is what makes two instances of a service competing consumers
-rather than two independent readers. It carries nothing else, so a handler that needs any setting
-above names a descriptor.
+rather than two independent readers. The retry declaration reaches that consumer too; every other
+setting above needs a descriptor.
 
 Subscribing validates first: an empty subscription name, an empty topic list, a malformed topic
 name and a pattern that is not a regular expression each return
@@ -173,11 +173,12 @@ Write both steps or neither. A limit with nowhere to send the message, and a top
 reaches, are each half a policy the client cannot apply, so a registration that writes one without
 the other refuses to start and the error names the missing step.
 
-The declaration travels through the descriptor, so a handler that needs it names a
-[`PulsarSubscription`]; a cap written on a bare-name registration reaches no consumer. What
-advances the count is `HandlerOutcome::retry()`, or `ack_timeout` expiring on a delivery nobody
-settled. What no transport shows the handler is the count itself: the client keeps the broker's
-redelivery count for its own decision and does not put it on the message, so
+A handler mounted by a bare topic name declares the same pair: the broker takes the declaration
+in and builds the consumer for that name from it, so the policy applies there as it does on a
+[`PulsarSubscription`], and the refusal for half a declaration names the topic. What advances the
+count is `HandlerOutcome::retry()`, or `ack_timeout` expiring on a delivery nobody settled. What
+no transport shows the handler is the count itself: the client keeps the broker's redelivery
+count for its own decision and does not put it on the message, so
 `IncomingMessage::redelivery_count` answers nothing here and nothing in production.
 
 ## Batches
@@ -464,10 +465,10 @@ leaves out: a subscription over several topics reports a namespace only when all
 one, a pattern subscription reports none at all because it has no topic until it resolves against
 a server, and a subscription opened by a bare topic name has no descriptor to read and describes
 nothing. Neither does a name Pulsar would not take for a topic: the document says what the
-deployment is, or says nothing about it. The server carries the host and the port alone, since a service URL may hold a token and
-a published document is shared; the protocol version stays out too, because a Pulsar client
-negotiates it per connection. Replies go to a declared destination, so there is no reply address
-for a client to read out of a message.
+deployment is, or says nothing about it. The server carries the host and the port alone, since a
+service URL may hold a token and a published document is shared; the protocol version stays out
+too, because a Pulsar client negotiates it per connection. Replies go to a declared destination,
+so there is no reply address for a client to read out of a message.
 
 # Testing
 

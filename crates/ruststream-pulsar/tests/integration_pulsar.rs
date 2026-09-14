@@ -10,8 +10,9 @@ use std::time::Duration;
 use futures::StreamExt;
 use ruststream::runtime::PublishExt;
 use ruststream::{
-    Broker, ConnectedBroker, HeaderMap, IncomingMessage, Outgoing, OutgoingMessage, Publisher,
-    RetryDeclaration, Seekable, Seeker, Serialized, Subscriber, SubscriptionSource,
+    Broker, ConnectedBroker, DeclareRetryError, HeaderMap, IncomingMessage, Outgoing,
+    OutgoingMessage, Publisher, RetryDeclaration, Seekable, Seeker, Serialized, Subscribe,
+    Subscriber, SubscriptionSource, nonzero,
 };
 use ruststream_pulsar::{
     ConnectedPulsarBroker, PARTITION_KEY_HEADER, PulsarBroker, PulsarError, PulsarMessage,
@@ -371,6 +372,76 @@ async fn dead_letter_policy_routes_exhausted_messages() {
             2,
             dlq.clone(),
         ))
+        .await
+        .expect("subscription opens");
+
+    let publisher = connected.publisher();
+    publisher
+        .publish(OutgoingMessage::new(&topic, b"poison".as_slice()), None)
+        .await
+        .expect("publish succeeds");
+
+    // Nack until the delivery count exceeds the policy and the broker reroutes.
+    let mut stream = pin!(subscriber.stream());
+    for _ in 0..4 {
+        match tokio::time::timeout(RECV_TIMEOUT, stream.next()).await {
+            Ok(Some(Ok(message))) => message.nack(true).await.expect("nack succeeds"),
+            Ok(Some(Err(err))) => panic!("subscription failed: {err}"),
+            Ok(None) => panic!("subscription ended"),
+            Err(_) => break, // no more redeliveries: the message moved to the DLQ
+        }
+    }
+
+    let mut dlq_stream = pin!(dlq_subscriber.stream());
+    let dead = tokio::time::timeout(RECV_TIMEOUT, dlq_stream.next())
+        .await
+        .expect("dead letter arrives")
+        .expect("dlq stream is open")
+        .expect("dead letter is ok");
+    assert_eq!(dead.payload(), b"poison");
+    dead.ack().await.expect("ack succeeds");
+
+    connected.shutdown().await.expect("shutdown succeeds");
+}
+
+/// The same declaration, made over a bare topic name.
+///
+/// A registration mounted as `#[subscriber("orders")]` has no descriptor to carry the
+/// declaration, so the broker takes it in and builds the consumer for that name from it. This is
+/// the live proof that the consumer it opens carries the policy, and that half a declaration is
+/// refused before anything subscribes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_declaration_over_a_bare_name_routes_exhausted_messages() {
+    let Some(url) = test_url() else { return };
+    let connected = connect(&url).await;
+
+    let topic = unique("named-poison");
+    let dlq = unique("named-dlq");
+    // Subscribe the DLQ first so its delivery is retained for us.
+    let mut dlq_subscriber = connected
+        .subscribe_descriptor(PulsarSubscription::new(&dlq, unique("dlq-sub")))
+        .await
+        .expect("dlq subscription opens");
+
+    let refused = connected
+        .declare_retry(
+            &topic,
+            &RetryDeclaration::new().with_max_attempts(nonzero!(2u32)),
+        )
+        .expect_err("a cap with no destination is not a policy the client can apply");
+    assert!(
+        matches!(refused, DeclareRetryError::Broker(_)),
+        "{refused:?}"
+    );
+
+    let declaration = RetryDeclaration::new()
+        .with_max_attempts(nonzero!(2u32))
+        .with_dead_letter(dlq.clone());
+    connected
+        .declare_retry(&topic, &declaration)
+        .expect("the broker takes a whole declaration");
+    let mut subscriber = connected
+        .subscribe(&topic)
         .await
         .expect("subscription opens");
 

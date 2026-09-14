@@ -8,14 +8,14 @@ use std::time::Duration;
 use bytes::Bytes;
 use ruststream::testing::{Coordinator, TestableBroker};
 use ruststream::{
-    Broker, BrokerMoves, ConnectedBroker, DefaultPublish, OutgoingMessage, Publisher, RawMessage,
-    Subscribe,
+    Broker, BrokerMoves, ConnectedBroker, DeclareRetryError, DefaultPublish, OutgoingMessage,
+    Publisher, RawMessage, RetryDeclaration, Subscribe,
 };
 
 use crate::error::PulsarError;
 use crate::message::PARTITION_KEY_HEADER;
 use crate::publisher::PulsarPublishOptions;
-use crate::subscription::{DEFAULT_SUBSCRIPTION, DeadLetterRoute, PulsarSubscription, Topics};
+use crate::subscription::{DeadLetterRoute, DeclaredRetries, PulsarSubscription, Topics};
 use crate::testing::router::{AddressRouter, Membership, Route};
 use crate::testing::subscriber::PulsarTestSubscriber;
 
@@ -23,6 +23,8 @@ use crate::testing::subscriber::PulsarTestSubscriber;
 #[derive(Debug, Default)]
 pub(crate) struct TestState {
     pub(crate) router: AddressRouter,
+    /// What registrations mounted by a bare topic name declared about their retries.
+    declared_retries: DeclaredRetries,
     /// Set by `shutdown`. The ladder makes owner-side misuse a compile error, but handles that
     /// alias the transport - a publisher taken before the shutdown, a clone of the connected
     /// form - outlive it and must report the closure instead of routing into a dead router, as
@@ -233,8 +235,19 @@ impl Subscribe for ConnectedPulsarTestBroker {
 
     fn subscribe(&self, name: &str) -> impl Future<Output = Result<Self::Subscriber, Self::Error>> {
         // The same descriptor the real broker builds for a bare name, so two handlers mounted on
-        // one topic compete on the service-wide subscription here as they do there.
-        ready(self.open(PulsarSubscription::new(name, DEFAULT_SUBSCRIPTION)))
+        // one topic compete on the service-wide subscription here as they do there, under the
+        // policy the registration declared.
+        ready(self.open(self.state.declared_retries.subscription(name)))
+    }
+
+    /// Takes the declaration the way the client does, and refuses what it would refuse, so a
+    /// service learns about half a policy from its own test run.
+    fn declare_retry(
+        &self,
+        name: &str,
+        declaration: &RetryDeclaration,
+    ) -> Result<(), DeclareRetryError> {
+        self.state.declared_retries.declare(name, declaration)
     }
 }
 

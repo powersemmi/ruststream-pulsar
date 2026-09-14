@@ -6,6 +6,10 @@
 //! redeliveries and produces the spent message to that topic. Nothing is published by the
 //! service, which is why `out_retry(..)` does not compile over a Pulsar subscription at all.
 //!
+//! A registration mounted by a bare topic name declares the same pair. It has no descriptor to
+//! carry the declaration, so the broker takes it in and builds the consumer for that name from
+//! it.
+//!
 //! Half a declaration is not a policy the client can apply, so a registration that writes one
 //! step and not the other refuses to start rather than running with a cap nobody enforces.
 #![cfg(feature = "testing")]
@@ -130,6 +134,64 @@ async fn a_pattern_subscription_carries_the_same_policy() {
     tb.broker::<PulsarTestBroker>()
         .published::<Order>("dlq-audit")
         .assert_called_once();
+}
+
+/// Never settles, and mounted by a bare topic name: the declaration has no descriptor to travel
+/// in, so what applies it is whatever the broker made of it.
+#[subscriber("orders")]
+async fn reconcile_by_name(order: &Order) -> HandlerOutcome {
+    let _ = order;
+    HandlerOutcome::retry()
+}
+
+/// A bare name is the shorter spelling of the same subscription, so the cap and the destination
+/// declared on it reach the consumer the way a descriptor's do.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bare_name_carries_its_declaration_to_the_consumer() {
+    let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
+        PulsarTestBroker::new(),
+        |b| {
+            b.include(reconcile_by_name)
+                .max_attempts(nonzero!(5))
+                .dead_letter("orders-dead");
+        },
+    );
+    let tb = TestApp::start(app).await.expect("start harness");
+
+    tb.broker::<PulsarTestBroker>()
+        .message(&Order { id: 11 })
+        .to("orders")
+        .publish()
+        .await
+        .expect("publish");
+    tb.settle().await.expect("settle");
+
+    tb.broker::<PulsarTestBroker>()
+        .subscriber("orders")
+        .assert_called(5);
+    tb.broker::<PulsarTestBroker>()
+        .published::<Order>("orders-dead")
+        .assert_called_once()
+        .with(&Order { id: 11 });
+}
+
+/// The refusal reaches a bare name too, and it names the topic, because that is all a
+/// registration mounted this way says about itself.
+#[tokio::test]
+async fn a_bare_name_refuses_half_a_declaration() {
+    let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
+        PulsarTestBroker::new(),
+        |b| {
+            b.include(reconcile_by_name).max_attempts(nonzero!(5));
+        },
+    );
+
+    let failed = TestApp::start(app)
+        .await
+        .expect_err("a half declaration must not start");
+    let message = failed.to_string();
+    assert!(message.contains("topic 'orders'"), "{message}");
+    assert!(message.contains("dead_letter"), "{message}");
 }
 
 /// A cap with nowhere to send the spent message is not a Pulsar policy, and the refusal says

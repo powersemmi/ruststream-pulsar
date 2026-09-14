@@ -2,7 +2,7 @@
   "rules": [
     "Import `ruststream_pulsar::prelude::*` in a routes file; a handler body imports `ruststream::prelude::*` alone, except a body that names `partition_key`, which imports this crate's prelude too.",
     "Name a `PulsarSubscription` in `#[subscriber(..)]` whenever the handler needs a setting: `new` for one topic, `topics([..])` for a fixed list, `pattern(..)` for every matching topic, with `subscription_type`, `ack_timeout` and `batch_wait` on it.",
-    "`#[subscriber(\"orders\")]` is the short form and opens a `Shared` subscription named `ruststream` on that topic; it carries no descriptor, so a cap declared on it reaches no consumer.",
+    "`#[subscriber(\"orders\")]` is the short form and opens a `Shared` subscription named `ruststream` on that topic; a cap and a dead-letter topic declared on it reach that consumer, and every other setting needs a descriptor.",
     "Cap redeliveries with `.max_attempts(n).dead_letter(topic)` right after `include`, always both steps, and let the Pulsar client move the spent delivery; `.out_retry(..)` does not compile on this broker.",
     "Set the partition key with the `partition_key` step of the publish builder, bounding the slot `Out<impl Publisher<Options = PulsarPublishOptions>, Marker>`, or write the `partition-key` header for the portable spelling.",
     "Publish and reply through the `Publish` policy (`out_reply(Publish)`, `.out(Marker, Publish).build()`); the client has no transactions and no reply inbox, so a request/reply exchange is an ordinary publish to another topic.",

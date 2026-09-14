@@ -11,14 +11,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use pulsar::{Authentication, Pulsar, TokioExecutor};
 use ruststream::{
-    Broker, BrokerMoves, ConnectedBroker, DefaultPublish, DescribeServer, ServerSpec, Subscribe,
+    Broker, BrokerMoves, ConnectedBroker, DeclareRetryError, DefaultPublish, DescribeServer,
+    RetryDeclaration, ServerSpec, Subscribe,
 };
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::error::{PulsarError, box_err};
 use crate::publisher::{PulsarProducer, PulsarPublish, PulsarPublisher};
 use crate::subscriber::PulsarSubscriber;
-use crate::subscription::{DEFAULT_SUBSCRIPTION, PulsarSubscription};
+use crate::subscription::{DeclaredRetries, PulsarSubscription};
 
 /// The live client state shared by the connected form and every handle derived from it.
 ///
@@ -31,6 +32,8 @@ pub(crate) struct Core {
     pub(crate) closed: AtomicBool,
     /// Per-topic producers, shared by every publisher handle so shutdown can close them.
     pub(crate) producers: Mutex<HashMap<String, Arc<Mutex<PulsarProducer>>>>,
+    /// What registrations mounted by a bare topic name declared about their retries.
+    pub(crate) declared_retries: DeclaredRetries,
 }
 
 impl Core {
@@ -122,6 +125,7 @@ impl Broker for PulsarBroker {
                     client,
                     closed: AtomicBool::new(false),
                     producers: Mutex::new(HashMap::new()),
+                    declared_retries: DeclaredRetries::default(),
                 }))
             })
             .await?
@@ -200,16 +204,24 @@ impl ConnectedBroker for ConnectedPulsarBroker {
 impl Subscribe for ConnectedPulsarBroker {
     type Subscriber = PulsarSubscriber;
     /// A bare name opens the same consumer a descriptor does, so a spent delivery moves at the
-    /// client here too. What a bare name cannot carry is the declaration itself: the
-    /// registration's cap and dead-letter topic reach a consumer only through
-    /// [`PulsarSubscription`], which is the form to name when a handler needs them.
+    /// client here too, under the policy the registration declared.
     type Copies = BrokerMoves;
 
     async fn subscribe(&self, name: &str) -> Result<Self::Subscriber, Self::Error> {
         // By-name subscriptions share one durable subscription, matching competing-consumer
-        // expectations. The stand-in reads the same constant, so the two cannot drift apart.
-        self.subscribe_descriptor(PulsarSubscription::new(name, DEFAULT_SUBSCRIPTION))
+        // expectations. The stand-in reads the same descriptor, so the two cannot drift apart.
+        self.subscribe_descriptor(self.core.declared_retries.subscription(name))
             .await
+    }
+
+    /// Maps the declaration onto the consumer this name opens: the limit and the topic become
+    /// the client's own `DeadLetterPolicy`, built in `subscribe` where the connection exists.
+    fn declare_retry(
+        &self,
+        name: &str,
+        declaration: &RetryDeclaration,
+    ) -> Result<(), DeclareRetryError> {
+        self.core.declared_retries.declare(name, declaration)
     }
 }
 
