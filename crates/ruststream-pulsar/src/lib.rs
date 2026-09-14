@@ -1,31 +1,4 @@
-//! Apache Pulsar broker implementation for `RustStream`.
-//!
-//! Handlers, routers, codecs, and middleware come from the framework; this crate supplies the
-//! transport over the [`pulsar`](https://docs.rs/pulsar) client maintained by `StreamNative`.
-//!
-//! - Four subscription types as an enum with per-variant meaning (exclusive, shared, failover,
-//!   key-shared) - combinations that do not exist are unrepresentable.
-//! - A registration's retry cap and dead-letter destination become the consumer's own
-//!   `DeadLetterPolicy`: the client counts a message's redeliveries and moves it on at the
-//!   limit, so nothing is republished from the service.
-//! - The ack timeout redelivers what a handler left unacknowledged; that is the consumer's
-//!   clock, not this crate's.
-//! - [`PulsarTopic`] validates the four meanings a topic name carries (persistence, tenant,
-//!   namespace, topic) on construction instead of at first use.
-//! - Multi-topic and pattern subscriptions are descriptor variants.
-//! - Topics are a retained log, so a handler repositions its own subscription: [`PulsarContext`]
-//!   carries the delivery's [`Position`] and the subscription's [`SeekHandle`], read by key.
-//! - Batch handlers work here. The client hands over one delivery at a time, so a batch is
-//!   assembled on the client from the size the mount site names; only the deadline that closes a
-//!   partial batch is this crate's own, on [`PulsarSubscription::batch_wait`].
-//! - Key sharing maps onto the partition key; message properties carry headers directly, with no
-//!   extra envelope format. The key is the one per-message setting
-//!   ([`PulsarPublishOptions`]), named at the call site by the
-//!   [`partition_key`](PulsarPublishSteps::partition_key) step of the publish builder.
-//!
-//! Transactions and the schema registry are out of scope: the client does not implement them,
-//! and the capability traits they would back are optional.
-
+#![doc = include_str!("README.md")]
 #![forbid(unsafe_code)]
 
 mod broker;

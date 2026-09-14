@@ -11,6 +11,12 @@ readme = "../../README.md"
 keywords = ["pulsar", "messaging", "streaming", "broker", "ruststream"]
 categories = ["asynchronous", "network-programming"]
 
+# The crate root is the guide now, and it sends readers to the testing module and to the
+# generated document; a default build on docs.rs carries no feature at all, so both would
+# be missing from the published reference.
+[package.metadata.docs.rs]
+all-features = true
+
 [lints]
 workspace = true
 
