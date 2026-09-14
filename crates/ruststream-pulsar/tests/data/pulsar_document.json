@@ -9,6 +9,16 @@
           "persistence": "persistent"
         }
       }
+    },
+    "non-persistent://acme/telemetry/ticks": {
+      "address": "non-persistent://acme/telemetry/ticks",
+      "bindings": {
+        "pulsar": {
+          "bindingVersion": "0.1.0",
+          "namespace": "telemetry",
+          "persistence": "non-persistent"
+        }
+      }
     }
   },
   "operations": {

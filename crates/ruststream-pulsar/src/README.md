@@ -420,7 +420,8 @@ With the `asyncapi` feature the crate fills in the Pulsar half of the document t
 builds out of a service's registrations. A subscription over one topic reports that topic's
 namespace and persistence in the specification's `pulsar` channel binding. The specification
 leaves the Pulsar operation object empty, so the consumer travels under the extension key
-`x-ruststream-pulsar`.
+`x-ruststream-pulsar`. A publish reports the same channel binding for the topic it goes to: the
+reply type's own name, the `publish("dest")` clause of a mount site, or a slot entry's name.
 
 ```json
 {
@@ -431,6 +432,15 @@ leaves the Pulsar operation object empty, so the consumer travels under the exte
           "bindingVersion": "0.1.0",
           "namespace": "orders",
           "persistence": "persistent"
+        }
+      }
+    },
+    "non-persistent://acme/telemetry/ticks": {
+      "bindings": {
+        "pulsar": {
+          "bindingVersion": "0.1.0",
+          "namespace": "telemetry",
+          "persistence": "non-persistent"
         }
       }
     }
@@ -453,7 +463,8 @@ Every value is read off the descriptor, before anything connects. What the docum
 leaves out: a subscription over several topics reports a namespace only when all of them agree on
 one, a pattern subscription reports none at all because it has no topic until it resolves against
 a server, and a subscription opened by a bare topic name has no descriptor to read and describes
-nothing. The server carries the host and the port alone, since a service URL may hold a token and
+nothing. Neither does a name Pulsar would not take for a topic: the document says what the
+deployment is, or says nothing about it. The server carries the host and the port alone, since a service URL may hold a token and
 a published document is shared; the protocol version stays out too, because a Pulsar client
 negotiates it per connection. Replies go to a declared destination, so there is no reply address
 for a client to read out of a message.

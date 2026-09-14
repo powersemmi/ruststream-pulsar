@@ -5,10 +5,14 @@ use std::future::{Future, ready};
 use std::sync::Arc;
 
 use pulsar::TokioExecutor;
+#[cfg(feature = "asyncapi")]
+use ruststream::asyncapi::Bindings;
 use ruststream::runtime::{PublishBuilder, PublishSink};
 use ruststream::{OutgoingMessage, PairError, PublishPolicy, Publisher};
 use tokio::sync::Mutex;
 
+#[cfg(feature = "asyncapi")]
+use crate::bindings::topic_channel;
 use crate::broker::{ConnectedPulsarBroker, Core, CoreCell};
 use crate::error::{PulsarError, box_err};
 use crate::message::to_pulsar_message;
@@ -219,11 +223,12 @@ where
 /// It pairs against the in-process stand-in too, so a routes file writes `out_reply(Publish)`
 /// once and mounts it on either broker.
 ///
-/// It adds nothing to the generated `AsyncAPI` document. The specification's `pulsar` channel
-/// binding is a namespace and a persistence, both of which live in the topic name, and the
-/// destination of a publish is the mount site's or the message type's rather than the policy's;
-/// its operation and message objects are empty. Replies go to the declared destination too, so
-/// there is no reply-to header for a client to read an address out of.
+/// In the generated `AsyncAPI` document it describes the channel it publishes to: the
+/// specification's `pulsar` channel binding is a namespace and a persistence, and both live in
+/// the destination's topic name, which the runtime hands the policy. Its operation and message
+/// objects are empty, and the policy has no settings of its own to report beside them: a
+/// partition key belongs to one message. Replies go to the declared destination too, so there is
+/// no reply-to header for a client to read an address out of.
 ///
 /// # Examples
 ///
@@ -237,6 +242,20 @@ where
 #[must_use]
 pub struct PulsarPublish;
 
+#[cfg(feature = "asyncapi")]
+impl PulsarPublish {
+    /// The `pulsar` channel binding of the destination the runtime resolved for this position:
+    /// the reply type's own name or the `publish("dest")` clause, a slot entry's name, the
+    /// `dead_letter("dlq")` declaration.
+    ///
+    /// A destination Pulsar would refuse as a topic name reports nothing rather than a guess,
+    /// the way an unserializable binding body does: a document describes the deployment or it
+    /// stays silent about it.
+    fn describe_channel(channel: &str) -> Bindings {
+        PulsarTopic::parse(channel).map_or_else(|_| Bindings::new(), |topic| topic_channel(&topic))
+    }
+}
+
 impl PublishPolicy<ConnectedPulsarBroker> for PulsarPublish {
     type Live = PulsarPublisher;
 
@@ -245,6 +264,11 @@ impl PublishPolicy<ConnectedPulsarBroker> for PulsarPublish {
         connected: &ConnectedPulsarBroker,
     ) -> impl Future<Output = Result<Self::Live, PairError>> {
         ready(Ok(connected.publisher()))
+    }
+
+    #[cfg(feature = "asyncapi")]
+    fn channel_bindings(&self, channel: &str) -> Bindings {
+        Self::describe_channel(channel)
     }
 }
 
@@ -261,6 +285,13 @@ impl PublishPolicy<crate::testing::ConnectedPulsarTestBroker> for PulsarPublish 
         connected: &crate::testing::ConnectedPulsarTestBroker,
     ) -> impl Future<Output = Result<Self::Live, PairError>> {
         ready(Ok(connected.publisher()))
+    }
+
+    /// The same channel the real broker describes, so a document built against the stand-in is
+    /// the document the service publishes.
+    #[cfg(feature = "asyncapi")]
+    fn channel_bindings(&self, channel: &str) -> Bindings {
+        Self::describe_channel(channel)
     }
 }
 

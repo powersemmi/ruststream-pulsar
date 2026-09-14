@@ -7,19 +7,17 @@
 use std::time::Duration;
 
 #[cfg(feature = "asyncapi")]
-use ruststream::asyncapi::{Binding, Bindings};
+use ruststream::asyncapi::Bindings;
 use ruststream::{BrokerMoves, RetryDeclaration, SubscriptionSource};
 #[cfg(feature = "asyncapi")]
 use serde::Serialize;
 
+#[cfg(feature = "asyncapi")]
+use crate::bindings::{extension, topic_channel};
 use crate::broker::ConnectedPulsarBroker;
 use crate::error::PulsarError;
 use crate::subscriber::PulsarSubscriber;
 use crate::topic::PulsarTopic;
-
-/// The version of the `pulsar` binding object this crate writes, as the specification numbers it.
-#[cfg(feature = "asyncapi")]
-const BINDING_VERSION: &str = "0.1.0";
 
 /// How competing consumers on one subscription share its messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -46,37 +44,6 @@ impl SubscriptionType {
             Self::KeyShared => "KeyShared",
         }
     }
-}
-
-/// One standard binding, or none when the body will not serialize.
-///
-/// A binding that fails to build is a binding the document goes without: a broker never holds up
-/// a service over a description of itself.
-#[cfg(feature = "asyncapi")]
-fn one<T: Serialize>(protocol: &'static str, body: &T) -> Bindings {
-    Binding::new(protocol, BINDING_VERSION, body)
-        .map(|binding| Bindings::new().with(binding))
-        .unwrap_or_default()
-}
-
-/// One extension binding, for what the specification has no field for.
-#[cfg(feature = "asyncapi")]
-fn extension<T: Serialize>(name: &'static str, body: &T) -> Bindings {
-    Binding::extension(name, body)
-        .map(|binding| Bindings::new().with(binding))
-        .unwrap_or_default()
-}
-
-/// The `pulsar` channel binding of the `AsyncAPI` specification, as far as a consumer knows it.
-///
-/// `compaction`, `geo-replication`, `retention`, `ttl` and `deduplication` are namespace and
-/// topic policies an operator sets outside the client, so this crate has no value to report for
-/// them and reports none rather than a guess.
-#[cfg(feature = "asyncapi")]
-#[derive(Serialize)]
-struct PulsarChannel<'a> {
-    namespace: &'a str,
-    persistence: &'a str,
 }
 
 /// What a Pulsar consumer is, in the crate's own vocabulary.
@@ -305,11 +272,7 @@ impl PulsarSubscription {
                 _ => return Bindings::new(),
             }
         }
-        let body = PulsarChannel {
-            namespace: first.namespace(),
-            persistence: first.persistence(),
-        };
-        one("pulsar", &body)
+        topic_channel(&first)
     }
 
     /// What this subscription adds to its `receive` operation.

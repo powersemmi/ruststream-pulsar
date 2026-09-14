@@ -6,6 +6,9 @@
 //! shares its stream, and when an unsettled delivery comes back - travels under the extension
 //! key `x-ruststream-pulsar` instead.
 //!
+//! The publish side reports the same binding for the destination it reaches, which the runtime
+//! resolves from the reply type, the mount site or the slot entry and hands to the policy.
+//!
 //! Everything reported here is read off the descriptor, before anything connects. A namespace
 //! that only one topic of a multi-topic subscription agrees with is reported by nobody: a
 //! single-valued field standing for several topics describes a deployment that does not exist.
@@ -62,6 +65,31 @@ async fn audit(order: &Order) -> HandlerOutcome {
     HandlerOutcome::ack()
 }
 
+/// A reply that names its own destination. The document reports that name as the reply channel's
+/// address, and the publish policy is handed the same name to describe.
+#[derive(Debug, Deserialize, Outgoing, Serialize)]
+#[outgoing(name = "non-persistent://acme/telemetry/ticks")]
+struct Tick {
+    id: u64,
+}
+
+#[subscriber("telemetry", publish)]
+async fn telemetry(order: &Order) -> Tick {
+    Tick { id: order.id }
+}
+
+/// A destination Pulsar would refuse: three parts make a topic name, two make nothing.
+#[derive(Debug, Deserialize, Outgoing, Serialize)]
+#[outgoing(name = "acme/orders")]
+struct Half {
+    id: u64,
+}
+
+#[subscriber("halves", publish)]
+async fn halves(order: &Order) -> Half {
+    Half { id: order.id }
+}
+
 /// The document a service built on this crate publishes.
 fn document() -> Value {
     let app = RustStream::new(AppInfo::new("orders", "0.1.0"))
@@ -74,6 +102,8 @@ fn document() -> Value {
             b.include(by_name);
             b.include(regional);
             b.include(audit);
+            b.include(telemetry);
+            b.include(halves);
         });
     serde_json::from_str(
         &build_spec(&app)
@@ -130,6 +160,40 @@ fn a_bare_name_describes_nothing() {
             .get("bindings")
             .is_none(),
         "a subscription opened by name has no descriptor to describe",
+    );
+}
+
+/// The destination a publish reaches is a topic name too, so the channel it opens in the
+/// document carries the namespace and the persistence that name holds. Nothing about the
+/// registration says them: the policy is handed the resolved destination and reads them off it.
+#[test]
+fn a_reply_describes_the_destination_it_names() {
+    let document = document();
+    let expected: Value = serde_json::from_str(EXCERPT).expect("the excerpt must be JSON");
+
+    let channel = "non-persistent://acme/telemetry/ticks";
+    assert_eq!(
+        at(&document, &["channels", channel, "address"]),
+        &Value::from(channel),
+        "the reply type names its own destination",
+    );
+    assert_eq!(
+        at(&document, &["channels", channel, "bindings"]),
+        at(&expected, &["channels", channel, "bindings"]),
+    );
+}
+
+/// A document describes the deployment or stays silent about it: a destination Pulsar would
+/// refuse as a topic name has no namespace to report, and none is invented for it.
+#[test]
+fn a_destination_that_is_no_topic_describes_nothing() {
+    let document = document();
+
+    assert!(
+        at(&document, &["channels", "acme/orders"])
+            .get("bindings")
+            .is_none(),
+        "a name that is not a topic carries no namespace",
     );
 }
 
