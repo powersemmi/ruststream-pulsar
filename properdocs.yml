@@ -73,6 +73,15 @@ hooks:
 
 plugins:
   - search
+  # The guide moved to the crate's rustdoc, where the overview is compiled along with the code,
+  # so the old page's URL in every language lands on the section that took it over. `latest`
+  # there is the newest stable release, so the sections appear once the 0.7 line is out of its
+  # release candidates.
+  - redirects:
+      redirect_maps:
+        pulsar.md: https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html
+        ru/pulsar.md: https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html
+        zh/pulsar.md: https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html
   # Versioned docs are published with `mike` (see the Docs workflow and the version switcher).
   # Each translation is a tree of its own under `docs/<locale>/`, mirroring the English paths.
   # English stays at the docs root: a file outside a locale folder is the default language.
@@ -95,7 +104,6 @@ plugins:
           build: true
           nav_translations:
             Home: Главная
-            Guide: Руководство
             RustStream docs: Документация RustStream
             API reference: Справочник API
         - locale: zh
@@ -103,7 +111,6 @@ plugins:
           build: true
           nav_translations:
             Home: 首页
-            Guide: 指南
             RustStream docs: RustStream 文档
             API reference: API 参考
 
@@ -116,7 +123,5 @@ extra:
 
 nav:
   - Home: index.md
-  - Guide:
-      - pulsar.md
   - RustStream docs: https://powersemmi.github.io/ruststream/
   - API reference: https://docs.rs/ruststream-pulsar

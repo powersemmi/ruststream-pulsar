@@ -20,13 +20,34 @@ serde = { version = "1", features = ["derive"] }
 --8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:app"
 ```
 
+## What the crate offers
+
+A subscription descriptor carries one subscription's form and its settings: one topic, a fixed
+list, or a pattern over the lookup namespace. The four subscription types are an enum, the retry
+cap and the dead-letter topic a registration declares become the consumer's own policy, a topic is
+a retained log so a handler repositions its own subscription, and the partition key is the one
+setting a publish adjusts per message. The crate's reference documents each of them:
+
+- [Subscribing](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#subscribing):
+  descriptors, acknowledgement,
+  [retries and dead-lettering](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#retries-and-dead-lettering),
+  [batches](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#batches) and
+  [seeking](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#seeking).
+- [Publishing](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#publishing):
+  the publish policy, replies and
+  [per-message settings](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#per-message-settings).
+- [The generated document](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#the-generated-document)
+  and [Testing](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#testing):
+  what AsyncAPI reports, and the in-process broker.
+- [Operations](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#operations):
+  the service URL, authentication, and the client's limits.
+
 ## Where to go next
 
 <div class="grid cards" markdown>
 
-- :material-transit-connection-variant: **[Pulsar guide](pulsar.md)** - subscription descriptors, seeking, acknowledgement, publishing, and testing.
+- :material-language-rust: **[API reference](https://docs.rs/ruststream-pulsar)** - the crate's guide and its rustdoc on docs.rs.
 - :material-book-open-variant: **[RustStream docs](https://powersemmi.github.io/ruststream/)** - the framework itself: subscribers, routing, codecs, middleware, the CLI.
-- :material-language-rust: **[API reference](https://docs.rs/ruststream-pulsar)** - the crate's rustdoc on docs.rs.
 
 </div>
 
