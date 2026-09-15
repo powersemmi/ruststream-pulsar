@@ -219,6 +219,7 @@ jobs:
           cargo test -p ruststream-pulsar --all-features
           --test integration_pulsar
           --test conformance_pulsar
+          --test live_topics
           -- --test-threads=1
 
       - name: Cleanup

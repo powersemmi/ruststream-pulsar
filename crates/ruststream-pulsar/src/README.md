@@ -343,9 +343,9 @@ plain Pulsar message with no envelope format of the framework's own.
 
 ## Per-message settings
 
-The partition key is the one value one publish differs from the next in: keyed routing places the
-message by it and a `KeyShared` subscription orders by it. The
-[`partition_key`](PulsarPublishSteps::partition_key) step names it for the message being
+The partition key is the one value one publish differs from the next in: on a partitioned topic
+the key picks the partition the message is stored in, and a `KeyShared` subscription orders by it.
+The [`partition_key`](PulsarPublishSteps::partition_key) step names it for the message being
 assembled.
 
 ```
@@ -401,7 +401,7 @@ fn app() -> impl App {
 The step writes one field of [`PulsarPublishOptions`] and returns the builder, so the message
 still leaves through the slot the mount site wired, in that slot's codec and through that slot's
 transforms. The mount site declares nothing for it, and a publish that names no step goes
-unkeyed.
+unkeyed: on a partitioned topic the partitions then take the messages in turn.
 
 [`PARTITION_KEY_HEADER`] is the portable spelling of the same value: a body that writes its own
 headers keys the message without naming a Pulsar type, and on delivery the key comes back as that

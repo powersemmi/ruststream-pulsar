@@ -4,7 +4,8 @@
 use std::future::{Future, ready};
 use std::sync::Arc;
 
-use pulsar::TokioExecutor;
+use pulsar::routing_policy::RoutingPolicy;
+use pulsar::{ProducerOptions, TokioExecutor};
 #[cfg(feature = "asyncapi")]
 use ruststream::asyncapi::Bindings;
 use ruststream::runtime::{PublishBuilder, PublishSink};
@@ -19,6 +20,22 @@ use crate::message::to_pulsar_message;
 use crate::topic::PulsarTopic;
 
 pub(crate) type PulsarProducer = pulsar::Producer<TokioExecutor>;
+
+/// The producer options every producer this crate opens is built with: place a keyed message by
+/// its key.
+///
+/// A partitioned topic is many topics behind one name, and the producer picks the partition per
+/// message. The client's unset routing policy rotates through the partitions and never looks at
+/// the key, which sends one key's messages to every partition in turn and leaves a `KeyShared`
+/// subscription no per-key order to keep. Naming the policy is what makes the key place the
+/// message: it hashes a key when the message carries one, and rotates when it does not. A topic
+/// with no partitions has one producer and reads nothing here.
+fn keyed_routing() -> ProducerOptions {
+    ProducerOptions {
+        routing_policy: Some(RoutingPolicy::RoundRobin),
+        ..ProducerOptions::default()
+    }
+}
 
 /// What one Pulsar publish differs from the next in.
 ///
@@ -90,12 +107,18 @@ impl PulsarPublisher {
         if let Some(producer) = producers.get(&full) {
             return Ok(Arc::clone(producer));
         }
-        let producer = Box::pin(core.client.producer().with_topic(&full).build())
-            .await
-            .map_err(|e| PulsarError::Publish {
-                topic: topic.to_owned(),
-                source: box_err(e),
-            })?;
+        let producer = Box::pin(
+            core.client
+                .producer()
+                .with_topic(&full)
+                .with_options(keyed_routing())
+                .build(),
+        )
+        .await
+        .map_err(|e| PulsarError::Publish {
+            topic: topic.to_owned(),
+            source: box_err(e),
+        })?;
         let producer = Arc::new(Mutex::new(producer));
         producers.insert(full, Arc::clone(&producer));
         Ok(producer)
