@@ -3,6 +3,8 @@
 //! Start one with `just brokers-up`, then:
 //! `PULSAR_TEST_URL=pulsar://127.0.0.1:6650 cargo test --all-features -- --test-threads=1`.
 
+mod live;
+
 use std::collections::BTreeSet;
 use std::pin::pin;
 use std::time::Duration;
@@ -10,16 +12,16 @@ use std::time::Duration;
 use futures::StreamExt;
 use ruststream::runtime::PublishExt;
 use ruststream::{
-    Broker, ConnectedBroker, DeclareRetryError, HeaderMap, IncomingMessage, Outgoing,
-    OutgoingMessage, Publisher, RetryDeclaration, Seekable, Seeker, Serialized, Subscribe,
-    Subscriber, SubscriptionSource, nonzero,
+    ConnectedBroker, DeclareRetryError, HeaderMap, IncomingMessage, Outgoing, OutgoingMessage,
+    Publisher, RetryDeclaration, Seekable, Seeker, Serialized, Subscribe, Subscriber,
+    SubscriptionSource, nonzero,
 };
 use ruststream_pulsar::{
-    ConnectedPulsarBroker, PARTITION_KEY_HEADER, PulsarBroker, PulsarError, PulsarMessage,
-    PulsarPosition, PulsarPublishSteps, PulsarSubscription,
+    ConnectedPulsarBroker, PARTITION_KEY_HEADER, PulsarError, PulsarMessage, PulsarPosition,
+    PulsarPublishSteps, PulsarSubscription,
 };
 
-const RECV_TIMEOUT: Duration = Duration::from_secs(30);
+use crate::live::{RECV_TIMEOUT, connect, test_url, unique};
 
 /// The wait a deferred redelivery asks for. Long enough that half of it is a real gap on a live
 /// broker, short enough to keep the suite quick.
@@ -29,40 +31,6 @@ const NACK_DELAY: Duration = Duration::from_secs(4);
 /// a model, so the bytes name themselves as the wire form and no codec runs on them.
 #[derive(Outgoing, Serialized)]
 struct Record(&'static [u8]);
-
-/// The broker to run the live checks against, or `None` to skip them.
-///
-/// Skipping quietly is what keeps these usable on a laptop with no stand running. It is also
-/// what would let a renamed variable or a dropped `env:` block turn the whole live job green
-/// without running anything, so CI sets `RUSTSTREAM_REQUIRE_LIVE` and the skip becomes a
-/// failure there.
-fn test_url() -> Option<String> {
-    match std::env::var("PULSAR_TEST_URL") {
-        Ok(url) if !url.is_empty() => Some(url),
-        _ => {
-            assert!(
-                std::env::var_os("RUSTSTREAM_REQUIRE_LIVE").is_none(),
-                "RUSTSTREAM_REQUIRE_LIVE is set, so the live suites must run, but \
-                 PULSAR_TEST_URL is missing or empty",
-            );
-            eprintln!("PULSAR_TEST_URL is not set; skipping the live integration test");
-            None
-        }
-    }
-}
-
-async fn connect(url: &str) -> ConnectedPulsarBroker {
-    PulsarBroker::new(url)
-        .connect()
-        .await
-        .expect("broker connects")
-}
-
-/// Per-test unique names, so runs do not observe each other's leftovers (subscriptions and
-/// their backlog persist broker-side).
-fn unique(name: &str) -> String {
-    format!("it-{name}-{}", std::process::id())
-}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn roundtrip_preserves_payload_properties_and_partition_key() {
