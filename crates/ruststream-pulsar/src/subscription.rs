@@ -1,13 +1,21 @@
 //! [`PulsarSubscription`]: the subscription descriptor.
 //!
 //! The subscription type is an enum, not a set of sibling flags, so combinations that do not
-//! exist are unrepresentable; the dead-letter policy and the ack timeout are consumer-side
-//! settings the product owns.
+//! exist are unrepresentable; the ack timeout and the dead-letter policy the registration
+//! declares are consumer-side settings the Pulsar client owns.
 
+use std::collections::HashMap;
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use ruststream::SubscriptionSource;
+#[cfg(feature = "asyncapi")]
+use ruststream::asyncapi::Bindings;
+use ruststream::{BrokerMoves, DeclareRetryError, RetryDeclaration, SubscriptionSource};
+#[cfg(feature = "asyncapi")]
+use serde::Serialize;
 
+#[cfg(feature = "asyncapi")]
+use crate::bindings::{extension, topic_channel};
 use crate::broker::ConnectedPulsarBroker;
 use crate::error::PulsarError;
 use crate::subscriber::PulsarSubscriber;
@@ -16,7 +24,12 @@ use crate::topic::PulsarTopic;
 /// How competing consumers on one subscription share its messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SubscriptionType {
-    /// One consumer holds the subscription; a second attach is rejected.
+    /// One consumer holds the subscription.
+    ///
+    /// A server answers a second attach with "consumer busy" and the client waits for the holder
+    /// to leave rather than reporting it, so a second consumer of this subscription is a service
+    /// that does not start. The in-process stand-in refuses the attach instead, which is the one
+    /// place the two disagree.
     Exclusive,
     /// Competing consumers, round-robin. The default.
     #[default]
@@ -27,38 +40,65 @@ pub enum SubscriptionType {
     KeyShared,
 }
 
-/// The consumer-side dead-letter policy: after `max_deliveries` redeliveries the broker routes
-/// the message to the dead-letter topic.
-///
-/// # Examples
-///
-/// ```
-/// use ruststream_pulsar::DeadLetter;
-///
-/// let policy = DeadLetter::new("orders-dlq").max_deliveries(5);
-/// # let _ = policy;
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[must_use]
-pub struct DeadLetter {
-    pub(crate) topic: String,
-    pub(crate) max_deliveries: usize,
+impl SubscriptionType {
+    /// Whether the broker counts a message's redeliveries on a subscription of this type.
+    ///
+    /// It counts them where the subscription dispatches to several consumers, and nowhere else:
+    /// a subscription with one active consumer keeps no redelivery tracker, so every delivery
+    /// arrives with a count of zero. A dead-letter policy is that count against a limit, so on
+    /// [`Exclusive`](Self::Exclusive) and [`Failover`](Self::Failover) the limit is never
+    /// reached and a spent message circles the subscription instead of moving on.
+    pub(crate) const fn counts_redeliveries(self) -> bool {
+        matches!(self, Self::Shared | Self::KeyShared)
+    }
 }
 
-impl DeadLetter {
-    /// Routes exhausted messages to `topic` after the default of 5 deliveries.
-    pub fn new(topic: impl Into<String>) -> Self {
-        Self {
-            topic: topic.into(),
-            max_deliveries: 5,
+#[cfg(feature = "asyncapi")]
+impl SubscriptionType {
+    /// Pulsar's own spelling, which is what the generated document reports.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Exclusive => "Exclusive",
+            Self::Shared => "Shared",
+            Self::Failover => "Failover",
+            Self::KeyShared => "KeyShared",
         }
     }
+}
 
-    /// Sets the delivery-attempt limit.
-    pub fn max_deliveries(mut self, max: usize) -> Self {
-        self.max_deliveries = max;
-        self
-    }
+/// What a Pulsar consumer is, in the crate's own vocabulary.
+///
+/// The specification's `pulsar` operation object is empty, so the subscription's name, its type
+/// and its acknowledgement timeout travel under an extension key instead of being squeezed into
+/// a field that means something else.
+#[cfg(feature = "asyncapi")]
+#[derive(Serialize)]
+struct PulsarOperation<'a> {
+    subscription: &'a str,
+    #[serde(rename = "subscriptionType")]
+    subscription_type: &'static str,
+    #[serde(rename = "ackTimeoutMillis", skip_serializing_if = "Option::is_none")]
+    ack_timeout_millis: Option<u64>,
+    /// The topics a multi-topic subscription reads. Absent for a single topic, which the
+    /// channel address already names, and for a pattern, which names none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    topics: Option<&'a [String]>,
+    /// The regular expression a pattern subscription selects its topics with.
+    #[serde(rename = "topicPattern", skip_serializing_if = "Option::is_none")]
+    topic_pattern: Option<&'a str>,
+}
+
+/// The consumer's dead-letter policy, as the registration declared it: a delivery limit and the
+/// topic a spent delivery moves to.
+///
+/// Both halves together, because that is what the Pulsar client applies. The live consumer and
+/// the in-process stand-in read this one value, so a cap driven in a test is the cap production
+/// configures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeadLetterRoute {
+    pub(crate) topic: String,
+    /// How many times the message is handed to a handler before it moves on.
+    pub(crate) max_deliveries: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,22 +114,39 @@ pub(crate) enum Topics {
 /// trading latency for fuller batches raises it with [`PulsarSubscription::batch_wait`].
 pub(crate) const DEFAULT_BATCH_WAIT: Duration = Duration::from_millis(10);
 
+/// The subscription a bare topic name joins, on the real broker and on the stand-in alike.
+///
+/// A `#[subscriber("orders")]` names no subscription and Pulsar has no anonymous consumer, so
+/// the crate supplies one: by-name handlers share this durable subscription under the default
+/// [`SubscriptionType::Shared`], which is what makes two instances of a service competing
+/// consumers rather than two independent readers of one topic.
+pub(crate) const DEFAULT_SUBSCRIPTION: &str = "ruststream";
+
 /// A subscription descriptor for one Pulsar subscription over one or more topics.
 ///
 /// Where the subscription starts reading is not a descriptor option: it is the framework's
 /// `start_at(..)` clause over [`PulsarPosition`](crate::PulsarPosition), which the `Seekable`
 /// capability backs.
 ///
-/// Implements [`SubscriptionSource`], so it can sit inline in the `#[subscriber(..)]`
-/// decorator:
+/// How often a spent delivery is retried, and where it goes afterwards, is not a descriptor
+/// option either: the registration declares it at the mount site with
+/// `b.include(handler).max_attempts(nonzero!(5)).dead_letter("orders-dlq")`, and this descriptor
+/// turns the declaration into the consumer's own `DeadLetterPolicy`. Nothing is republished from
+/// the service, so `out_retry(..)` does not compile over this descriptor. The cap needs a
+/// subscription that dispatches to competing consumers - Pulsar counts a message's redeliveries
+/// on [`Shared`](SubscriptionType::Shared) and [`KeyShared`](SubscriptionType::KeyShared) and
+/// nowhere else - so a declaration over the other two types refuses to start.
+///
+/// Implements [`SubscriptionSource`] for the real broker and, behind the `testing` feature, for
+/// the in-process stand-in, so the declaration below sits inline in the `#[subscriber(..)]`
+/// decorator and mounts on either:
 ///
 /// ```
 /// use std::time::Duration;
-/// use ruststream_pulsar::{DeadLetter, PulsarSubscription, SubscriptionType};
+/// use ruststream_pulsar::{PulsarSubscription, SubscriptionType};
 ///
 /// let source = PulsarSubscription::new("orders", "workers")
 ///     .subscription_type(SubscriptionType::Shared)
-///     .dead_letter(DeadLetter::new("orders-dlq").max_deliveries(5))
 ///     .ack_timeout(Duration::from_secs(30));
 /// # let _ = source;
 /// ```
@@ -99,9 +156,10 @@ pub struct PulsarSubscription {
     pub(crate) topics: Topics,
     pub(crate) subscription: String,
     pub(crate) sub_type: SubscriptionType,
-    pub(crate) dead_letter: Option<DeadLetter>,
     pub(crate) ack_timeout: Option<Duration>,
     pub(crate) batch_wait: Duration,
+    /// What the registration declared about its retries, taken in before the consumer opens.
+    retry: RetryDeclaration,
 }
 
 impl PulsarSubscription {
@@ -112,9 +170,9 @@ impl PulsarSubscription {
             topics: Topics::List(vec![topic.into()]),
             subscription: subscription.into(),
             sub_type: SubscriptionType::default(),
-            dead_letter: None,
             ack_timeout: None,
             batch_wait: DEFAULT_BATCH_WAIT,
+            retry: RetryDeclaration::new(),
         }
     }
 
@@ -140,14 +198,13 @@ impl PulsarSubscription {
     }
 
     /// Sets the subscription type. Defaults to [`SubscriptionType::Shared`].
+    ///
+    /// Only the two types that dispatch to competing consumers carry a retry cap: the broker
+    /// counts a message's redeliveries there and nowhere else, so a registration that declares
+    /// `max_attempts(..)` over an [`Exclusive`](SubscriptionType::Exclusive) or a
+    /// [`Failover`](SubscriptionType::Failover) subscription refuses to start.
     pub fn subscription_type(mut self, sub_type: SubscriptionType) -> Self {
         self.sub_type = sub_type;
-        self
-    }
-
-    /// Sets the consumer-side dead-letter policy.
-    pub fn dead_letter(mut self, dead_letter: DeadLetter) -> Self {
-        self.dead_letter = Some(dead_letter);
         self
     }
 
@@ -172,6 +229,96 @@ impl PulsarSubscription {
     #[must_use]
     pub fn subscription(&self) -> &str {
         &self.subscription
+    }
+
+    /// Takes in what a registration declared about its retries. What both
+    /// [`SubscriptionSource`] impls do with the declaration, and what a bare topic name's
+    /// descriptor is built with.
+    pub(crate) fn declaring(mut self, declaration: &RetryDeclaration) -> Self {
+        self.retry = declaration.clone();
+        self
+    }
+
+    /// The name the framework reports for a subscription on this descriptor: the topic when
+    /// there is exactly one, the subscription name otherwise, since a list and a pattern have no
+    /// single topic to name. Both [`SubscriptionSource`] impls read it, so a handler is reported
+    /// under one name whichever broker it mounted on.
+    fn source_name(&self) -> &str {
+        match &self.topics {
+            Topics::List(topics) if topics.len() == 1 => &topics[0],
+            _ => &self.subscription,
+        }
+    }
+
+    /// The consumer's dead-letter policy, named in a refusal by the subscription this
+    /// descriptor opens.
+    pub(crate) fn dead_letter_policy(&self) -> Result<Option<DeadLetterRoute>, PulsarError> {
+        let subject = format!("subscription '{}'", self.subscription);
+        let route = resolve_dead_letter(&self.retry, &subject)?;
+        if route.is_some() && !self.sub_type.counts_redeliveries() {
+            let sharing = self.sub_type;
+            return Err(PulsarError::Invalid(format!(
+                "{subject} declares a retry cap on a {sharing:?} subscription: Pulsar counts a \
+                 message's redeliveries only where a subscription dispatches to competing \
+                 consumers, so on this one the cap is never reached and a spent delivery circles \
+                 the subscription for ever. Declare the subscription \
+                 SubscriptionType::Shared or SubscriptionType::KeyShared, or drop the cap and the \
+                 dead-letter topic"
+            )));
+        }
+        Ok(route)
+    }
+
+    /// What this subscription adds to its channel in the generated document.
+    ///
+    /// The namespace and the persistence come out of the topic name the descriptor was built
+    /// with, which is the only place a consumer learns them. A subscription over several topics
+    /// reports them only when every topic agrees, and a pattern subscription reports nothing:
+    /// the specification's fields are single-valued, and a document that picks one topic's
+    /// namespace to stand for all of them describes a deployment that does not exist.
+    #[cfg(feature = "asyncapi")]
+    fn describe_channel(&self) -> Bindings {
+        let Topics::List(topics) = &self.topics else {
+            return Bindings::new();
+        };
+        let mut parsed = topics.iter().map(|topic| PulsarTopic::parse(topic));
+        let Some(Ok(first)) = parsed.next() else {
+            return Bindings::new();
+        };
+        for rest in parsed {
+            match rest {
+                Ok(topic)
+                    if topic.namespace() == first.namespace()
+                        && topic.persistence() == first.persistence() => {}
+                _ => return Bindings::new(),
+            }
+        }
+        topic_channel(&first)
+    }
+
+    /// What this subscription adds to its `receive` operation.
+    ///
+    /// The specification's `pulsar` operation object is empty, so this is an extension: the
+    /// subscription's name and type decide how competing consumers share the stream, and the
+    /// acknowledgement timeout decides when an unsettled delivery comes back, all of which a
+    /// reader of the document wants and no standard field carries.
+    #[cfg(feature = "asyncapi")]
+    fn describe_operation(&self) -> Bindings {
+        let (topics, topic_pattern) = match &self.topics {
+            Topics::List(topics) if topics.len() > 1 => (Some(topics.as_slice()), None),
+            Topics::List(_) => (None, None),
+            Topics::Pattern(pattern) => (None, Some(pattern.as_str())),
+        };
+        let body = PulsarOperation {
+            subscription: &self.subscription,
+            subscription_type: self.sub_type.as_str(),
+            ack_timeout_millis: self
+                .ack_timeout
+                .map(|timeout| u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX)),
+            topics,
+            topic_pattern,
+        };
+        extension("x-ruststream-pulsar", &body)
     }
 
     pub(crate) fn display_topic(&self) -> String {
@@ -203,18 +350,108 @@ impl PulsarSubscription {
                 })?;
             }
         }
+        self.dead_letter_policy()?;
         Ok(())
     }
 }
 
+/// The consumer's dead-letter policy, resolved from what a registration declared.
+///
+/// Pulsar's policy is a limit and a topic together - the client counts redeliveries and, past the
+/// limit, produces the message to that topic and acknowledges the original - so half a
+/// declaration is not a policy it can apply. A registration that declares one half refuses to
+/// start rather than running with a cap nobody enforces.
+///
+/// `subject` is what the refusal calls the registration: a descriptor is known by the
+/// subscription it names, a bare registration by the topic it opens.
+fn resolve_dead_letter(
+    retry: &RetryDeclaration,
+    subject: &str,
+) -> Result<Option<DeadLetterRoute>, PulsarError> {
+    match (retry.max_attempts(), retry.dead_letter()) {
+        (Some(attempts), Some(topic)) => {
+            let _ = PulsarTopic::parse(topic)?;
+            Ok(Some(DeadLetterRoute {
+                topic: topic.to_owned(),
+                max_deliveries: attempts.get(),
+            }))
+        }
+        (None, None) => Ok(None),
+        // The mount chain lets the two steps be written apart, so the pairing cannot be a
+        // compile error here; the startup refusal is what keeps a half declaration from looking
+        // applied.
+        (Some(_), None) => Err(PulsarError::Invalid(format!(
+            "{subject} declares max_attempts with no dead_letter: Pulsar applies a delivery \
+             limit only together with the topic a spent delivery moves to, so declare \
+             dead_letter(..) beside it or drop both"
+        ))),
+        (None, Some(topic)) => Err(PulsarError::Invalid(format!(
+            "{subject} declares dead_letter('{topic}') with no max_attempts: Pulsar moves a \
+             delivery to the dead-letter topic by counting redeliveries, so declare \
+             max_attempts(..) beside it or drop both"
+        ))),
+    }
+}
+
+/// What registrations mounted by a bare topic name declared about their retries.
+///
+/// A descriptor carries its own declaration into the consumer it opens. A bare name has nothing
+/// to carry it in: the framework hands the declaration to the broker in one call and asks it for
+/// the subscription in another, so the connected form holds it in between, under the topic both
+/// calls name. The two calls come in that order, one registration at a time, which is what makes
+/// the topic enough to find it by.
+#[derive(Debug, Default)]
+pub(crate) struct DeclaredRetries {
+    by_topic: Mutex<HashMap<String, RetryDeclaration>>,
+}
+
+impl DeclaredRetries {
+    /// Takes the declaration a registration made over the bare name `topic`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DeclareRetryError::Broker`] for half a policy: the Pulsar client counts
+    /// redeliveries against a limit and produces the spent message to a topic, so neither half
+    /// applies without the other.
+    pub(crate) fn declare(
+        &self,
+        topic: &str,
+        declaration: &RetryDeclaration,
+    ) -> Result<(), DeclareRetryError> {
+        // The same resolution the descriptor's own consumer is built from, so the two cannot
+        // answer differently for one declaration. The refusal names the topic, because a bare
+        // registration carries no subscription name of its own.
+        resolve_dead_letter(declaration, &format!("topic '{topic}'"))
+            .map_err(|err| DeclareRetryError::Broker(Box::new(err)))?;
+        self.lock().insert(topic.to_owned(), declaration.clone());
+        Ok(())
+    }
+
+    /// The descriptor a bare `topic` opens, carrying what was declared for it.
+    pub(crate) fn subscription(&self, topic: &str) -> PulsarSubscription {
+        let declared = self.lock().get(topic).cloned().unwrap_or_default();
+        PulsarSubscription::new(topic, DEFAULT_SUBSCRIPTION).declaring(&declared)
+    }
+
+    /// Nothing here panics while the map is held, so the lock cannot have been poisoned.
+    fn lock(&self) -> MutexGuard<'_, HashMap<String, RetryDeclaration>> {
+        self.by_topic
+            .lock()
+            .expect("the declarations are read and written without panicking")
+    }
+}
+
+/// The Pulsar client moves a spent delivery itself: it counts the redeliveries of a message and,
+/// past the consumer's limit, produces it to the dead-letter topic and acknowledges the original.
+/// Nothing is republished from the service, on any of the three addressing forms, so
+/// `out_retry(..)` over this descriptor is a compile error and the registration's declaration
+/// reaches the consumer instead.
 impl SubscriptionSource<ConnectedPulsarBroker> for PulsarSubscription {
     type Subscriber = PulsarSubscriber;
+    type Copies = BrokerMoves;
 
     fn name(&self) -> &str {
-        match &self.topics {
-            Topics::List(topics) if topics.len() == 1 => &topics[0],
-            _ => &self.subscription,
-        }
+        self.source_name()
     }
 
     async fn subscribe(
@@ -223,11 +460,90 @@ impl SubscriptionSource<ConnectedPulsarBroker> for PulsarSubscription {
     ) -> Result<PulsarSubscriber, PulsarError> {
         connected.subscribe_descriptor(self).await
     }
+
+    /// Records the declaration; the consumer is built from it in `subscribe`, where the
+    /// connection exists.
+    fn declare_retry(self, declaration: &RetryDeclaration) -> Self {
+        self.declaring(declaration)
+    }
+
+    #[cfg(feature = "asyncapi")]
+    fn channel_bindings(&self) -> Bindings {
+        self.describe_channel()
+    }
+
+    #[cfg(feature = "asyncapi")]
+    fn operation_bindings(&self) -> Bindings {
+        self.describe_operation()
+    }
+}
+
+/// The descriptor is a source for the in-process stand-in too, so the declaration a service
+/// ships is the one its tests run: the same `#[subscriber(PulsarSubscription::new(..))]` mounts
+/// on [`PulsarTestBroker`](crate::testing::PulsarTestBroker) under a
+/// [`TestApp`](ruststream::testing::TestApp), with no second descriptor and nothing to change at
+/// the mount site.
+///
+/// All three forms route: one topic, the list of
+/// [`topics`](PulsarSubscription::topics), and the regular expression of
+/// [`pattern`](PulsarSubscription::pattern), which the stand-in matches against every topic
+/// published to, including topics that first appear after the subscription opened. The
+/// [`subscription_type`](PulsarSubscription::subscription_type) decides which consumer of the
+/// subscription takes a message, so competing consumers split a stream in process as they do in
+/// production. So does the registration's declaration: the stand-in counts a message's
+/// redeliveries and moves it to the declared dead-letter topic at the limit, the way the client
+/// does. What is left to the server - the ack timeout and redelivery timing - the
+/// [`testing` module docs](crate::testing) name.
+#[cfg(feature = "testing")]
+impl SubscriptionSource<crate::testing::ConnectedPulsarTestBroker> for PulsarSubscription {
+    type Subscriber = crate::testing::PulsarTestSubscriber;
+    type Copies = BrokerMoves;
+
+    fn name(&self) -> &str {
+        self.source_name()
+    }
+
+    async fn subscribe(
+        self,
+        connected: &crate::testing::ConnectedPulsarTestBroker,
+    ) -> Result<Self::Subscriber, PulsarError> {
+        connected.subscribe_descriptor(self).await
+    }
+
+    fn declare_retry(self, declaration: &RetryDeclaration) -> Self {
+        self.declaring(declaration)
+    }
+
+    /// The same values the real broker reports, so a document built against the stand-in is the
+    /// document the service publishes.
+    #[cfg(feature = "asyncapi")]
+    fn channel_bindings(&self) -> Bindings {
+        self.describe_channel()
+    }
+
+    #[cfg(feature = "asyncapi")]
+    fn operation_bindings(&self) -> Bindings {
+        self.describe_operation()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use ruststream::nonzero;
+
     use super::*;
+
+    /// Takes the declaration in the way the runtime does. Spelled out because the descriptor is
+    /// a source for two brokers, so the bare method call names no impl.
+    fn declared(
+        subscription: PulsarSubscription,
+        declaration: &RetryDeclaration,
+    ) -> PulsarSubscription {
+        <PulsarSubscription as SubscriptionSource<ConnectedPulsarBroker>>::declare_retry(
+            subscription,
+            declaration,
+        )
+    }
 
     #[test]
     fn empty_subscription_is_rejected_before_io() {
@@ -243,6 +559,83 @@ mod tests {
             PulsarSubscription::new("a/b", "workers").validate(),
             Err(PulsarError::Invalid(_))
         ));
+    }
+
+    /// Half a declaration is not a policy the client can apply, so it never reaches the broker.
+    #[test]
+    fn half_a_retry_declaration_is_rejected_before_io() {
+        let capped = declared(
+            PulsarSubscription::new("orders", "workers"),
+            &RetryDeclaration::new().with_max_attempts(nonzero!(3u32)),
+        );
+        let message = match capped.validate() {
+            Err(PulsarError::Invalid(message)) => message,
+            other => panic!("a cap with no destination must be refused, got {other:?}"),
+        };
+        assert!(message.contains("dead_letter"), "{message}");
+
+        let addressed = declared(
+            PulsarSubscription::new("orders", "workers"),
+            &RetryDeclaration::new().with_dead_letter("orders-dlq"),
+        );
+        let message = match addressed.validate() {
+            Err(PulsarError::Invalid(message)) => message,
+            other => panic!("a destination with no cap must be refused, got {other:?}"),
+        };
+        assert!(message.contains("max_attempts"), "{message}");
+    }
+
+    /// Both halves become the consumer's own policy, with the limit counted in deliveries.
+    #[test]
+    fn a_whole_declaration_becomes_the_consumers_policy() {
+        let policy = declared(
+            PulsarSubscription::new("orders", "workers"),
+            &RetryDeclaration::new()
+                .with_max_attempts(nonzero!(3u32))
+                .with_dead_letter("orders-dlq"),
+        );
+        assert_eq!(
+            policy.dead_letter_policy().expect("both halves declared"),
+            Some(DeadLetterRoute {
+                topic: "orders-dlq".to_owned(),
+                max_deliveries: 3,
+            })
+        );
+    }
+
+    /// A cap the broker would never reach is refused at startup rather than left to circle the
+    /// subscription: Pulsar keeps a redelivery count only where a subscription dispatches to
+    /// competing consumers, which the live suite drives against a server.
+    #[test]
+    fn a_cap_on_a_single_active_subscription_is_rejected_before_io() {
+        let whole = RetryDeclaration::new()
+            .with_max_attempts(nonzero!(3u32))
+            .with_dead_letter("orders-dlq");
+        for sharing in [SubscriptionType::Exclusive, SubscriptionType::Failover] {
+            let capped = declared(
+                PulsarSubscription::new("orders", "workers").subscription_type(sharing),
+                &whole,
+            );
+            let message = match capped.validate() {
+                Err(PulsarError::Invalid(message)) => message,
+                other => {
+                    panic!("a cap on a {sharing:?} subscription must be refused, got {other:?}")
+                }
+            };
+            assert!(message.contains(&format!("{sharing:?}")), "{message}");
+            assert!(message.contains("KeyShared"), "{message}");
+        }
+    }
+
+    /// The same subscription without a declaration is not the crate's business to refuse.
+    #[test]
+    fn a_single_active_subscription_without_a_cap_is_accepted() {
+        for sharing in [SubscriptionType::Exclusive, SubscriptionType::Failover] {
+            PulsarSubscription::new("orders", "workers")
+                .subscription_type(sharing)
+                .validate()
+                .expect("a subscription that declares no cap opens on any type");
+        }
     }
 
     #[test]

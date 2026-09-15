@@ -11,6 +11,12 @@ readme = "../../README.md"
 keywords = ["pulsar", "messaging", "streaming", "broker", "ruststream"]
 categories = ["asynchronous", "network-programming"]
 
+# The crate root is the guide now, and it sends readers to the testing module and to the
+# generated document; a default build on docs.rs carries no feature at all, so both would
+# be missing from the published reference.
+[package.metadata.docs.rs]
+all-features = true
+
 [lints]
 workspace = true
 
@@ -19,6 +25,9 @@ default = []
 # The in-process test broker (TestableBroker + TestApp support). The conformance harness is a
 # broker-author tool and stays in this repo's dev-dependencies, not in the user-facing feature.
 testing = ["ruststream/testing"]
+# The protocol bindings this crate contributes to the generated AsyncAPI document. Forwarded
+# from the core, because the hooks that carry them live behind the core's own feature.
+asyncapi = ["ruststream/asyncapi", "dep:serde"]
 
 [dependencies]
 ruststream = { workspace = true, default-features = false }
@@ -26,14 +35,22 @@ pulsar.workspace = true
 regex.workspace = true
 bytes.workspace = true
 futures.workspace = true
+# Only the binding bodies are serialized here; the payload codecs are the core's.
+serde = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-ruststream = { workspace = true, features = ["conformance", "testing", "macros", "json"] }
-# Not a bare "1": `serde_derive` below this cannot parse a `#[derive(Serialize)]` type that also
-# carries `#[outgoing(headers = Meta)]`, whose value is a path rather than a literal, so the
-# doctests fail to expand. The floor the minimal-versions job verifies.
-serde = { version = "1.0.103", features = ["derive"] }
+# `cbor` is a second codec for the tests alone: a publish that names a per-message setting has to
+# leave in the format its mount site named, and one codec cannot tell that apart from the default.
+ruststream = { workspace = true, features = [
+    "cbor",
+    "conformance",
+    "testing",
+    "macros",
+    "json",
+] }
+serde.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }

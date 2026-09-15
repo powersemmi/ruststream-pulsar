@@ -69,17 +69,26 @@ markdown_extensions:
 
 hooks:
   - docs/hooks/snippet_titles.py
+  - docs/hooks/i18n_banner.py
 
 plugins:
   - search
+  # The guide moved to the crate's rustdoc, where the overview is compiled along with the code,
+  # so the old page's URL in every language lands on the section that took it over. `latest`
+  # there is the newest stable release, so the sections appear once the 0.7 line is out of its
+  # release candidates.
+  - redirects:
+      redirect_maps:
+        pulsar.md: https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html
+        ru/pulsar.md: https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html
+        zh/pulsar.md: https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html
   # Versioned docs are published with `mike` (see the Docs workflow and the version switcher).
   # Each translation is a tree of its own under `docs/<locale>/`, mirroring the English paths.
   # English stays at the docs root: a file outside a locale folder is the default language.
   #
   # English is normative; a page with no translation yet falls back to the English text inside
   # the localized site rather than disappearing from it, which is what lets translations land
-  # page by page. The structure lands before any translated page does, so the first one is a
-  # file addition and nothing else.
+  # page by page.
   - i18n:
       docs_structure: folder
       fallback_to_default: true
@@ -95,7 +104,6 @@ plugins:
           build: true
           nav_translations:
             Home: Главная
-            Guide: Руководство
             RustStream docs: Документация RustStream
             API reference: Справочник API
         - locale: zh
@@ -103,7 +111,6 @@ plugins:
           build: true
           nav_translations:
             Home: 首页
-            Guide: 指南
             RustStream docs: RustStream 文档
             API reference: API 参考
 
@@ -116,7 +123,5 @@ extra:
 
 nav:
   - Home: index.md
-  - Guide:
-      - pulsar.md
   - RustStream docs: https://powersemmi.github.io/ruststream/
   - API reference: https://docs.rs/ruststream-pulsar

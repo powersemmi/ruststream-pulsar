@@ -1,16 +1,14 @@
 # ruststream-pulsar
 
-**`ruststream-pulsar`** is the Apache Pulsar broker for the
-[RustStream](https://powersemmi.github.io/ruststream/) messaging framework. It covers the four
-subscription types, multi-topic and pattern subscriptions, the consumer-side dead-letter policy,
-seeking over the retained log, and ships an in-process test broker under its `testing` feature.
+**`ruststream-pulsar`** runs a [RustStream](https://powersemmi.github.io/ruststream/) service on
+Apache Pulsar. A topic is a retained log, so a subscription rewinds over it. You pick one of the
+four subscription types, subscribe to a list of topics or to a pattern, and cap a message's
+retries at a dead-letter topic. The `testing` feature ships an in-process broker.
 
-Handlers, routers, codecs, and middleware come from the framework; this crate supplies the
-transport over the [`pulsar`](https://docs.rs/pulsar) client maintained by StreamNative, and
-nothing broker-specific leaks back into the framework.
+The transport is implemented over the [`pulsar`](https://docs.rs/pulsar) client maintained by
+StreamNative.
 
-Building the crate requires `protoc` on the path, since the client compiles the Pulsar protocol
-definitions.
+Building requires `protoc` on the path: the client compiles the Pulsar protocol definitions.
 
 ```toml
 ruststream = { version = "0.7", features = ["macros", "json"] }
@@ -22,19 +20,38 @@ serde = { version = "1", features = ["derive"] }
 --8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:app"
 ```
 
+## What the crate offers
+
+A subscription descriptor carries one subscription's form and its settings: one topic, a fixed
+list, or a pattern over the lookup namespace. The four subscription types are an enum, the retry
+cap and the dead-letter topic a registration declares become the consumer's own policy, a topic is
+a retained log so a handler repositions its own subscription, and the partition key is the one
+setting a publish adjusts per message. The crate's reference documents each of them:
+
+- [Subscribing](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#subscribing):
+  descriptors, acknowledgement,
+  [retries and dead-lettering](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#retries-and-dead-lettering),
+  [batches](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#batches) and
+  [seeking](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#seeking).
+- [Publishing](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#publishing):
+  the publish policy, replies and
+  [per-message settings](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#per-message-settings).
+- [The generated document](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#the-generated-document)
+  and [Testing](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#testing):
+  what AsyncAPI reports, and the in-process broker.
+- [Operations](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#operations):
+  the service URL, authentication, and the client's limits.
+
 ## Where to go next
 
 <div class="grid cards" markdown>
 
-- :material-transit-connection-variant: **[Pulsar guide](pulsar.md)** - subscription descriptors, seeking, acknowledgement, publishing, and testing.
+- :material-language-rust: **[API reference](https://docs.rs/ruststream-pulsar)** - the crate's guide and its rustdoc on docs.rs.
 - :material-book-open-variant: **[RustStream docs](https://powersemmi.github.io/ruststream/)** - the framework itself: subscribers, routing, codecs, middleware, the CLI.
-- :material-language-rust: **[API reference](https://docs.rs/ruststream-pulsar)** - the crate's rustdoc on docs.rs.
 
 </div>
 
 ## How this site relates to the RustStream docs
 
-This site documents the Pulsar broker only. Framework concepts that apply to every broker (writing
-subscribers, publishing, routing, codecs, middleware, observability, the CLI) live in the
-[RustStream documentation](https://powersemmi.github.io/ruststream/). The pages here cover what is
-specific to Pulsar and link back to the framework docs where the two meet.
+This site documents the Pulsar broker only. Everything that works the same on every broker is in
+the [RustStream documentation](https://powersemmi.github.io/ruststream/).

@@ -102,6 +102,86 @@ impl PulsarTopic {
     pub fn as_str(&self) -> &str {
         &self.full
     }
+
+    /// The persistence of the topic: `"persistent"` or `"non-persistent"`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ruststream_pulsar::PulsarTopic;
+    ///
+    /// let ticks = PulsarTopic::non_persistent("acme", "telemetry", "ticks");
+    /// assert_eq!(ticks.persistence(), "non-persistent");
+    /// ```
+    #[must_use]
+    pub fn persistence(&self) -> &str {
+        self.parts().0
+    }
+
+    /// The tenant the topic belongs to; `public` for a bare name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ruststream_pulsar::PulsarTopic;
+    ///
+    /// assert_eq!(PulsarTopic::parse("orders")?.tenant(), "public");
+    /// # Ok::<(), ruststream_pulsar::PulsarError>(())
+    /// ```
+    #[must_use]
+    pub fn tenant(&self) -> &str {
+        self.parts().1
+    }
+
+    /// The namespace the topic lives in; `default` for a bare name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ruststream_pulsar::PulsarTopic;
+    ///
+    /// assert_eq!(PulsarTopic::parse("acme/orders/created")?.namespace(), "orders");
+    /// # Ok::<(), ruststream_pulsar::PulsarError>(())
+    /// ```
+    #[must_use]
+    pub fn namespace(&self) -> &str {
+        self.parts().2
+    }
+
+    /// The topic's own name, without tenant, namespace or scheme.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ruststream_pulsar::PulsarTopic;
+    ///
+    /// assert_eq!(PulsarTopic::parse("acme/orders/created")?.name(), "created");
+    /// # Ok::<(), ruststream_pulsar::PulsarError>(())
+    /// ```
+    #[must_use]
+    pub fn name(&self) -> &str {
+        self.parts().3
+    }
+
+    /// Splits the qualified name back into its four meanings.
+    ///
+    /// Every value this type holds was built by [`Self::of`], which writes all four and rejects
+    /// an empty one, so the split cannot come up short.
+    fn parts(&self) -> (&str, &str, &str, &str) {
+        let (scheme, rest) = self
+            .full
+            .split_once("://")
+            .expect("a validated topic carries its scheme");
+        let mut parts = rest.split('/');
+        let mut next = || {
+            parts
+                .next()
+                .expect("a validated topic carries tenant, namespace and name")
+        };
+        let tenant = next();
+        let namespace = next();
+        (scheme, tenant, namespace, next())
+    }
 }
 
 impl std::fmt::Display for PulsarTopic {
@@ -132,6 +212,24 @@ mod tests {
             PulsarTopic::parse("orders").expect("parses").as_str(),
             "persistent://public/default/orders"
         );
+    }
+
+    /// The four meanings a name carries come back out of it, which is what the generated
+    /// document reports about a channel.
+    #[test]
+    fn a_validated_topic_reports_its_four_parts() {
+        let qualified =
+            PulsarTopic::parse("non-persistent://acme/telemetry/ticks").expect("parses");
+        assert_eq!(qualified.persistence(), "non-persistent");
+        assert_eq!(qualified.tenant(), "acme");
+        assert_eq!(qualified.namespace(), "telemetry");
+        assert_eq!(qualified.name(), "ticks");
+
+        let bare = PulsarTopic::parse("orders").expect("parses");
+        assert_eq!(bare.persistence(), "persistent");
+        assert_eq!(bare.tenant(), "public");
+        assert_eq!(bare.namespace(), "default");
+        assert_eq!(bare.name(), "orders");
     }
 
     #[test]
