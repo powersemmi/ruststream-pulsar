@@ -173,6 +173,12 @@ Write both steps or neither. A limit with nowhere to send the message, and a top
 reaches, are each half a policy the client cannot apply, so a registration that writes one without
 the other refuses to start and the error names the missing step.
 
+The count the limit is read against is the broker's, and the broker keeps one only where a
+subscription dispatches to competing consumers. So a cap belongs to a `Shared` or a `KeyShared`
+subscription; on `Exclusive` and `Failover` every delivery arrives counted zero, the limit is
+never reached and a spent message circles the subscription instead of moving on. A registration
+that declares a cap over one of those two refuses to start, and the error names the type.
+
 A handler mounted by a bare topic name declares the same pair: the broker takes the declaration
 in and builds the consumer for that name from it, so the policy applies there as it does on a
 [`PulsarSubscription`], and the refusal for half a declaration names the topic. What advances the

@@ -35,6 +35,19 @@ pub enum SubscriptionType {
     KeyShared,
 }
 
+impl SubscriptionType {
+    /// Whether the broker counts a message's redeliveries on a subscription of this type.
+    ///
+    /// It counts them where the subscription dispatches to several consumers, and nowhere else:
+    /// a subscription with one active consumer keeps no redelivery tracker, so every delivery
+    /// arrives with a count of zero. A dead-letter policy is that count against a limit, so on
+    /// [`Exclusive`](Self::Exclusive) and [`Failover`](Self::Failover) the limit is never
+    /// reached and a spent message circles the subscription instead of moving on.
+    pub(crate) const fn counts_redeliveries(self) -> bool {
+        matches!(self, Self::Shared | Self::KeyShared)
+    }
+}
+
 #[cfg(feature = "asyncapi")]
 impl SubscriptionType {
     /// Pulsar's own spelling, which is what the generated document reports.
@@ -114,7 +127,10 @@ pub(crate) const DEFAULT_SUBSCRIPTION: &str = "ruststream";
 /// option either: the registration declares it at the mount site with
 /// `b.include(handler).max_attempts(nonzero!(5)).dead_letter("orders-dlq")`, and this descriptor
 /// turns the declaration into the consumer's own `DeadLetterPolicy`. Nothing is republished from
-/// the service, so `out_retry(..)` does not compile over this descriptor.
+/// the service, so `out_retry(..)` does not compile over this descriptor. The cap needs a
+/// subscription that dispatches to competing consumers - Pulsar counts a message's redeliveries
+/// on [`Shared`](SubscriptionType::Shared) and [`KeyShared`](SubscriptionType::KeyShared) and
+/// nowhere else - so a declaration over the other two types refuses to start.
 ///
 /// Implements [`SubscriptionSource`] for the real broker and, behind the `testing` feature, for
 /// the in-process stand-in, so the declaration below sits inline in the `#[subscriber(..)]`
@@ -177,6 +193,11 @@ impl PulsarSubscription {
     }
 
     /// Sets the subscription type. Defaults to [`SubscriptionType::Shared`].
+    ///
+    /// Only the two types that dispatch to competing consumers carry a retry cap: the broker
+    /// counts a message's redeliveries there and nowhere else, so a registration that declares
+    /// `max_attempts(..)` over an [`Exclusive`](SubscriptionType::Exclusive) or a
+    /// [`Failover`](SubscriptionType::Failover) subscription refuses to start.
     pub fn subscription_type(mut self, sub_type: SubscriptionType) -> Self {
         self.sub_type = sub_type;
         self
@@ -227,10 +248,20 @@ impl PulsarSubscription {
     /// The consumer's dead-letter policy, named in a refusal by the subscription this
     /// descriptor opens.
     pub(crate) fn dead_letter_policy(&self) -> Result<Option<DeadLetterRoute>, PulsarError> {
-        resolve_dead_letter(
-            &self.retry,
-            &format!("subscription '{}'", self.subscription),
-        )
+        let subject = format!("subscription '{}'", self.subscription);
+        let route = resolve_dead_letter(&self.retry, &subject)?;
+        if route.is_some() && !self.sub_type.counts_redeliveries() {
+            let sharing = self.sub_type;
+            return Err(PulsarError::Invalid(format!(
+                "{subject} declares a retry cap on a {sharing:?} subscription: Pulsar counts a \
+                 message's redeliveries only where a subscription dispatches to competing \
+                 consumers, so on this one the cap is never reached and a spent delivery circles \
+                 the subscription for ever. Declare the subscription \
+                 SubscriptionType::Shared or SubscriptionType::KeyShared, or drop the cap and the \
+                 dead-letter topic"
+            )));
+        }
+        Ok(route)
     }
 
     /// What this subscription adds to its channel in the generated document.
@@ -565,6 +596,41 @@ mod tests {
                 max_deliveries: 3,
             })
         );
+    }
+
+    /// A cap the broker would never reach is refused at startup rather than left to circle the
+    /// subscription: Pulsar keeps a redelivery count only where a subscription dispatches to
+    /// competing consumers, which the live suite drives against a server.
+    #[test]
+    fn a_cap_on_a_single_active_subscription_is_rejected_before_io() {
+        let whole = RetryDeclaration::new()
+            .with_max_attempts(nonzero!(3u32))
+            .with_dead_letter("orders-dlq");
+        for sharing in [SubscriptionType::Exclusive, SubscriptionType::Failover] {
+            let capped = declared(
+                PulsarSubscription::new("orders", "workers").subscription_type(sharing),
+                &whole,
+            );
+            let message = match capped.validate() {
+                Err(PulsarError::Invalid(message)) => message,
+                other => {
+                    panic!("a cap on a {sharing:?} subscription must be refused, got {other:?}")
+                }
+            };
+            assert!(message.contains(&format!("{sharing:?}")), "{message}");
+            assert!(message.contains("KeyShared"), "{message}");
+        }
+    }
+
+    /// The same subscription without a declaration is not the crate's business to refuse.
+    #[test]
+    fn a_single_active_subscription_without_a_cap_is_accepted() {
+        for sharing in [SubscriptionType::Exclusive, SubscriptionType::Failover] {
+            PulsarSubscription::new("orders", "workers")
+                .subscription_type(sharing)
+                .validate()
+                .expect("a subscription that declares no cap opens on any type");
+        }
     }
 
     #[test]

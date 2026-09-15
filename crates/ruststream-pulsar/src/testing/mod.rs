@@ -63,7 +63,10 @@
 //! `dead_letter(..)` topic and settles the original - the same place and the same arithmetic the
 //! Pulsar client uses, since the client applies the policy itself rather than the server. So a
 //! cap and a dead-letter destination are driven on the harness, and the live suite is what says
-//! the client agrees. What neither transport shows the handler is the count itself: the client
+//! the client agrees. Where a server keeps no redelivery count - an
+//! [`Exclusive`](crate::SubscriptionType::Exclusive) or a
+//! [`Failover`](crate::SubscriptionType::Failover) subscription - the descriptor refuses the cap
+//! before either transport opens, so a test can never drive a policy production would not apply. What neither transport shows the handler is the count itself: the client
 //! keeps the broker's redelivery count for its own decision and does not put it on the message,
 //! so `IncomingMessage::redelivery_count` answers nothing here and nothing in production.
 //!
