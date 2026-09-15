@@ -43,7 +43,7 @@ pub use ruststream::{Positioned, Seeker};
 pub use crate::PulsarPublish as Publish;
 
 pub use crate::{
-    Position, PulsarBatchContext, PulsarBroker, PulsarContext, PulsarPosition,
+    OperationRetries, Position, PulsarBatchContext, PulsarBroker, PulsarContext, PulsarPosition,
     PulsarPublishOptions, PulsarPublishSteps, PulsarSeeker, PulsarSubscription, PulsarTopic,
     SeekHandle, SubscriptionType,
 };

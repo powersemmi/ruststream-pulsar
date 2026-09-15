@@ -15,7 +15,7 @@ mod subscription;
 pub mod testing;
 mod topic;
 
-pub use broker::{ConnectedPulsarBroker, PulsarBroker};
+pub use broker::{ConnectedPulsarBroker, OperationRetries, PulsarBroker};
 pub use context::{Position, PulsarBatchContext, PulsarContext, SeekHandle};
 pub use error::PulsarError;
 pub use message::{PARTITION_KEY_HEADER, PulsarMessage, PulsarPosition};

@@ -121,7 +121,9 @@ name and a pattern that is not a regular expression each return
 A second consumer of an `Exclusive` subscription is not an error. The server answers that the
 subscription is busy and the client waits for the holder to leave, so a service that mounts one
 twice does not start and reports nothing; an `Exclusive` subscription belongs to a service that
-runs one instance.
+runs one instance. A service that has to fail fast instead of waiting bounds the client's tries
+with [`PulsarBroker::operation_retries`], and the subscription then reports
+[`PulsarError::Subscribe`](PulsarError) naming the topic.
 
 Both forms report `Copies = BrokerMoves`: a delivery that has to come back is moved by the broker
 and the client, never republished by the service. There is no retry position on a Pulsar
@@ -548,6 +550,9 @@ and one topic on a server. [`testing`] states each of those with its consequence
 * The URL is `pulsar://` or `pulsar+ssl://`, and several brokers are a comma-separated list.
 * [`token`](PulsarBroker::token) attaches JWT authentication; the client reconnects consumers and
   producers on its own after a broker restart.
+* [`operation_retries`](PulsarBroker::operation_retries) bounds how long that waiting lasts, for
+  the reconnect and for every other operation a server has not accepted yet. Unbounded by
+  default, which is what waits out a restart.
 * Credentials in the URL never reach the generated document, which carries the host and the port.
 * `shutdown` closes the producers this crate opened; the client has no close of its own, so the
   terminal state carries no diagnostics.

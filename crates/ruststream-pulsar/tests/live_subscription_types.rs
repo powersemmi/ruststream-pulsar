@@ -16,12 +16,12 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use ruststream::{
-    ConnectedBroker, HeaderMap, IncomingMessage, OutgoingMessage, Publisher, RetryDeclaration,
-    Subscriber, SubscriptionSource, nonzero,
+    Broker, ConnectedBroker, HeaderMap, IncomingMessage, OutgoingMessage, Publisher,
+    RetryDeclaration, Subscriber, SubscriptionSource, nonzero,
 };
 use ruststream_pulsar::{
-    ConnectedPulsarBroker, PARTITION_KEY_HEADER, PulsarError, PulsarSubscriber, PulsarSubscription,
-    SubscriptionType,
+    ConnectedPulsarBroker, OperationRetries, PARTITION_KEY_HEADER, PulsarBroker, PulsarError,
+    PulsarSubscriber, PulsarSubscription, SubscriptionType,
 };
 
 use crate::live::{RECV_TIMEOUT, admin, connect, test_url, unique};
@@ -141,6 +141,51 @@ async fn a_second_consumer_of_an_exclusive_subscription_waits_for_the_first() {
         .await
         .expect("the waiting consumer takes the subscription once the holder leaves")
         .expect("subscription opens");
+}
+
+/// The bound on the client's retries is what turns that wait into an answer: with a few tries
+/// named, the same second attach reports what the server said instead of queueing behind it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bounded_client_reports_the_exclusive_subscription_as_taken() {
+    let Some(url) = test_url() else { return };
+    let connected = connect(&url).await;
+
+    let topic = unique("taken");
+    let subscription = unique("sub");
+    let exclusive = || {
+        PulsarSubscription::new(&topic, &subscription)
+            .subscription_type(SubscriptionType::Exclusive)
+    };
+    let _held = connected
+        .subscribe_descriptor(exclusive())
+        .await
+        .expect("the first consumer takes the subscription");
+
+    // A connection of its own: the bound belongs to the client, and the holder above keeps the
+    // unbounded one this suite uses everywhere else.
+    let bounded = PulsarBroker::new(&url)
+        .operation_retries(
+            OperationRetries::attempts(nonzero!(2u32)).delay(Duration::from_millis(200)),
+        )
+        .connect()
+        .await
+        .expect("broker connects");
+
+    let refused = tokio::time::timeout(RECV_TIMEOUT, bounded.subscribe_descriptor(exclusive()))
+        .await
+        .expect("a bounded client answers instead of waiting")
+        .expect_err("the subscription is taken, so the attach must report it");
+    assert!(
+        matches!(refused, PulsarError::Subscribe { .. }),
+        "{refused:?}"
+    );
+    assert!(
+        refused.to_string().contains(&topic),
+        "the refusal must name the topic, got: {refused}",
+    );
+
+    bounded.shutdown().await.expect("shutdown succeeds");
+    connected.shutdown().await.expect("shutdown succeeds");
 }
 
 /// Competing consumers: a message goes to one of them, and two subscriptions over one topic each

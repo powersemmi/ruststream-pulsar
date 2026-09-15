@@ -6,10 +6,12 @@
 //! before `connect` runs.
 
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
-use pulsar::{Authentication, Pulsar, TokioExecutor};
+use pulsar::{Authentication, OperationRetryOptions, Pulsar, TokioExecutor};
 use ruststream::{
     Broker, BrokerMoves, ConnectedBroker, DeclareRetryError, DefaultPublish, DescribeServer,
     RetryDeclaration, ServerSpec, Subscribe,
@@ -20,6 +22,94 @@ use crate::error::{PulsarError, box_err};
 use crate::publisher::{PulsarProducer, PulsarPublish, PulsarPublisher};
 use crate::subscriber::PulsarSubscriber;
 use crate::subscription::{DeclaredRetries, PulsarSubscription};
+
+/// How long the client keeps asking for an operation a server has not accepted yet.
+///
+/// The client retries an answer that says "not now" - a broker that is still coming up, a
+/// producer or a consumer the topic already has - rather than reporting it, and by default it
+/// retries for ever, five seconds apart. That is what waits out a broker restart, and it is also
+/// what makes a subscription a server refuses (an
+/// [`Exclusive`](crate::SubscriptionType::Exclusive) one another consumer holds) a call that
+/// never returns. [`attempts`](Self::attempts) puts a number on it.
+///
+/// The bound covers every retried operation of the connection, the consumer's own reconnect
+/// included, so a service that shortens it trades waiting out an outage for hearing about it.
+///
+/// # Examples
+///
+/// ```
+/// use std::time::Duration;
+/// use ruststream::nonzero;
+/// use ruststream_pulsar::{OperationRetries, PulsarBroker};
+///
+/// // Three tries a second apart, then the call reports what the server said.
+/// let broker = PulsarBroker::new("pulsar://localhost:6650").operation_retries(
+///     OperationRetries::attempts(nonzero!(3u32)).delay(Duration::from_secs(1)),
+/// );
+/// # let _ = broker;
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct OperationRetries {
+    attempts: Option<NonZeroU32>,
+    delay: Duration,
+    timeout: Duration,
+}
+
+/// The client's own numbers, which apply unless a step below names another.
+const DEFAULT_RETRY_DELAY: Duration = Duration::from_secs(5);
+const DEFAULT_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
+
+impl OperationRetries {
+    /// Keeps asking for ever, which is the client's own behaviour.
+    pub const fn unbounded() -> Self {
+        Self {
+            attempts: None,
+            delay: DEFAULT_RETRY_DELAY,
+            timeout: DEFAULT_OPERATION_TIMEOUT,
+        }
+    }
+
+    /// Gives up after `attempts` tries and reports what the server answered.
+    ///
+    /// One attempt means the first answer is the final one.
+    pub const fn attempts(attempts: NonZeroU32) -> Self {
+        Self {
+            attempts: Some(attempts),
+            ..Self::unbounded()
+        }
+    }
+
+    /// Waits `delay` between tries. Defaults to five seconds.
+    pub const fn delay(mut self, delay: Duration) -> Self {
+        self.delay = delay;
+        self
+    }
+
+    /// Gives one try `timeout` to be answered at all. Defaults to thirty seconds.
+    pub const fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+}
+
+impl Default for OperationRetries {
+    fn default() -> Self {
+        Self::unbounded()
+    }
+}
+
+impl From<OperationRetries> for OperationRetryOptions {
+    /// The client counts the retries that follow the first try, so a bound of `n` tries is
+    /// `n - 1` retries.
+    fn from(retries: OperationRetries) -> Self {
+        Self {
+            operation_timeout: retries.timeout,
+            retry_delay: retries.delay,
+            max_retries: retries.attempts.map(|attempts| attempts.get() - 1),
+        }
+    }
+}
 
 /// The live client state shared by the connected form and every handle derived from it.
 ///
@@ -75,6 +165,8 @@ pub(crate) type CoreCell = Arc<OnceCell<Arc<Core>>>;
 pub struct PulsarBroker {
     url: String,
     token: Option<String>,
+    // None leaves the client's own retry behaviour in place, which is unbounded.
+    retries: Option<OperationRetries>,
     // Shared with publishers handed out before connect; the consuming connect fills it.
     cell: CoreCell,
 }
@@ -85,6 +177,7 @@ impl PulsarBroker {
         Self {
             url: url.into(),
             token: None,
+            retries: None,
             cell: Arc::new(OnceCell::new()),
         }
     }
@@ -92,6 +185,35 @@ impl PulsarBroker {
     /// Authenticates with a JWT token.
     pub fn token(mut self, token: impl Into<String>) -> Self {
         self.token = Some(token.into());
+        self
+    }
+
+    /// Bounds how long the client keeps asking for an operation a server has not accepted.
+    ///
+    /// Left alone, the client retries such an answer for ever, five seconds apart, which is what
+    /// waits out a broker that is restarting. The same patience covers a subscription the server
+    /// refuses because another consumer holds it, so a second consumer of an
+    /// [`Exclusive`](crate::SubscriptionType::Exclusive) subscription neither takes it nor
+    /// reports anything - it waits, and the service does not start. A service that has to hear
+    /// about that instead bounds the tries here, and `subscribe` then returns
+    /// [`PulsarError::Subscribe`](PulsarError) naming the topic.
+    ///
+    /// The bound is the connection's, not one operation's: it covers the lookups, the producers
+    /// and the consumer's own reconnect after a disconnect, so a short bound turns a long outage
+    /// into a subscription that gives up rather than one that waits.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ruststream::nonzero;
+    /// use ruststream_pulsar::{OperationRetries, PulsarBroker};
+    ///
+    /// let broker = PulsarBroker::new("pulsar://localhost:6650")
+    ///     .operation_retries(OperationRetries::attempts(nonzero!(3u32)));
+    /// # let _ = broker;
+    /// ```
+    pub fn operation_retries(mut self, retries: OperationRetries) -> Self {
+        self.retries = Some(retries);
         self
     }
 
@@ -116,6 +238,9 @@ impl Broker for PulsarBroker {
                         name: "token".to_owned(),
                         data: token.clone().into_bytes(),
                     });
+                }
+                if let Some(retries) = self.retries.clone() {
+                    builder = builder.with_operation_retry_options(retries.into());
                 }
                 let client = builder
                     .build()
@@ -231,6 +356,8 @@ impl DefaultPublish for ConnectedPulsarBroker {
 
 #[cfg(test)]
 mod tests {
+    use ruststream::nonzero;
+
     use super::*;
 
     /// Every URL shape this broker accepts, reduced to the address a client dials.
@@ -254,6 +381,27 @@ mod tests {
                 "url {url}",
             );
         }
+    }
+
+    /// The client counts what follows the first try, so the bound a service writes in tries is
+    /// one more than the number the client is given. An off-by-one here is a service that gives
+    /// up a try early or waits one longer than it asked to.
+    #[test]
+    fn a_bound_in_tries_becomes_the_retries_that_follow_the_first() {
+        let bounded = OperationRetryOptions::from(OperationRetries::attempts(nonzero!(3u32)));
+        assert_eq!(bounded.max_retries, Some(2));
+
+        let once = OperationRetryOptions::from(OperationRetries::attempts(nonzero!(1u32)));
+        assert_eq!(
+            once.max_retries,
+            Some(0),
+            "one try must leave the first answer final",
+        );
+
+        let unbounded = OperationRetryOptions::from(OperationRetries::unbounded());
+        assert_eq!(unbounded.max_retries, None);
+        assert_eq!(unbounded.retry_delay, DEFAULT_RETRY_DELAY);
+        assert_eq!(unbounded.operation_timeout, DEFAULT_OPERATION_TIMEOUT);
     }
 
     /// The generated document is published and shared, so what a service put in its URL to
