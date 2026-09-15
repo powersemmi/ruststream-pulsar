@@ -35,9 +35,9 @@
 //! So is the sharing rule. A message reaches every subscription over its topic, and within one
 //! subscription the [`subscription_type`](crate::PulsarSubscription::subscription_type) picks the
 //! consumer that takes it: [`Exclusive`](crate::SubscriptionType::Exclusive) holds the
-//! subscription for one consumer and refuses a second attach,
-//! [`Failover`](crate::SubscriptionType::Failover) delivers to the active consumer and promotes a
-//! standby when it leaves, [`Shared`](crate::SubscriptionType::Shared) rotates, and
+//! subscription for one consumer, [`Failover`](crate::SubscriptionType::Failover) delivers to the
+//! active consumer and promotes a standby when it leaves,
+//! [`Shared`](crate::SubscriptionType::Shared) rotates, and
 //! [`KeyShared`](crate::SubscriptionType::KeyShared) splits by partition key. Two handlers on
 //! one shared subscription therefore split a run between them in process, as they do in
 //! production, and a `nack(requeue = true)` goes back to the subscription, so a retry can land on
@@ -53,10 +53,14 @@
 //! * [`ack_timeout`](crate::PulsarSubscription::ack_timeout) bounds a delayed retry here as it
 //!   does against a server, but it redelivers nothing on its own: credit and the server's own
 //!   redelivery timers are its clock, not the transport's.
+//! * A second consumer of an [`Exclusive`](crate::SubscriptionType::Exclusive) subscription is
+//!   refused here. A server answers that the subscription is busy and the client waits for the
+//!   holder to leave, so a service that mounts one twice fails its test here and does not start
+//!   there.
 //!
-//! The last one is product behaviour the live suite covers against a real broker; the first two
-//! are where this model is coarser than the server's, and a test that leans on either is leaning
-//! on the wrong broker.
+//! The first two are where this model is coarser than the server's, and a test that leans on
+//! either is leaning on the wrong broker. The last two are product behaviour the live suite
+//! covers against a real broker.
 //!
 //! The registration's retry declaration does carry behaviour. A consumer counts the redeliveries
 //! of a message and, at the `max_attempts(..)` limit, produces it to the declared
@@ -66,9 +70,10 @@
 //! the client agrees. Where a server keeps no redelivery count - an
 //! [`Exclusive`](crate::SubscriptionType::Exclusive) or a
 //! [`Failover`](crate::SubscriptionType::Failover) subscription - the descriptor refuses the cap
-//! before either transport opens, so a test can never drive a policy production would not apply. What neither transport shows the handler is the count itself: the client
-//! keeps the broker's redelivery count for its own decision and does not put it on the message,
-//! so `IncomingMessage::redelivery_count` answers nothing here and nothing in production.
+//! before either transport opens, so a test can never drive a policy production would not apply.
+//! What neither transport shows the handler is the count itself: the client keeps the broker's
+//! redelivery count for its own decision and does not put it on the message, so
+//! `IncomingMessage::redelivery_count` answers nothing here and nothing in production.
 //!
 //! A delayed retry runs on the harness clock. `retry_after(delay)` holds the delivery for the
 //! delay and returns it to the subscription afterwards, registered with the coordinator rather

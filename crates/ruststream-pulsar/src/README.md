@@ -87,7 +87,7 @@ ships is the one its tests run.
 
 | Setting | Meaning | Default |
 |---|---|---|
-| [`subscription_type`](PulsarSubscription::subscription_type) | how competing consumers share the subscription: `Exclusive` (one consumer, a second attach is rejected), `Shared` (round-robin), `Failover` (one active consumer with hot standbys), `KeyShared` (per-key ordering) | [`SubscriptionType::Shared`] |
+| [`subscription_type`](PulsarSubscription::subscription_type) | how competing consumers share the subscription: `Exclusive` (one consumer, a second attach waits for it to leave), `Shared` (round-robin), `Failover` (one active consumer with hot standbys), `KeyShared` (per-key ordering) | [`SubscriptionType::Shared`] |
 | [`ack_timeout`](PulsarSubscription::ack_timeout) | redeliver what a handler left unacknowledged for longer than this | none |
 | [`batch_wait`](PulsarSubscription::batch_wait) | how long a partial batch waits for more deliveries | 10 ms |
 
@@ -117,6 +117,11 @@ setting above needs a descriptor.
 Subscribing validates first: an empty subscription name, an empty topic list, a malformed topic
 name and a pattern that is not a regular expression each return
 [`PulsarError::Invalid`](PulsarError) with no call to the broker.
+
+A second consumer of an `Exclusive` subscription is not an error. The server answers that the
+subscription is busy and the client waits for the holder to leave, so a service that mounts one
+twice does not start and reports nothing; an `Exclusive` subscription belongs to a service that
+runs one instance.
 
 Both forms report `Copies = BrokerMoves`: a delivery that has to come back is moved by the broker
 and the client, never republished by the service. There is no retry position on a Pulsar

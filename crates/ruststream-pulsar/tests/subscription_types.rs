@@ -112,6 +112,10 @@ async fn distinct_subscriptions_each_receive_the_whole_stream() {
     assert_eq!(drain(&mut audit).await, ["o1", "o2"]);
 }
 
+/// The stand-in's own answer, and the one place it is not the server's: a server answers a second
+/// attach with "consumer busy" and the client waits for the holder to leave, which the live suite
+/// drives. The refusal here is what keeps a test from hanging on a mistake that costs a
+/// deployment its startup.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_exclusive_subscription_refuses_a_second_consumer() {
     let broker = connected().await;

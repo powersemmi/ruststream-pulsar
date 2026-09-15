@@ -24,7 +24,12 @@ use crate::topic::PulsarTopic;
 /// How competing consumers on one subscription share its messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SubscriptionType {
-    /// One consumer holds the subscription; a second attach is rejected.
+    /// One consumer holds the subscription.
+    ///
+    /// A server answers a second attach with "consumer busy" and the client waits for the holder
+    /// to leave rather than reporting it, so a second consumer of this subscription is a service
+    /// that does not start. The in-process stand-in refuses the attach instead, which is the one
+    /// place the two disagree.
     Exclusive,
     /// Competing consumers, round-robin. The default.
     #[default]
