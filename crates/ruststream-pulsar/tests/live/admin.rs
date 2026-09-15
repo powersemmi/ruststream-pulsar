@@ -9,6 +9,7 @@
 //! `docker-compose.test.yml` and the CI job start, which publish the admin port beside the
 //! service port.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::io::{Read, Write as _};
 use std::net::TcpStream;
@@ -137,6 +138,21 @@ pub(crate) async fn subscription_stats(topic: &str, subscription: &str) -> Value
         .and_then(|subscriptions| subscriptions.get(subscription))
         .cloned()
         .unwrap_or_else(|| panic!("the broker holds no subscription '{subscription}' on '{topic}'"))
+}
+
+/// The subscriptions the broker holds on `topic`.
+///
+/// # Panics
+///
+/// Panics when the topic does not exist, which is the answer to a different question than the
+/// one a caller of this is asking.
+pub(crate) async fn subscription_names(topic: &str) -> BTreeSet<String> {
+    get(format!("persistent/{NAMESPACE}/{topic}/stats"))
+        .await
+        .get("subscriptions")
+        .and_then(Value::as_object)
+        .map(|subscriptions| subscriptions.keys().cloned().collect())
+        .unwrap_or_default()
 }
 
 /// The number this topic was created with, or `0` where the topic is not partitioned.
