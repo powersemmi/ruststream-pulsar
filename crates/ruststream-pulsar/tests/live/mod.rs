@@ -10,6 +10,8 @@ use std::time::Duration;
 use ruststream::Broker;
 use ruststream_pulsar::{ConnectedPulsarBroker, PulsarBroker};
 
+pub(crate) mod admin;
+
 /// How long a delivery may take before the suite calls it lost.
 pub(crate) const RECV_TIMEOUT: Duration = Duration::from_secs(30);
 
