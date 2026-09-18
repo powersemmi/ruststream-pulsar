@@ -11,5 +11,8 @@ mkdocs-material>=9.5
 # The plugin targets MkDocs, and properdocs aliases the `mkdocs` package and reads the
 # `mkdocs.plugins` entry-point group, so it loads unchanged under `properdocs build`.
 mkdocs-static-i18n>=1.3
+# Keeps the URL of a page that moved alive. The guide moved into the crate's rustdoc, so the
+# redirect target is an address on docs.rs rather than another page of this site.
+mkdocs-redirects>=1.2.3
 pymdown-extensions>=10.7
 mike>=2.2

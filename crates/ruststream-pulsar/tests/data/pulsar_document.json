@@ -1,0 +1,36 @@
+{
+  "channels": {
+    "persistent://acme/orders/created": {
+      "address": "persistent://acme/orders/created",
+      "bindings": {
+        "pulsar": {
+          "bindingVersion": "0.1.0",
+          "namespace": "orders",
+          "persistence": "persistent"
+        }
+      }
+    },
+    "non-persistent://acme/telemetry/ticks": {
+      "address": "non-persistent://acme/telemetry/ticks",
+      "bindings": {
+        "pulsar": {
+          "bindingVersion": "0.1.0",
+          "namespace": "telemetry",
+          "persistence": "non-persistent"
+        }
+      }
+    }
+  },
+  "operations": {
+    "receive_persistent___acme_orders_created": {
+      "action": "receive",
+      "bindings": {
+        "x-ruststream-pulsar": {
+          "subscription": "workers",
+          "subscriptionType": "Shared",
+          "ackTimeoutMillis": 30000
+        }
+      }
+    }
+  }
+}
