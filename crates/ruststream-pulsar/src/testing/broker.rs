@@ -307,9 +307,11 @@ impl Publisher for PulsarTestPublisher {
         {
             headers.insert(Str::from_static(PARTITION_KEY_HEADER), key);
         }
+        // The router keeps the payload, so the buffer the framework wrote is handed over:
+        // freezing it shares what a copy would duplicate.
         ready(
             self.state
-                .publish(msg.name(), Bytes::copy_from_slice(msg.payload()), headers),
+                .publish(msg.name(), msg.into_payload().freeze(), headers),
         )
     }
 }
@@ -342,6 +344,35 @@ mod tests {
                 .expect_err("a publish into a shut-down transport must not report success");
             assert!(matches!(err, PulsarError::NotConnected));
         }
+    }
+
+    /// The router keeps the payload, so a publish hands the buffer over rather than copying it:
+    /// the bytes it logged are the ones the publish wrote, at the same address.
+    #[tokio::test]
+    async fn a_publish_hands_the_buffer_to_the_router() {
+        let connected = PulsarTestBroker::new()
+            .connect()
+            .await
+            .expect("the stand-in connects");
+        let buffer = BytesMut::from(&b"{\"id\":1}"[..]);
+        let at = buffer.as_ptr();
+
+        connected
+            .publisher()
+            .publish(OutgoingMessage::produced("orders", buffer), None)
+            .await
+            .expect("the stand-in accepts the publish");
+
+        let logged = connected.published("orders");
+        assert_eq!(
+            logged
+                .first()
+                .expect("the publish reached the log")
+                .payload()
+                .as_ptr(),
+            at,
+            "the log must hold the buffer the publish wrote, not a copy of it",
+        );
     }
 
     #[tokio::test]
