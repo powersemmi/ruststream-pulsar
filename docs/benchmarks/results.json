@@ -13,7 +13,7 @@
     "memory_speed": "unknown",
     "os": "Linux 7.2.6-x64v3-xanmod1-1",
     "broker": "apachepulsar/pulsar:4.1.2 in Docker on localhost",
-    "round_trip": "0.045 ms round trip",
+    "round_trip": "0.044 ms round trip",
     "rustc": "1.98.1",
     "profile": "bench, inheriting release (opt-level = 3, lto = false, codegen-units = 16)",
     "features": "ruststream-pulsar default (none), ruststream macros,json",
@@ -23,52 +23,52 @@
     {
       "name": "Exclusive subscription, 128 B JSON, ack each",
       "unit": "msg/s",
-      "messages": 164774,
+      "messages": 168830,
       "pairs": 11,
       "raw": {
-        "median": 27703,
-        "min": 27603,
-        "max": 27828
+        "median": 27844,
+        "min": 27579,
+        "max": 27923
       },
       "adapter": {
-        "median": 27679,
-        "min": 27556,
-        "max": 27753
+        "median": 27770,
+        "min": 27647,
+        "max": 27941
       },
       "framework": {
-        "median": 27674,
-        "min": 27576,
-        "max": 27773
+        "median": 27835,
+        "min": 27670,
+        "max": 27878
       },
-      "adapter_overhead_percent": 0.1,
+      "adapter_overhead_percent": 0.3,
       "adapter_verdict": "indistinguishable",
-      "overhead_percent": 0.1,
+      "overhead_percent": 0.0,
       "verdict": "indistinguishable",
       "broker_bound": true
     },
     {
       "name": "Shared subscription, 128 B JSON, ack each",
       "unit": "msg/s",
-      "messages": 172157,
+      "messages": 171903,
       "pairs": 11,
       "raw": {
-        "median": 27728,
-        "min": 27379,
-        "max": 27857
+        "median": 27762,
+        "min": 27659,
+        "max": 27837
       },
       "adapter": {
-        "median": 27716,
-        "min": 22433,
-        "max": 27785
+        "median": 27702,
+        "min": 27505,
+        "max": 27836
       },
       "framework": {
-        "median": 27691,
-        "min": 27569,
-        "max": 27759
+        "median": 27709,
+        "min": 27416,
+        "max": 27806
       },
-      "adapter_overhead_percent": 0.0,
+      "adapter_overhead_percent": 0.2,
       "adapter_verdict": "indistinguishable",
-      "overhead_percent": 0.1,
+      "overhead_percent": 0.2,
       "verdict": "indistinguishable",
       "broker_bound": true
     }
