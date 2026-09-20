@@ -7,8 +7,12 @@ default: check
 
 check:
     cargo fmt --all -- --check
-    cargo clippy --workspace --all-targets --all-features -- -D warnings
-    cargo check --workspace --all-targets --all-features
+    # The benchmark package is left out of the all-features legs on purpose: it is built with the
+    # feature set a service ships, and the framework's harness feature is a compile error in it.
+    # Its own leg follows.
+    cargo clippy --workspace --exclude ruststream-pulsar-bench --all-targets --all-features -- -D warnings
+    cargo clippy -p ruststream-pulsar-bench --all-targets -- -D warnings
+    cargo check --workspace --exclude ruststream-pulsar-bench --all-targets --all-features
     cargo check --workspace --no-default-features
 
 test:
