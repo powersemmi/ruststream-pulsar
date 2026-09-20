@@ -298,7 +298,10 @@ impl Publisher for PulsarTestPublisher {
         msg: OutgoingMessage<'_, BytesMut>,
         options: Option<&Self::Options>,
     ) -> impl Future<Output = Result<(), Self::Error>> {
-        let mut headers = msg.headers().clone();
+        // The destination, the payload and the map in one move: the router keeps all three, so
+        // the buffer the framework wrote is frozen rather than copied and the map the publish
+        // filled travels as it is.
+        let (topic, payload, mut headers) = msg.into_parts();
         // Against a server the resolved key is the message's own key, which comes back as this
         // header on delivery; in process the header is both, so a keyed publish reaches a
         // `KeyShared` consumer here the way it does there.
@@ -307,12 +310,7 @@ impl Publisher for PulsarTestPublisher {
         {
             headers.insert(Str::from_static(PARTITION_KEY_HEADER), key);
         }
-        // The router keeps the payload, so the buffer the framework wrote is handed over:
-        // freezing it shares what a copy would duplicate.
-        ready(
-            self.state
-                .publish(msg.name(), msg.into_payload().freeze(), headers),
-        )
+        ready(self.state.publish(topic, payload.freeze(), headers))
     }
 }
 
