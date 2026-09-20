@@ -8,8 +8,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use ruststream::testing::{Coordinator, TestableBroker};
 use ruststream::{
-    Broker, BrokerMoves, ConnectedBroker, DeclareRetryError, DefaultPublish, OutgoingMessage,
-    Publisher, RawMessage, RetryDeclaration, Str, Subscribe,
+    Broker, BrokerMoves, BytesMut, ConnectedBroker, DeclareRetryError, DefaultPublish,
+    OutgoingMessage, Publisher, RawMessage, RetryDeclaration, Str, Subscribe, Take,
 };
 
 use crate::error::PulsarError;
@@ -286,6 +286,8 @@ pub struct PulsarTestPublisher {
 }
 
 impl Publisher for PulsarTestPublisher {
+    // The router keeps the payload, as the client the real publisher sends through does.
+    type Payload = Take;
     type Error = PulsarError;
     /// The same settings the real publisher declares, so a handler bound on the options type
     /// compiles against either broker and the steps it names are the ones production runs.
@@ -293,7 +295,7 @@ impl Publisher for PulsarTestPublisher {
 
     fn publish(
         &self,
-        msg: OutgoingMessage<'_>,
+        msg: OutgoingMessage<'_, BytesMut>,
         options: Option<&Self::Options>,
     ) -> impl Future<Output = Result<(), Self::Error>> {
         let mut headers = msg.headers().clone();

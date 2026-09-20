@@ -9,7 +9,7 @@ use pulsar::{ProducerOptions, TokioExecutor};
 #[cfg(feature = "asyncapi")]
 use ruststream::asyncapi::Bindings;
 use ruststream::runtime::{PublishBuilder, PublishSink};
-use ruststream::{OutgoingMessage, PairError, PublishPolicy, Publisher};
+use ruststream::{BytesMut, OutgoingMessage, PairError, PublishPolicy, Publisher, Take};
 use tokio::sync::Mutex;
 
 #[cfg(feature = "asyncapi")]
@@ -126,6 +126,9 @@ impl PulsarPublisher {
 }
 
 impl Publisher for PulsarPublisher {
+    // The client's message owns its payload as a `Vec<u8>`, so this transport keeps the buffer
+    // the framework wrote.
+    type Payload = Take;
     type Error = PulsarError;
     /// The partition key, the one value Pulsar lets one publish differ from the next in on this
     /// crate's surface.
@@ -133,7 +136,7 @@ impl Publisher for PulsarPublisher {
 
     async fn publish(
         &self,
-        msg: OutgoingMessage<'_>,
+        msg: OutgoingMessage<'_, BytesMut>,
         options: Option<&Self::Options>,
     ) -> Result<(), Self::Error> {
         let core = self.core()?;

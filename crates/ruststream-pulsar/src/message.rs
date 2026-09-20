@@ -10,7 +10,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use pulsar::proto::MessageIdData;
 use ruststream::{
-    AckError, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned, Str,
+    AckError, BytesMut, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned, Str,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
@@ -326,7 +326,7 @@ impl IncomingMessage for PulsarMessage {
 /// leaves unkeyed. Either way the key becomes the message's own `partition_key` rather than a
 /// property, which is how it comes back on delivery.
 pub(crate) fn to_pulsar_message(
-    msg: &OutgoingMessage<'_>,
+    msg: &OutgoingMessage<'_, BytesMut>,
     key: Option<&str>,
 ) -> pulsar::producer::Message {
     let headers = msg.headers();
