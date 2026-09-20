@@ -9,7 +9,9 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use pulsar::proto::MessageIdData;
-use ruststream::{AckError, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned};
+use ruststream::{
+    AckError, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned, Str,
+};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::warn;
@@ -181,7 +183,9 @@ impl PulsarMessage {
             headers.insert(kv.key.clone(), kv.value.clone());
         }
         if let Some(key) = &metadata.partition_key {
-            headers.insert(PARTITION_KEY_HEADER, key.clone());
+            // A header key is a shared string: the static form hands the map the constant itself
+            // rather than a copy of it made on every delivery.
+            headers.insert(Str::from_static(PARTITION_KEY_HEADER), key.clone());
         }
         Self {
             payload: Bytes::copy_from_slice(&message.payload.data),

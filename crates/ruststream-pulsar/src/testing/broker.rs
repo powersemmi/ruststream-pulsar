@@ -9,7 +9,7 @@ use bytes::Bytes;
 use ruststream::testing::{Coordinator, TestableBroker};
 use ruststream::{
     Broker, BrokerMoves, ConnectedBroker, DeclareRetryError, DefaultPublish, OutgoingMessage,
-    Publisher, RawMessage, RetryDeclaration, Subscribe,
+    Publisher, RawMessage, RetryDeclaration, Str, Subscribe,
 };
 
 use crate::error::PulsarError;
@@ -303,7 +303,7 @@ impl Publisher for PulsarTestPublisher {
         if let Some(options) = options
             && let Some(key) = options.partition_key.clone()
         {
-            headers.insert(PARTITION_KEY_HEADER, key);
+            headers.insert(Str::from_static(PARTITION_KEY_HEADER), key);
         }
         ready(
             self.state
