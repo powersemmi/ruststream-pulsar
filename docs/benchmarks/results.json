@@ -1,9 +1,9 @@
 {
-  "schema": 1,
+  "schema": 3,
   "crate": "ruststream-pulsar",
   "crate_version": "0.7.0",
-  "core_version": "0.7.0-rc.7",
-  "measured_at": "2026-09-20",
+  "core_version": "0.7.0-rc.9",
+  "measured_at": "2026-09-21",
   "environment": {
     "cpu": "AMD Ryzen 9 7900X 12-Core Processor",
     "architecture": "x86_64",
@@ -23,50 +23,44 @@
     {
       "name": "Exclusive subscription, 128 B JSON, ack each",
       "unit": "msg/s",
-      "messages": 168830,
-      "pairs": 11,
+      "messages": 165935,
+      "pairs": 3,
       "raw": {
-        "median": 27844,
-        "min": 27579,
-        "max": 27923
+        "best": 27957,
+        "worst": 27882
       },
       "adapter": {
-        "median": 27770,
-        "min": 27647,
-        "max": 27941
+        "best": 27926,
+        "worst": 21823
       },
       "framework": {
-        "median": 27835,
-        "min": 27670,
-        "max": 27878
+        "best": 27930,
+        "worst": 27854
       },
-      "adapter_overhead_percent": 0.3,
+      "adapter_overhead_percent": 0.1,
       "adapter_verdict": "indistinguishable",
-      "overhead_percent": 0.0,
+      "overhead_percent": 0.1,
       "verdict": "indistinguishable",
       "broker_bound": true
     },
     {
       "name": "Shared subscription, 128 B JSON, ack each",
       "unit": "msg/s",
-      "messages": 171903,
-      "pairs": 11,
+      "messages": 175328,
+      "pairs": 3,
       "raw": {
-        "median": 27762,
-        "min": 27659,
-        "max": 27837
+        "best": 27996,
+        "worst": 27926
       },
       "adapter": {
-        "median": 27702,
-        "min": 27505,
-        "max": 27836
+        "best": 27900,
+        "worst": 27792
       },
       "framework": {
-        "median": 27709,
-        "min": 27416,
-        "max": 27806
+        "best": 27954,
+        "worst": 22197
       },
-      "adapter_overhead_percent": 0.2,
+      "adapter_overhead_percent": 0.3,
       "adapter_verdict": "indistinguishable",
       "overhead_percent": 0.2,
       "verdict": "indistinguishable",
