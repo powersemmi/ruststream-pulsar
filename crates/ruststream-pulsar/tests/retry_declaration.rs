@@ -158,7 +158,7 @@ async fn a_bare_name_carries_its_declaration_to_the_consumer() {
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .message(&Order { id: 11 })
         .to("orders")
         .publish()
@@ -166,10 +166,10 @@ async fn a_bare_name_carries_its_declaration_to_the_consumer() {
         .expect("publish");
     tb.settle().await.expect("settle");
 
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .subscriber("orders")
         .assert_called(5);
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .published::<Order>("orders-dead")
         .assert_called_once()
         .with(&Order { id: 11 });

@@ -308,16 +308,12 @@ where
 /// the two impls is only the live form the policy pairs into, which is the publisher that broker
 /// sends with.
 #[cfg(feature = "testing")]
-impl<Subscription> PublishPolicy<crate::testing::ConnectedPulsarTestBroker<Subscription>>
-    for PulsarPublish
-where
-    Subscription: Send + Sync + 'static,
-{
+impl PublishPolicy<crate::testing::ConnectedPulsarTestBroker> for PulsarPublish {
     type Live = crate::testing::PulsarTestPublisher;
 
     fn pair(
         self,
-        connected: &crate::testing::ConnectedPulsarTestBroker<Subscription>,
+        connected: &crate::testing::ConnectedPulsarTestBroker,
     ) -> impl Future<Output = Result<Self::Live, PairError>> {
         ready(Ok(connected.publisher()))
     }

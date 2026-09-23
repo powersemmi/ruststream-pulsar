@@ -491,11 +491,7 @@ where
 /// does. What is left to the server - the ack timeout and redelivery timing - the
 /// [`testing` module docs](crate::testing) name.
 #[cfg(feature = "testing")]
-impl<Subscription> SubscriptionSource<crate::testing::ConnectedPulsarTestBroker<Subscription>>
-    for PulsarSubscription
-where
-    Subscription: Send + Sync + 'static,
-{
+impl SubscriptionSource<crate::testing::ConnectedPulsarTestBroker> for PulsarSubscription {
     type Subscriber = crate::testing::PulsarTestSubscriber;
     type Copies = BrokerMoves;
 
@@ -505,7 +501,7 @@ where
 
     async fn subscribe(
         self,
-        connected: &crate::testing::ConnectedPulsarTestBroker<Subscription>,
+        connected: &crate::testing::ConnectedPulsarTestBroker,
     ) -> Result<Self::Subscriber, PulsarError> {
         connected.subscribe_descriptor(self).await
     }

@@ -548,9 +548,9 @@ pub async fn an_order_reaches_its_handler() {
 ```
 
 The stand-in takes the same [`default_subscription`](testing::PulsarTestBroker::default_subscription)
-as the real broker, and a bare name mounts on it under the same rule. The harness finds a broker by
-its type, so a test of a service with a default subscription names that form:
-`tb.broker::<PulsarTestBroker<DefaultSubscription>>()`.
+as the real broker; set it when the service sets one. A bare name on a stand-in without it is
+refused when the harness starts, with the error naming the setting, and the test reaches the
+stand-in as `tb.broker::<PulsarTestBroker>()` either way.
 
 The harness itself is the framework's, and
 <https://docs.rs/ruststream/latest/ruststream/testing/index.html> documents it.

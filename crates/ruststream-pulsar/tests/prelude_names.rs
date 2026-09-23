@@ -105,17 +105,17 @@ async fn a_reply_lands_on_the_topic_its_type_declares() {
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .message(&Order { id: 7 })
         .to("receipt-requests")
         .publish()
         .await
         .expect("publish");
 
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .subscriber("receipt-requests")
         .assert_called_once();
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .published::<Receipt>("receipts")
         .assert_called_once()
         .with(&Receipt {
@@ -136,17 +136,17 @@ async fn a_reply_lands_on_the_topic_the_mount_site_names() {
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .message(&Order { id: 7 })
         .to("orders")
         .publish()
         .await
         .expect("publish");
 
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .subscriber("orders")
         .assert_called_once();
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .published::<Confirmation>("confirmations")
         .assert_called_once()
         .with(&Confirmation {

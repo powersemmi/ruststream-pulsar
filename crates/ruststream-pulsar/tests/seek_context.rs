@@ -70,7 +70,7 @@ fn poison(id: u64) -> Job {
 }
 
 /// Fills the log before the service exists, so `start_at` has a backlog to open on.
-async fn backlog(broker: &PulsarTestBroker<DefaultSubscription>, address: &str) {
+async fn backlog(broker: &PulsarTestBroker, address: &str) {
     let ingress = broker.publisher();
     for job in [job(1), poison(2), job(3), job(4)] {
         ingress
@@ -95,12 +95,12 @@ async fn a_handler_repositions_its_own_subscription() {
 
     // The subscription opened at the beginning of the log and stopped at the marker: jobs 3 and
     // 4 were queued behind it, and the seek to the tip dropped them.
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .subscriber("jobs")
         .assert_called(2)
         .settled(HandlerOutcome::ack());
     assert_eq!(
-        tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+        tb.broker::<PulsarTestBroker>()
             .subscriber("jobs")
             .received::<Job>(),
         vec![job(1), poison(2)],
@@ -108,13 +108,13 @@ async fn a_handler_repositions_its_own_subscription() {
     );
 
     // The subscription is live at its new position, not stranded there.
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .message(&job(5))
         .to("jobs")
         .publish()
         .await
         .expect("publish");
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .subscriber("jobs")
         .assert_called(3)
         .with(&job(5))
@@ -144,13 +144,13 @@ async fn a_batch_repositions_the_subscription_it_came_from() {
 
     // One batch, closed by the size rather than by the deadline, and it carried the marker: the
     // seek to the tip dropped jobs 3 and 4 before a second batch could form.
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .subscriber("jobs.bulk")
         .assert_called_once()
         .assert_batch_sizes(&[2])
         .settled(HandlerOutcome::ack());
     assert_eq!(
-        tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+        tb.broker::<PulsarTestBroker>()
             .subscriber("jobs.bulk")
             .received::<Job>(),
         vec![job(1), poison(2)],
@@ -159,13 +159,13 @@ async fn a_batch_repositions_the_subscription_it_came_from() {
 
     // The batch's seek moved the live subscription rather than breaking it: the next entry still
     // arrives, at the repositioned tip, as a batch of its own.
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .message(&job(5))
         .to("jobs.bulk")
         .publish()
         .await
         .expect("publish");
-    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
+    tb.broker::<PulsarTestBroker>()
         .subscriber("jobs.bulk")
         .assert_called(2)
         .assert_batch_sizes(&[2, 1])
