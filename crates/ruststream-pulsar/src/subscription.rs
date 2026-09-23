@@ -114,14 +114,6 @@ pub(crate) enum Topics {
 /// trading latency for fuller batches raises it with [`PulsarSubscription::batch_wait`].
 pub(crate) const DEFAULT_BATCH_WAIT: Duration = Duration::from_millis(10);
 
-/// The subscription a bare topic name joins, on the real broker and on the stand-in alike.
-///
-/// A `#[subscriber("orders")]` names no subscription and Pulsar has no anonymous consumer, so
-/// the crate supplies one: by-name handlers share this durable subscription under the default
-/// [`SubscriptionType::Shared`], which is what makes two instances of a service competing
-/// consumers rather than two independent readers of one topic.
-pub(crate) const DEFAULT_SUBSCRIPTION: &str = "ruststream";
-
 /// A subscription descriptor for one Pulsar subscription over one or more topics.
 ///
 /// Where the subscription starts reading is not a descriptor option: it is the framework's
@@ -427,10 +419,24 @@ impl DeclaredRetries {
         Ok(())
     }
 
-    /// The descriptor a bare `topic` opens, carrying what was declared for it.
-    pub(crate) fn subscription(&self, topic: &str) -> PulsarSubscription {
+    /// The descriptor a bare `topic` opens: the broker's default subscription over it, carrying
+    /// what was declared for it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PulsarError::NoSubscription`] when the broker names no default subscription.
+    /// Pulsar has no anonymous consumer, and a subscription name is the durable cursor every
+    /// consumer under it shares, so the crate does not pick one on the service's behalf.
+    pub(crate) fn subscription(
+        &self,
+        topic: &str,
+        default_subscription: Option<&str>,
+    ) -> Result<PulsarSubscription, PulsarError> {
+        let subscription = default_subscription.ok_or_else(|| PulsarError::NoSubscription {
+            topic: topic.to_owned(),
+        })?;
         let declared = self.lock().get(topic).cloned().unwrap_or_default();
-        PulsarSubscription::new(topic, DEFAULT_SUBSCRIPTION).declaring(&declared)
+        Ok(PulsarSubscription::new(topic, subscription).declaring(&declared))
     }
 
     /// Nothing here panics while the map is held, so the lock cannot have been poisoned.

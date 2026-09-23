@@ -109,10 +109,21 @@ pub fn sources() -> (PulsarSubscription, PulsarSubscription, PulsarSubscription)
 # fn main() {}
 ```
 
-`#[subscriber("orders")]` is the short form: a bare name opens a `Shared` subscription called
-`ruststream` on that topic, which is what makes two instances of a service competing consumers
-rather than two independent readers. The retry declaration reaches that consumer too; every other
-setting above needs a descriptor.
+`#[subscriber("orders")]` is the short form: a bare name opens a `Shared` subscription on that
+topic, under the name the broker sets with
+[`default_subscription`](PulsarBroker::default_subscription):
+
+```
+use ruststream_pulsar::PulsarBroker;
+
+let broker = PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-worker");
+# let _ = broker;
+```
+
+Every handler mounted by name joins that one durable cursor, so two instances of a service are
+competing consumers rather than two independent readers. A broker that sets no default refuses a
+bare name at startup with [`PulsarError::NoSubscription`](PulsarError), which names both fixes.
+The retry declaration reaches that consumer too; every other setting above needs a descriptor.
 
 Subscribing validates first: an empty subscription name, an empty topic list, a malformed topic
 name and a pattern that is not a regular expression each return

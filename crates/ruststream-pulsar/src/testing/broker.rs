@@ -79,12 +79,31 @@ impl TestState {
 #[must_use]
 pub struct PulsarTestBroker {
     state: Arc<TestState>,
+    default_subscription: Option<String>,
 }
 
 impl PulsarTestBroker {
     /// Creates an empty in-process broker. Synchronous and I/O-free, like the real `new`.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The subscription a subscription by bare topic name joins, as
+    /// [`PulsarBroker::default_subscription`](crate::PulsarBroker::default_subscription) names it
+    /// for the real broker. Without it a by-name subscription is refused here too, with
+    /// [`PulsarError::NoSubscription`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ruststream_pulsar::testing::PulsarTestBroker;
+    ///
+    /// let broker = PulsarTestBroker::new().default_subscription("orders-worker");
+    /// # let _ = broker;
+    /// ```
+    pub fn default_subscription(mut self, subscription: impl Into<String>) -> Self {
+        self.default_subscription = Some(subscription.into());
+        self
     }
 
     /// A publisher usable before `connect`, mirroring the real broker's early-publisher path.
@@ -101,7 +120,10 @@ impl Broker for PulsarTestBroker {
     type Connected = ConnectedPulsarTestBroker;
 
     fn connect(self) -> impl Future<Output = Result<Self::Connected, Self::Error>> {
-        ready(Ok(ConnectedPulsarTestBroker { state: self.state }))
+        ready(Ok(ConnectedPulsarTestBroker {
+            state: self.state,
+            default_subscription: self.default_subscription,
+        }))
     }
 }
 
@@ -111,6 +133,7 @@ impl Broker for PulsarTestBroker {
 #[derive(Debug, Clone)]
 pub struct ConnectedPulsarTestBroker {
     state: Arc<TestState>,
+    default_subscription: Option<String>,
 }
 
 impl ConnectedPulsarTestBroker {
@@ -235,9 +258,14 @@ impl Subscribe for ConnectedPulsarTestBroker {
 
     fn subscribe(&self, name: &str) -> impl Future<Output = Result<Self::Subscriber, Self::Error>> {
         // The same descriptor the real broker builds for a bare name, so two handlers mounted on
-        // one topic compete on the service-wide subscription here as they do there, under the
-        // policy the registration declared.
-        ready(self.open(self.state.declared_retries.subscription(name)))
+        // one topic compete on the default subscription here as they do there, under the policy
+        // the registration declared, and a broker that names none refuses here as it does there.
+        ready(
+            self.state
+                .declared_retries
+                .subscription(name, self.default_subscription.as_deref())
+                .and_then(|descriptor| self.open(descriptor)),
+        )
     }
 
     /// Takes the declaration the way the client does, and refuses what it would refuse, so a
@@ -376,6 +404,7 @@ mod tests {
     #[tokio::test]
     async fn subscribing_after_shutdown_reports_the_closure() {
         let connected = PulsarTestBroker::new()
+            .default_subscription("workers")
             .connect()
             .await
             .expect("the stand-in connects");
@@ -392,5 +421,29 @@ mod tests {
             .await
             .expect_err("a subscription on a shut-down transport must not open");
         assert!(matches!(by_descriptor, PulsarError::NotConnected));
+    }
+
+    /// A bare topic names no subscription, and the stand-in refuses one the way the real broker
+    /// does, so a service that forgot the default hears about it from its own test run.
+    #[tokio::test]
+    async fn a_bare_topic_without_a_default_subscription_is_refused() {
+        let connected = PulsarTestBroker::new()
+            .connect()
+            .await
+            .expect("the stand-in connects");
+
+        let refused = Subscribe::subscribe(&connected, "orders")
+            .await
+            .expect_err("a bare topic without a default subscription must not open");
+        assert!(
+            matches!(&refused, PulsarError::NoSubscription { topic } if topic == "orders"),
+            "{refused:?}"
+        );
+        let advice = refused.to_string();
+        assert!(
+            advice.contains("PulsarBroker::default_subscription"),
+            "{advice}"
+        );
+        assert!(advice.contains("PulsarSubscription::new"), "{advice}");
     }
 }

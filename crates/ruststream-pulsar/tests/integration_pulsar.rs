@@ -12,13 +12,13 @@ use std::time::Duration;
 use futures::StreamExt;
 use ruststream::runtime::PublishExt;
 use ruststream::{
-    BatchSubscriber, ConnectedBroker, DeclareRetryError, HeaderMap, IncomingMessage, Outgoing,
-    OutgoingMessage, Publisher, RetryDeclaration, Seekable, Seeker, Serialized, Subscribe,
-    Subscriber, SubscriptionSource, nonzero,
+    BatchSubscriber, Broker, ConnectedBroker, DeclareRetryError, HeaderMap, IncomingMessage,
+    Outgoing, OutgoingMessage, Publisher, RetryDeclaration, Seekable, Seeker, Serialized,
+    Subscribe, Subscriber, SubscriptionSource, nonzero,
 };
 use ruststream_pulsar::{
-    ConnectedPulsarBroker, PARTITION_KEY_HEADER, PulsarError, PulsarMessage, PulsarPosition,
-    PulsarPublishSteps, PulsarSubscriber, PulsarSubscription, SubscriptionType,
+    ConnectedPulsarBroker, PARTITION_KEY_HEADER, PulsarBroker, PulsarError, PulsarMessage,
+    PulsarPosition, PulsarPublishSteps, PulsarSubscriber, PulsarSubscription, SubscriptionType,
 };
 
 use crate::live::{RECV_TIMEOUT, admin, connect, test_url, unique};
@@ -520,6 +520,47 @@ async fn a_declaration_over_a_bare_name_routes_exhausted_messages() {
     assert_eq!(dead.payload(), b"poison");
     dead.ack().await.expect("ack succeeds");
 
+    connected.shutdown().await.expect("shutdown succeeds");
+}
+
+/// A bare topic name joins the subscription the broker names as its default, and the server
+/// reports that name; a broker that names none refuses a bare name before anything subscribes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bare_name_joins_the_default_subscription_the_broker_names() {
+    let Some(url) = test_url() else { return };
+    let topic = unique("by-name-default");
+    let subscription = unique("orders-worker");
+
+    let unnamed = PulsarBroker::new(&url)
+        .connect()
+        .await
+        .expect("broker connects");
+    let refused = unnamed
+        .subscribe(&topic)
+        .await
+        .expect_err("a bare name without a default subscription must not open");
+    assert!(
+        matches!(&refused, PulsarError::NoSubscription { topic: named } if *named == topic),
+        "{refused:?}"
+    );
+    unnamed.shutdown().await.expect("shutdown succeeds");
+
+    let connected = PulsarBroker::new(&url)
+        .default_subscription(&subscription)
+        .connect()
+        .await
+        .expect("broker connects");
+    let subscriber = connected
+        .subscribe(&topic)
+        .await
+        .expect("subscription opens");
+    assert_eq!(
+        admin::subscription_names(&topic).await,
+        BTreeSet::from([subscription]),
+        "the server holds the cursor under the name the broker set, and under no other",
+    );
+
+    drop(subscriber);
     connected.shutdown().await.expect("shutdown succeeds");
 }
 

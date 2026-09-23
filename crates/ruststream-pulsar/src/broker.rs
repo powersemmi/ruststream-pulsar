@@ -122,6 +122,8 @@ pub(crate) struct Core {
     pub(crate) closed: AtomicBool,
     /// Per-topic producers, shared by every publisher handle so shutdown can close them.
     pub(crate) producers: Mutex<HashMap<String, Arc<Mutex<PulsarProducer>>>>,
+    /// The subscription a bare topic name joins; see [`PulsarBroker::default_subscription`].
+    default_subscription: Option<String>,
     /// What registrations mounted by a bare topic name declared about their retries.
     pub(crate) declared_retries: DeclaredRetries,
 }
@@ -165,6 +167,7 @@ pub(crate) type CoreCell = Arc<OnceCell<Arc<Core>>>;
 pub struct PulsarBroker {
     url: String,
     token: Option<String>,
+    default_subscription: Option<String>,
     // None leaves the client's own retry behaviour in place, which is unbounded.
     retries: Option<OperationRetries>,
     // Shared with publishers handed out before connect; the consuming connect fills it.
@@ -177,6 +180,7 @@ impl PulsarBroker {
         Self {
             url: url.into(),
             token: None,
+            default_subscription: None,
             retries: None,
             cell: Arc::new(OnceCell::new()),
         }
@@ -185,6 +189,29 @@ impl PulsarBroker {
     /// Authenticates with a JWT token.
     pub fn token(mut self, token: impl Into<String>) -> Self {
         self.token = Some(token.into());
+        self
+    }
+
+    /// The durable subscription a subscription by bare topic name joins.
+    ///
+    /// `#[subscriber("orders")]` names a topic and no subscription, and Pulsar has no anonymous
+    /// consumer, so the name comes from here. A subscription name is the cursor on the server:
+    /// every consumer under it shares one backlog, the handlers of this service and those of any
+    /// other service that names the same one. Name it after the service that owns the cursor.
+    /// Without it, a by-name subscription fails at startup with
+    /// [`PulsarError::NoSubscription`]; a [`PulsarSubscription`] names its own and needs none.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ruststream_pulsar::PulsarBroker;
+    ///
+    /// let broker =
+    ///     PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-worker");
+    /// # let _ = broker;
+    /// ```
+    pub fn default_subscription(mut self, subscription: impl Into<String>) -> Self {
+        self.default_subscription = Some(subscription.into());
         self
     }
 
@@ -250,6 +277,7 @@ impl Broker for PulsarBroker {
                     client,
                     closed: AtomicBool::new(false),
                     producers: Mutex::new(HashMap::new()),
+                    default_subscription: self.default_subscription.clone(),
                     declared_retries: DeclaredRetries::default(),
                 }))
             })
@@ -332,11 +360,16 @@ impl Subscribe for ConnectedPulsarBroker {
     /// client here too, under the policy the registration declared.
     type Copies = BrokerMoves;
 
+    /// A bare name joins the broker's [default subscription](PulsarBroker::default_subscription),
+    /// so the handlers mounted by name compete on one durable cursor. A broker that names none
+    /// refuses with [`PulsarError::NoSubscription`].
     async fn subscribe(&self, name: &str) -> Result<Self::Subscriber, Self::Error> {
-        // By-name subscriptions share one durable subscription, matching competing-consumer
-        // expectations. The stand-in reads the same descriptor, so the two cannot drift apart.
-        self.subscribe_descriptor(self.core.declared_retries.subscription(name))
-            .await
+        // The stand-in builds the same descriptor, so the two cannot drift apart.
+        let descriptor = self
+            .core
+            .declared_retries
+            .subscription(name, self.core.default_subscription.as_deref())?;
+        self.subscribe_descriptor(descriptor).await
     }
 
     /// Maps the declaration onto the consumer this name opens: the limit and the topic become

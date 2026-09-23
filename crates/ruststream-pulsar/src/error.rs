@@ -48,6 +48,18 @@ pub enum PulsarError {
     #[error("pulsar broker is not connected")]
     NotConnected,
 
+    /// A subscription by bare topic name was opened on a broker that names no default
+    /// subscription.
+    #[error(
+        "pulsar subscription to '{topic}' names no subscription: set \
+         `PulsarBroker::default_subscription(..)`, or subscribe with \
+         `PulsarSubscription::new(topic, subscription)`"
+    )]
+    NoSubscription {
+        /// The topic the by-name subscription targeted.
+        topic: String,
+    },
+
     /// A topic name or subscription descriptor is invalid.
     #[error("invalid pulsar descriptor: {0}")]
     Invalid(String),

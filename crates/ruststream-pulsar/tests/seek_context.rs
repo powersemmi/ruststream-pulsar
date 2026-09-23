@@ -84,7 +84,7 @@ async fn backlog(broker: &PulsarTestBroker, address: &str) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_handler_repositions_its_own_subscription() {
-    let broker = PulsarTestBroker::new();
+    let broker = PulsarTestBroker::new().default_subscription("workers");
     backlog(&broker, "jobs").await;
 
     let app = RustStream::new(AppInfo::new("seek", "0.1.0")).with_broker(broker, |b| {
@@ -129,7 +129,7 @@ async fn a_handler_repositions_its_own_subscription() {
 /// buffer, so a batch subscription opens on a backlog exactly as a single-delivery one does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_batch_repositions_the_subscription_it_came_from() {
-    let broker = PulsarTestBroker::new();
+    let broker = PulsarTestBroker::new().default_subscription("workers");
     backlog(&broker, "jobs.bulk").await;
 
     let app = RustStream::new(AppInfo::new("seek-batch", "0.1.0")).with_broker(broker, |b| {

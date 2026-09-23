@@ -48,7 +48,7 @@ async fn audit(order: &Order) -> HandlerOutcome {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_declared_cap_ends_at_the_dead_letter_topic() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarTestBroker::new().default_subscription("workers"),
         |b| {
             b.include(reconcile)
                 .max_attempts(nonzero!(3))
@@ -79,7 +79,7 @@ async fn the_declared_cap_ends_at_the_dead_letter_topic() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_multi_topic_subscription_declares_one_destination() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarTestBroker::new().default_subscription("workers"),
         |b| {
             b.include(reconcile_regional)
                 .max_attempts(nonzero!(2))
@@ -111,7 +111,7 @@ async fn a_multi_topic_subscription_declares_one_destination() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_pattern_subscription_carries_the_same_policy() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarTestBroker::new().default_subscription("workers"),
         |b| {
             b.include(audit)
                 .max_attempts(nonzero!(2))
@@ -149,7 +149,7 @@ async fn reconcile_by_name(order: &Order) -> HandlerOutcome {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_bare_name_carries_its_declaration_to_the_consumer() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarTestBroker::new().default_subscription("workers"),
         |b| {
             b.include(reconcile_by_name)
                 .max_attempts(nonzero!(5))
@@ -180,7 +180,7 @@ async fn a_bare_name_carries_its_declaration_to_the_consumer() {
 #[tokio::test]
 async fn a_bare_name_refuses_half_a_declaration() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarTestBroker::new().default_subscription("workers"),
         |b| {
             b.include(reconcile_by_name).max_attempts(nonzero!(5));
         },
@@ -199,7 +199,7 @@ async fn a_bare_name_refuses_half_a_declaration() {
 #[tokio::test]
 async fn a_cap_without_a_destination_refuses_to_start() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarTestBroker::new().default_subscription("workers"),
         |b| {
             b.include(reconcile).max_attempts(nonzero!(3));
         },
@@ -217,7 +217,7 @@ async fn a_cap_without_a_destination_refuses_to_start() {
 #[tokio::test]
 async fn a_destination_without_a_cap_refuses_to_start() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarTestBroker::new().default_subscription("workers"),
         |b| {
             b.include(reconcile).dead_letter("orders-dlq");
         },
@@ -247,7 +247,7 @@ async fn confirm(order: &Order) -> Receipt {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_declaration_composes_with_a_reply_position() {
     let app = RustStream::new(AppInfo::new("payments", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarTestBroker::new().default_subscription("workers"),
         |b| {
             b.include(confirm)
                 .out_reply(Publish)
