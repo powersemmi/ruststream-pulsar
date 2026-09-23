@@ -1,0 +1,32 @@
+# ruststream-pulsar
+
+> `ruststream-pulsar` is the Apache Pulsar broker crate for RustStream, a Rust framework for services that subscribe to message brokers and publish to them. It runs over the `pulsar` client: a topic is a retained log a subscription can rewind over, a subscription picks one of Pulsar's four subscription types, and a retry cap ends at a dead-letter topic.
+
+A subscription is the descriptor `PulsarSubscription`: one topic (`PulsarSubscription::new`), a fixed list (`::topics`) or a pattern over the lookup namespace (`::pattern`), with its subscription type, acknowledgement timeout and batch wait. A routes file imports `ruststream_pulsar::prelude::*`, which offers `PulsarPublish` as `Publish`; a body that sets the partition key of one message takes the `partition_key` step. Building the crate needs `protoc` on the path.
+
+This site holds the entry pages. The crate's guide is its overview on docs.rs, and the framework itself is documented on the RustStream site.
+
+## Site
+
+- [Home](https://powersemmi.github.io/ruststream-pulsar/latest/): what the crate offers, the dependency lines and a first service
+- [Benchmarks](https://powersemmi.github.io/ruststream-pulsar/latest/benchmarks/): what this crate and the framework's runtime cost over the raw `pulsar` client, and how to re-measure it with `just bench`
+
+## Guide
+
+- [Overview](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html): the transport and a service
+- [Subscribing](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#subscribing): the descriptor's forms and settings, topic names and acknowledgement
+- [Retries and dead-lettering](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#retries-and-dead-lettering): the retry cap and dead-letter topic as the consumer's own policy
+- [Batches](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#batches): batch handlers and the batch wait
+- [Seeking](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#seeking): repositioning a subscription over the retained log
+- [Publishing](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#publishing): the publish policy and replies
+- [Per-message settings](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#per-message-settings): the partition key of one publish
+- [The prelude](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#the-prelude): what a routes file and a handler body import
+- [The generated document](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#the-generated-document): what the `asyncapi` feature reports
+- [Testing](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#testing): the in-process broker behind the `testing` feature, driven by `TestApp`
+- [Operations](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#operations): the service URL, authentication and the client's limits
+
+## Optional
+
+- [API reference](https://docs.rs/ruststream-pulsar): the full rustdoc of the crate
+- [RustStream llms.txt](https://powersemmi.github.io/ruststream/llms.txt): the index of the framework's own documentation
+- [Source](https://github.com/powersemmi/ruststream-pulsar): the crate's repository
