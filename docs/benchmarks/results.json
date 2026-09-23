@@ -1,0 +1,70 @@
+{
+  "schema": 3,
+  "crate": "ruststream-pulsar",
+  "crate_version": "0.7.0",
+  "core_version": "0.7.0-rc.9",
+  "measured_at": "2026-09-21",
+  "environment": {
+    "cpu": "AMD Ryzen 9 7900X 12-Core Processor",
+    "architecture": "x86_64",
+    "cpu_frequency": "427-5912 MHz",
+    "cores": "12 physical, 24 logical",
+    "memory": "62.4 GiB",
+    "memory_speed": "unknown",
+    "os": "Linux 7.2.6-x64v3-xanmod1-1",
+    "broker": "apachepulsar/pulsar:4.1.2 in Docker on localhost",
+    "round_trip": "0.044 ms round trip",
+    "rustc": "1.98.1",
+    "profile": "bench, inheriting release (opt-level = 3, lto = false, codegen-units = 16)",
+    "features": "ruststream-pulsar default (none), ruststream macros,json",
+    "rustflags": "none (the recipe clears RUSTFLAGS, so the numbers are not tied to this CPU)"
+  },
+  "scenarios": [
+    {
+      "name": "Exclusive subscription, 128 B JSON, ack each",
+      "unit": "msg/s",
+      "messages": 165935,
+      "pairs": 3,
+      "raw": {
+        "best": 27957,
+        "worst": 27882
+      },
+      "adapter": {
+        "best": 27926,
+        "worst": 21823
+      },
+      "framework": {
+        "best": 27930,
+        "worst": 27854
+      },
+      "adapter_overhead_percent": 0.1,
+      "adapter_verdict": "indistinguishable",
+      "overhead_percent": 0.1,
+      "verdict": "indistinguishable",
+      "broker_bound": true
+    },
+    {
+      "name": "Shared subscription, 128 B JSON, ack each",
+      "unit": "msg/s",
+      "messages": 175328,
+      "pairs": 3,
+      "raw": {
+        "best": 27996,
+        "worst": 27926
+      },
+      "adapter": {
+        "best": 27900,
+        "worst": 27792
+      },
+      "framework": {
+        "best": 27954,
+        "worst": 22197
+      },
+      "adapter_overhead_percent": 0.3,
+      "adapter_verdict": "indistinguishable",
+      "overhead_percent": 0.2,
+      "verdict": "indistinguishable",
+      "broker_bound": true
+    }
+  ]
+}

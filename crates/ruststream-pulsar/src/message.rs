@@ -9,7 +9,9 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use pulsar::proto::MessageIdData;
-use ruststream::{AckError, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned};
+use ruststream::{
+    AckError, BytesMut, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned, Str,
+};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::warn;
@@ -181,7 +183,9 @@ impl PulsarMessage {
             headers.insert(kv.key.clone(), kv.value.clone());
         }
         if let Some(key) = &metadata.partition_key {
-            headers.insert(PARTITION_KEY_HEADER, key.clone());
+            // A header key is a shared string: the static form hands the map the constant itself
+            // rather than a copy of it made on every delivery.
+            headers.insert(Str::from_static(PARTITION_KEY_HEADER), key.clone());
         }
         Self {
             payload: Bytes::copy_from_slice(&message.payload.data),
@@ -322,10 +326,10 @@ impl IncomingMessage for PulsarMessage {
 /// leaves unkeyed. Either way the key becomes the message's own `partition_key` rather than a
 /// property, which is how it comes back on delivery.
 pub(crate) fn to_pulsar_message(
-    msg: &OutgoingMessage<'_>,
+    msg: OutgoingMessage<'_, BytesMut>,
     key: Option<&str>,
 ) -> pulsar::producer::Message {
-    let headers = msg.headers();
+    let (_topic, payload, headers) = msg.into_parts();
     let mut properties = HashMap::with_capacity(headers.len());
     let mut partition_key = key.map(ToOwned::to_owned);
     for (name, value) in headers.iter() {
@@ -337,7 +341,9 @@ pub(crate) fn to_pulsar_message(
         }
     }
     pulsar::producer::Message {
-        payload: msg.payload().to_vec(),
+        // The client owns the payload, and the buffer the framework wrote is the vector it
+        // wants: taking it costs nothing where a copy costs the whole body.
+        payload: Vec::from(payload),
         properties,
         partition_key,
         ..Default::default()
@@ -355,7 +361,7 @@ mod tests {
         headers.insert("x-tenant", "acme");
         let outgoing = OutgoingMessage::new("orders", b"{}".as_slice()).with_headers(headers);
 
-        let message = to_pulsar_message(&outgoing, None);
+        let message = to_pulsar_message(outgoing, None);
         assert_eq!(message.partition_key.as_deref(), Some("user-42"));
         assert_eq!(
             message.properties.get("x-tenant").map(String::as_str),
@@ -370,7 +376,7 @@ mod tests {
         headers.insert(PARTITION_KEY_HEADER, "user-7");
         let outgoing = OutgoingMessage::new("orders", b"{}".as_slice()).with_headers(headers);
 
-        let message = to_pulsar_message(&outgoing, Some("user-42"));
+        let message = to_pulsar_message(outgoing, Some("user-42"));
         assert_eq!(message.partition_key.as_deref(), Some("user-42"));
         assert!(!message.properties.contains_key(PARTITION_KEY_HEADER));
     }
@@ -389,11 +395,28 @@ mod tests {
         assert!(message.contains("ack_timeout"), "{message}");
     }
 
+    /// The client's message owns its payload, so the publish hands the buffer the framework
+    /// wrote over rather than copying it. Address equality is the proof: a copy lands elsewhere.
+    #[test]
+    fn the_client_message_takes_the_buffer_the_publish_wrote() {
+        let buffer = BytesMut::from(&b"{\"id\":1}"[..]);
+        let at = buffer.as_ptr();
+        let outgoing = OutgoingMessage::produced("orders", buffer);
+
+        let message = to_pulsar_message(outgoing, None);
+
+        assert_eq!(
+            message.payload.as_ptr(),
+            at,
+            "the payload must be the buffer the publish wrote, not a copy of it",
+        );
+    }
+
     #[test]
     fn a_publish_that_names_no_key_leaves_unkeyed() {
         let outgoing = OutgoingMessage::new("orders", b"{}".as_slice());
 
-        let message = to_pulsar_message(&outgoing, None);
+        let message = to_pulsar_message(outgoing, None);
         assert_eq!(message.partition_key, None);
     }
 }

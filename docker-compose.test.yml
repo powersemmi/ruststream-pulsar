@@ -10,8 +10,14 @@ services:
       # lookup from the host times out.
       PULSAR_PREFIX_advertisedAddress: 127.0.0.1
       PULSAR_PREFIX_advertisedListeners: pulsar://127.0.0.1:6650
-      # Keep the standalone JVM small enough for CI runners.
-      PULSAR_MEM: "-Xms512m -Xmx1g -XX:MaxDirectMemorySize=1g"
+      # Keep the standalone JVM's heap small enough for CI runners. The direct-memory ceiling is a
+      # separate pool: standalone runs the broker and its bookie in one JVM and every message they
+      # buffer, cache or write passes through it, and the allocator exits the process rather than
+      # falling back when it runs out. One gibibyte carries the test suite and nothing longer - the
+      # benchmark exhausted it in a couple of minutes and took the stand down - so the ceiling is
+      # raised here. It is a ceiling and not a reservation: a machine that only runs the tests
+      # commits no more memory than it did before.
+      PULSAR_MEM: "-Xms512m -Xmx1g -XX:MaxDirectMemorySize=4g"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/admin/v2/brokers/health || exit 1"]
       interval: 10s

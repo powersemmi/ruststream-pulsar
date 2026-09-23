@@ -8,8 +8,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use ruststream::testing::{Coordinator, TestableBroker};
 use ruststream::{
-    Broker, BrokerMoves, ConnectedBroker, DeclareRetryError, DefaultPublish, OutgoingMessage,
-    Publisher, RawMessage, RetryDeclaration, Subscribe,
+    Broker, BrokerMoves, BytesMut, ConnectedBroker, DeclareRetryError, DefaultPublish,
+    OutgoingMessage, Publisher, RawMessage, RetryDeclaration, Str, Subscribe, Take,
 };
 
 use crate::error::PulsarError;
@@ -286,6 +286,8 @@ pub struct PulsarTestPublisher {
 }
 
 impl Publisher for PulsarTestPublisher {
+    // The router keeps the payload, as the client the real publisher sends through does.
+    type Payload = Take;
     type Error = PulsarError;
     /// The same settings the real publisher declares, so a handler bound on the options type
     /// compiles against either broker and the steps it names are the ones production runs.
@@ -293,22 +295,22 @@ impl Publisher for PulsarTestPublisher {
 
     fn publish(
         &self,
-        msg: OutgoingMessage<'_>,
+        msg: OutgoingMessage<'_, BytesMut>,
         options: Option<&Self::Options>,
     ) -> impl Future<Output = Result<(), Self::Error>> {
-        let mut headers = msg.headers().clone();
+        // The destination, the payload and the map in one move: the router keeps all three, so
+        // the buffer the framework wrote is frozen rather than copied and the map the publish
+        // filled travels as it is.
+        let (topic, payload, mut headers) = msg.into_parts();
         // Against a server the resolved key is the message's own key, which comes back as this
         // header on delivery; in process the header is both, so a keyed publish reaches a
         // `KeyShared` consumer here the way it does there.
         if let Some(options) = options
             && let Some(key) = options.partition_key.clone()
         {
-            headers.insert(PARTITION_KEY_HEADER, key);
+            headers.insert(Str::from_static(PARTITION_KEY_HEADER), key);
         }
-        ready(
-            self.state
-                .publish(msg.name(), Bytes::copy_from_slice(msg.payload()), headers),
-        )
+        ready(self.state.publish(topic, payload.freeze(), headers))
     }
 }
 
@@ -340,6 +342,35 @@ mod tests {
                 .expect_err("a publish into a shut-down transport must not report success");
             assert!(matches!(err, PulsarError::NotConnected));
         }
+    }
+
+    /// The router keeps the payload, so a publish hands the buffer over rather than copying it:
+    /// the bytes it logged are the ones the publish wrote, at the same address.
+    #[tokio::test]
+    async fn a_publish_hands_the_buffer_to_the_router() {
+        let connected = PulsarTestBroker::new()
+            .connect()
+            .await
+            .expect("the stand-in connects");
+        let buffer = BytesMut::from(&b"{\"id\":1}"[..]);
+        let at = buffer.as_ptr();
+
+        connected
+            .publisher()
+            .publish(OutgoingMessage::produced("orders", buffer), None)
+            .await
+            .expect("the stand-in accepts the publish");
+
+        let logged = connected.published("orders");
+        assert_eq!(
+            logged
+                .first()
+                .expect("the publish reached the log")
+                .payload()
+                .as_ptr(),
+            at,
+            "the log must hold the buffer the publish wrote, not a copy of it",
+        );
     }
 
     #[tokio::test]
