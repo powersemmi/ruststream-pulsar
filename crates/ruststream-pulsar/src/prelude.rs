@@ -43,9 +43,9 @@ pub use ruststream::{Positioned, Seeker};
 pub use crate::PulsarPublish as Publish;
 
 pub use crate::{
-    OperationRetries, Position, PulsarBatchContext, PulsarBroker, PulsarContext, PulsarPosition,
-    PulsarPublishOptions, PulsarPublishSteps, PulsarSeeker, PulsarSubscription, PulsarTopic,
-    SeekHandle, SubscriptionType,
+    DefaultSubscription, OperationRetries, Position, PulsarBatchContext, PulsarBroker,
+    PulsarContext, PulsarPosition, PulsarPublishOptions, PulsarPublishSteps, PulsarSeeker,
+    PulsarSubscription, PulsarTopic, SeekHandle, SubscriptionType,
 };
 
 // `Partitioned` stays out: the core surfaces `partition_key` through `IncomingMessage`'s

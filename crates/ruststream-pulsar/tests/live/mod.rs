@@ -47,7 +47,6 @@ pub(crate) fn test_url() -> Option<String> {
 /// Panics when the stand does not answer.
 pub(crate) async fn connect(url: &str) -> ConnectedPulsarBroker {
     PulsarBroker::new(url)
-        .default_subscription(unique("by-name"))
         .connect()
         .await
         .expect("broker connects")

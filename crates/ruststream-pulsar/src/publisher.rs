@@ -284,12 +284,15 @@ impl PulsarPublish {
     }
 }
 
-impl PublishPolicy<ConnectedPulsarBroker> for PulsarPublish {
+impl<Subscription> PublishPolicy<ConnectedPulsarBroker<Subscription>> for PulsarPublish
+where
+    Subscription: Send + Sync + 'static,
+{
     type Live = PulsarPublisher;
 
     fn pair(
         self,
-        connected: &ConnectedPulsarBroker,
+        connected: &ConnectedPulsarBroker<Subscription>,
     ) -> impl Future<Output = Result<Self::Live, PairError>> {
         ready(Ok(connected.publisher()))
     }
@@ -305,12 +308,16 @@ impl PublishPolicy<ConnectedPulsarBroker> for PulsarPublish {
 /// the two impls is only the live form the policy pairs into, which is the publisher that broker
 /// sends with.
 #[cfg(feature = "testing")]
-impl PublishPolicy<crate::testing::ConnectedPulsarTestBroker> for PulsarPublish {
+impl<Subscription> PublishPolicy<crate::testing::ConnectedPulsarTestBroker<Subscription>>
+    for PulsarPublish
+where
+    Subscription: Send + Sync + 'static,
+{
     type Live = crate::testing::PulsarTestPublisher;
 
     fn pair(
         self,
-        connected: &crate::testing::ConnectedPulsarTestBroker,
+        connected: &crate::testing::ConnectedPulsarTestBroker<Subscription>,
     ) -> impl Future<Output = Result<Self::Live, PairError>> {
         ready(Ok(connected.publisher()))
     }

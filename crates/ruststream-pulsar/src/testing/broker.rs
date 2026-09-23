@@ -12,6 +12,9 @@ use ruststream::{
     OutgoingMessage, Publisher, RawMessage, RetryDeclaration, Str, Subscribe, Take,
 };
 
+use crate::default_subscription::{
+    DefaultSubscription, NamesDefaultSubscription, NoDefaultSubscription,
+};
 use crate::error::PulsarError;
 use crate::message::PARTITION_KEY_HEADER;
 use crate::publisher::PulsarPublishOptions;
@@ -67,6 +70,12 @@ impl TestState {
 
 /// An in-process stand-in for [`PulsarBroker`](crate::PulsarBroker): same core routing, no server.
 ///
+/// It takes the same type parameter as the real broker, so a bare topic name mounts on
+/// `PulsarTestBroker::new().default_subscription(..)` and fails to compile on
+/// `PulsarTestBroker::new()`, as it does in production. The harness finds a broker by its type,
+/// so a test of a service with a default subscription names that form:
+/// `tb.broker::<PulsarTestBroker<DefaultSubscription>>()`.
+///
 /// # Examples
 ///
 /// ```
@@ -75,37 +84,79 @@ impl TestState {
 /// let broker = PulsarTestBroker::new();
 /// # let _ = broker;
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 #[must_use]
-pub struct PulsarTestBroker {
+pub struct PulsarTestBroker<Subscription = NoDefaultSubscription> {
     state: Arc<TestState>,
-    default_subscription: Option<String>,
+    default_subscription: Subscription,
+}
+
+impl Default for PulsarTestBroker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PulsarTestBroker {
     /// Creates an empty in-process broker. Synchronous and I/O-free, like the real `new`.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            state: Arc::default(),
+            default_subscription: NoDefaultSubscription,
+        }
     }
 
-    /// The subscription a subscription by bare topic name joins, as
-    /// [`PulsarBroker::default_subscription`](crate::PulsarBroker::default_subscription) names it
-    /// for the real broker. Without it a by-name subscription is refused here too, with
-    /// [`PulsarError::NoSubscription`].
+    /// Names the subscription a subscription by bare topic name joins, as
+    /// [`PulsarBroker::default_subscription`](crate::PulsarBroker::default_subscription) does for
+    /// the real broker, and changes the stand-in's type the same way.
     ///
     /// # Examples
     ///
     /// ```
+    /// use ruststream_pulsar::DefaultSubscription;
     /// use ruststream_pulsar::testing::PulsarTestBroker;
     ///
-    /// let broker = PulsarTestBroker::new().default_subscription("orders-worker");
+    /// let broker: PulsarTestBroker<DefaultSubscription> =
+    ///     PulsarTestBroker::new().default_subscription("orders-worker");
     /// # let _ = broker;
     /// ```
-    pub fn default_subscription(mut self, subscription: impl Into<String>) -> Self {
-        self.default_subscription = Some(subscription.into());
-        self
+    ///
+    /// A bare topic name on a stand-in that names none does not compile, as in production:
+    ///
+    /// ```compile_fail,E0277
+    /// use ruststream_pulsar::prelude::*;
+    /// use ruststream_pulsar::testing::PulsarTestBroker;
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Deserialize)]
+    /// struct Order {
+    ///     id: u64,
+    /// }
+    ///
+    /// #[subscriber("orders")]
+    /// async fn handle(order: &Order) -> HandlerOutcome {
+    ///     let _ = order.id;
+    ///     HandlerOutcome::ack()
+    /// }
+    ///
+    /// let app = RustStream::new(AppInfo::new("orders", "0.1.0"))
+    ///     .with_broker(PulsarTestBroker::new(), |b| {
+    ///         b.include(handle);
+    ///     });
+    /// # let _ = app;
+    /// ```
+    pub fn default_subscription(
+        self,
+        subscription: impl Into<String>,
+    ) -> PulsarTestBroker<DefaultSubscription> {
+        PulsarTestBroker {
+            state: self.state,
+            default_subscription: DefaultSubscription::new(subscription),
+        }
     }
+}
 
+impl<Subscription> PulsarTestBroker<Subscription> {
     /// A publisher usable before `connect`, mirroring the real broker's early-publisher path.
     #[must_use]
     pub fn publisher(&self) -> PulsarTestPublisher {
@@ -115,9 +166,12 @@ impl PulsarTestBroker {
     }
 }
 
-impl Broker for PulsarTestBroker {
+impl<Subscription> Broker for PulsarTestBroker<Subscription>
+where
+    Subscription: Send + Sync + 'static,
+{
     type Error = PulsarError;
-    type Connected = ConnectedPulsarTestBroker;
+    type Connected = ConnectedPulsarTestBroker<Subscription>;
 
     fn connect(self) -> impl Future<Output = Result<Self::Connected, Self::Error>> {
         ready(Ok(ConnectedPulsarTestBroker {
@@ -131,12 +185,12 @@ impl Broker for PulsarTestBroker {
 /// [`TestableBroker`](ruststream::testing::TestableBroker) for the harness and the conformance
 /// suite.
 #[derive(Debug, Clone)]
-pub struct ConnectedPulsarTestBroker {
+pub struct ConnectedPulsarTestBroker<Subscription = NoDefaultSubscription> {
     state: Arc<TestState>,
-    default_subscription: Option<String>,
+    default_subscription: Subscription,
 }
 
-impl ConnectedPulsarTestBroker {
+impl<Subscription> ConnectedPulsarTestBroker<Subscription> {
     /// A publisher from the connected form.
     #[must_use]
     pub fn publisher(&self) -> PulsarTestPublisher {
@@ -239,7 +293,10 @@ impl ConnectedPulsarTestBroker {
     }
 }
 
-impl ConnectedBroker for ConnectedPulsarTestBroker {
+impl<Subscription> ConnectedBroker for ConnectedPulsarTestBroker<Subscription>
+where
+    Subscription: Send + Sync + 'static,
+{
     type Error = PulsarError;
     type Closed = ();
 
@@ -250,7 +307,10 @@ impl ConnectedBroker for ConnectedPulsarTestBroker {
     }
 }
 
-impl Subscribe for ConnectedPulsarTestBroker {
+impl<Subscription> Subscribe for ConnectedPulsarTestBroker<Subscription>
+where
+    Subscription: NamesDefaultSubscription<PulsarTestBroker<Subscription>> + Send + Sync + 'static,
+{
     type Subscriber = PulsarTestSubscriber;
     /// The same answer the real broker gives, so a mount site that compiles against one compiles
     /// against the other.
@@ -259,12 +319,13 @@ impl Subscribe for ConnectedPulsarTestBroker {
     fn subscribe(&self, name: &str) -> impl Future<Output = Result<Self::Subscriber, Self::Error>> {
         // The same descriptor the real broker builds for a bare name, so two handlers mounted on
         // one topic compete on the default subscription here as they do there, under the policy
-        // the registration declared, and a broker that names none refuses here as it does there.
+        // the registration declared.
         ready(
-            self.state
-                .declared_retries
-                .subscription(name, self.default_subscription.as_deref())
-                .and_then(|descriptor| self.open(descriptor)),
+            self.open(
+                self.state
+                    .declared_retries
+                    .subscription(name, self.default_subscription.subscription()),
+            ),
         )
     }
 
@@ -279,7 +340,10 @@ impl Subscribe for ConnectedPulsarTestBroker {
     }
 }
 
-impl TestableBroker for ConnectedPulsarTestBroker {
+impl<Subscription> TestableBroker for ConnectedPulsarTestBroker<Subscription>
+where
+    Subscription: Send + Sync + 'static,
+{
     fn install_coordinator(&self, coordinator: Coordinator) {
         let _ = self.state.coordinator.set(coordinator);
     }
@@ -300,7 +364,9 @@ impl TestableBroker for ConnectedPulsarTestBroker {
     }
 }
 
-ruststream::register_testable_broker!(ConnectedPulsarTestBroker);
+// The harness finds a stand by its concrete type, so each form registers.
+ruststream::register_testable_broker!(ConnectedPulsarTestBroker<NoDefaultSubscription>);
+ruststream::register_testable_broker!(ConnectedPulsarTestBroker<DefaultSubscription>);
 
 /// Publisher for the in-process broker.
 ///
@@ -345,7 +411,10 @@ impl Publisher for PulsarTestPublisher {
 /// The stand-in's default is the crate's own [`PulsarPublish`](crate::PulsarPublish), which
 /// pairs against this broker too, so a handler replying through the broker default replies
 /// through the same declaration it will in production.
-impl DefaultPublish for ConnectedPulsarTestBroker {
+impl<Subscription> DefaultPublish for ConnectedPulsarTestBroker<Subscription>
+where
+    Subscription: Send + Sync + 'static,
+{
     type Policy = crate::PulsarPublish;
 }
 
@@ -421,29 +490,5 @@ mod tests {
             .await
             .expect_err("a subscription on a shut-down transport must not open");
         assert!(matches!(by_descriptor, PulsarError::NotConnected));
-    }
-
-    /// A bare topic names no subscription, and the stand-in refuses one the way the real broker
-    /// does, so a service that forgot the default hears about it from its own test run.
-    #[tokio::test]
-    async fn a_bare_topic_without_a_default_subscription_is_refused() {
-        let connected = PulsarTestBroker::new()
-            .connect()
-            .await
-            .expect("the stand-in connects");
-
-        let refused = Subscribe::subscribe(&connected, "orders")
-            .await
-            .expect_err("a bare topic without a default subscription must not open");
-        assert!(
-            matches!(&refused, PulsarError::NoSubscription { topic } if topic == "orders"),
-            "{refused:?}"
-        );
-        let advice = refused.to_string();
-        assert!(
-            advice.contains("PulsarBroker::default_subscription"),
-            "{advice}"
-        );
-        assert!(advice.contains("PulsarSubscription::new"), "{advice}");
     }
 }

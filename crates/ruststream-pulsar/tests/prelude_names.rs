@@ -84,7 +84,7 @@ async fn issue_receipt(order: &Order) -> Receipt {
 #[test]
 fn the_policy_binds_the_reply_position() {
     let _app = RustStream::new(AppInfo::new("prelude", "0.1.0")).with_broker(
-        PulsarBroker::new("pulsar://localhost:6650"),
+        PulsarBroker::new("pulsar://localhost:6650").default_subscription("workers"),
         |b| {
             b.include(confirm).out_reply(Publish);
             b.include(issue_receipt).out_reply(Publish);
@@ -105,17 +105,17 @@ async fn a_reply_lands_on_the_topic_its_type_declares() {
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
         .message(&Order { id: 7 })
         .to("receipt-requests")
         .publish()
         .await
         .expect("publish");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
         .subscriber("receipt-requests")
         .assert_called_once();
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
         .published::<Receipt>("receipts")
         .assert_called_once()
         .with(&Receipt {
@@ -136,17 +136,17 @@ async fn a_reply_lands_on_the_topic_the_mount_site_names() {
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
         .message(&Order { id: 7 })
         .to("orders")
         .publish()
         .await
         .expect("publish");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
         .subscriber("orders")
         .assert_called_once();
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarTestBroker<DefaultSubscription>>()
         .published::<Confirmation>("confirmations")
         .assert_called_once()
         .with(&Confirmation {

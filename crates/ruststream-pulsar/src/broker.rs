@@ -18,6 +18,9 @@ use ruststream::{
 };
 use tokio::sync::{Mutex, OnceCell};
 
+use crate::default_subscription::{
+    DefaultSubscription, NamesDefaultSubscription, NoDefaultSubscription,
+};
 use crate::error::{PulsarError, box_err};
 use crate::publisher::{PulsarProducer, PulsarPublish, PulsarPublisher};
 use crate::subscriber::PulsarSubscriber;
@@ -122,8 +125,6 @@ pub(crate) struct Core {
     pub(crate) closed: AtomicBool,
     /// Per-topic producers, shared by every publisher handle so shutdown can close them.
     pub(crate) producers: Mutex<HashMap<String, Arc<Mutex<PulsarProducer>>>>,
-    /// The subscription a bare topic name joins; see [`PulsarBroker::default_subscription`].
-    default_subscription: Option<String>,
     /// What registrations mounted by a bare topic name declared about their retries.
     pub(crate) declared_retries: DeclaredRetries,
 }
@@ -153,6 +154,11 @@ pub(crate) type CoreCell = Arc<OnceCell<Arc<Core>>>;
 /// the consuming [`Broker::connect`]. That is what lets a service compose with the synchronous
 /// `#[ruststream::app]` builder.
 ///
+/// The type parameter says whether the broker names the subscription a bare topic name joins
+/// (see [`default_subscription`](Self::default_subscription)). It defaults to
+/// [`NoDefaultSubscription`], so a service that mounts only [`PulsarSubscription`] descriptors
+/// never writes it.
+///
 /// # Examples
 ///
 /// ```
@@ -164,14 +170,14 @@ pub(crate) type CoreCell = Arc<OnceCell<Arc<Core>>>;
 /// ```
 #[derive(Debug, Clone)]
 #[must_use]
-pub struct PulsarBroker {
+pub struct PulsarBroker<Subscription = NoDefaultSubscription> {
     url: String,
     token: Option<String>,
-    default_subscription: Option<String>,
     // None leaves the client's own retry behaviour in place, which is unbounded.
     retries: Option<OperationRetries>,
     // Shared with publishers handed out before connect; the consuming connect fills it.
     cell: CoreCell,
+    default_subscription: Subscription,
 }
 
 impl PulsarBroker {
@@ -180,26 +186,23 @@ impl PulsarBroker {
         Self {
             url: url.into(),
             token: None,
-            default_subscription: None,
             retries: None,
             cell: Arc::new(OnceCell::new()),
+            default_subscription: NoDefaultSubscription,
         }
     }
 
-    /// Authenticates with a JWT token.
-    pub fn token(mut self, token: impl Into<String>) -> Self {
-        self.token = Some(token.into());
-        self
-    }
-
-    /// The durable subscription a subscription by bare topic name joins.
+    /// Names the durable subscription a subscription by bare topic name joins.
     ///
     /// `#[subscriber("orders")]` names a topic and no subscription, and Pulsar has no anonymous
     /// consumer, so the name comes from here. A subscription name is the cursor on the server:
     /// every consumer under it shares one backlog, the handlers of this service and those of any
     /// other service that names the same one. Name it after the service that owns the cursor.
-    /// Without it, a by-name subscription fails at startup with
-    /// [`PulsarError::NoSubscription`]; a [`PulsarSubscription`] names its own and needs none.
+    ///
+    /// The broker returned carries the name in its type, and only that type opens a bare topic
+    /// name: mounting `#[subscriber("orders")]` on a broker without it is a compile error that
+    /// names this method. A [`PulsarSubscription`] names its own subscription and mounts on
+    /// either form.
     ///
     /// # Examples
     ///
@@ -210,8 +213,52 @@ impl PulsarBroker {
     ///     PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-worker");
     /// # let _ = broker;
     /// ```
-    pub fn default_subscription(mut self, subscription: impl Into<String>) -> Self {
-        self.default_subscription = Some(subscription.into());
+    ///
+    /// A bare topic name on a broker that names none does not compile:
+    ///
+    /// ```compile_fail,E0277
+    /// use ruststream_pulsar::prelude::*;
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Deserialize)]
+    /// struct Order {
+    ///     id: u64,
+    /// }
+    ///
+    /// #[subscriber("orders")]
+    /// async fn handle(order: &Order) -> HandlerOutcome {
+    ///     let _ = order.id;
+    ///     HandlerOutcome::ack()
+    /// }
+    ///
+    /// #[ruststream::app]
+    /// fn app() -> impl App {
+    ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+    ///         PulsarBroker::new("pulsar://localhost:6650"),
+    ///         |b| {
+    ///             b.include(handle);
+    ///         },
+    ///     )
+    /// }
+    /// ```
+    pub fn default_subscription(
+        self,
+        subscription: impl Into<String>,
+    ) -> PulsarBroker<DefaultSubscription> {
+        PulsarBroker {
+            url: self.url,
+            token: self.token,
+            retries: self.retries,
+            cell: self.cell,
+            default_subscription: DefaultSubscription::new(subscription),
+        }
+    }
+}
+
+impl<Subscription> PulsarBroker<Subscription> {
+    /// Authenticates with a JWT token.
+    pub fn token(mut self, token: impl Into<String>) -> Self {
+        self.token = Some(token.into());
         self
     }
 
@@ -251,9 +298,12 @@ impl PulsarBroker {
     }
 }
 
-impl Broker for PulsarBroker {
+impl<Subscription> Broker for PulsarBroker<Subscription>
+where
+    Subscription: Send + Sync + 'static,
+{
     type Error = PulsarError;
-    type Connected = ConnectedPulsarBroker;
+    type Connected = ConnectedPulsarBroker<Subscription>;
 
     async fn connect(self) -> Result<Self::Connected, Self::Error> {
         let core = self
@@ -277,7 +327,6 @@ impl Broker for PulsarBroker {
                     client,
                     closed: AtomicBool::new(false),
                     producers: Mutex::new(HashMap::new()),
-                    default_subscription: self.default_subscription.clone(),
                     declared_retries: DeclaredRetries::default(),
                 }))
             })
@@ -286,6 +335,7 @@ impl Broker for PulsarBroker {
         Ok(ConnectedPulsarBroker {
             core,
             cell: self.cell,
+            default_subscription: self.default_subscription,
         })
     }
 }
@@ -294,21 +344,32 @@ impl Broker for PulsarBroker {
 /// document is published and shared, so a `user:password@` in the service URL must not reach it.
 /// `ServerSpec::from_url` is the framework's own reduction, so every broker crate drops the
 /// userinfo the same way.
-impl DescribeServer for PulsarBroker {
+impl<Subscription> DescribeServer for PulsarBroker<Subscription>
+where
+    Subscription: Send + Sync + 'static,
+{
     fn describe_server(&self) -> ServerSpec {
         ServerSpec::from_url(&self.url, "pulsar")
     }
 }
 
 /// The typed witness that `connect` succeeded: holds the live client directly.
+///
+/// It carries the [`PulsarBroker`]'s type parameter, so the connected form of a broker that
+/// named a [default subscription](PulsarBroker::default_subscription) is the one that opens a
+/// bare topic name.
 #[derive(Debug)]
-pub struct ConnectedPulsarBroker {
+pub struct ConnectedPulsarBroker<Subscription = NoDefaultSubscription> {
     pub(crate) core: Arc<Core>,
     // Keeps the cell of publishers handed out before connect alive and filled.
     cell: CoreCell,
+    default_subscription: Subscription,
 }
 
-impl ConnectedPulsarBroker {
+impl<Subscription> ConnectedPulsarBroker<Subscription>
+where
+    Subscription: Send + Sync + 'static,
+{
     /// A publisher from the connected form. It rides the same cell-backed publisher type as
     /// the early path; by now `connect` has filled the cell, so it resolves immediately.
     #[must_use]
@@ -332,7 +393,10 @@ impl ConnectedPulsarBroker {
     }
 }
 
-impl ConnectedBroker for ConnectedPulsarBroker {
+impl<Subscription> ConnectedBroker for ConnectedPulsarBroker<Subscription>
+where
+    Subscription: Send + Sync + 'static,
+{
     type Error = PulsarError;
     type Closed = ();
 
@@ -354,21 +418,26 @@ impl ConnectedBroker for ConnectedPulsarBroker {
     }
 }
 
-impl Subscribe for ConnectedPulsarBroker {
+/// A bare topic name opens only on a broker that named its
+/// [default subscription](PulsarBroker::default_subscription): the bound on the type parameter is
+/// what turns a missing one into a compile error at the mount.
+impl<Subscription> Subscribe for ConnectedPulsarBroker<Subscription>
+where
+    Subscription: NamesDefaultSubscription<PulsarBroker<Subscription>> + Send + Sync + 'static,
+{
     type Subscriber = PulsarSubscriber;
     /// A bare name opens the same consumer a descriptor does, so a spent delivery moves at the
     /// client here too, under the policy the registration declared.
     type Copies = BrokerMoves;
 
-    /// A bare name joins the broker's [default subscription](PulsarBroker::default_subscription),
-    /// so the handlers mounted by name compete on one durable cursor. A broker that names none
-    /// refuses with [`PulsarError::NoSubscription`].
+    /// A bare name joins the broker's default subscription, so the handlers mounted by name
+    /// compete on one durable cursor.
     async fn subscribe(&self, name: &str) -> Result<Self::Subscriber, Self::Error> {
         // The stand-in builds the same descriptor, so the two cannot drift apart.
         let descriptor = self
             .core
             .declared_retries
-            .subscription(name, self.core.default_subscription.as_deref())?;
+            .subscription(name, self.default_subscription.subscription());
         self.subscribe_descriptor(descriptor).await
     }
 
@@ -383,7 +452,10 @@ impl Subscribe for ConnectedPulsarBroker {
     }
 }
 
-impl DefaultPublish for ConnectedPulsarBroker {
+impl<Subscription> DefaultPublish for ConnectedPulsarBroker<Subscription>
+where
+    Subscription: Send + Sync + 'static,
+{
     type Policy = PulsarPublish;
 }
 

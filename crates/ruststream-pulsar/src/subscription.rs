@@ -419,24 +419,11 @@ impl DeclaredRetries {
         Ok(())
     }
 
-    /// The descriptor a bare `topic` opens: the broker's default subscription over it, carrying
-    /// what was declared for it.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`PulsarError::NoSubscription`] when the broker names no default subscription.
-    /// Pulsar has no anonymous consumer, and a subscription name is the durable cursor every
-    /// consumer under it shares, so the crate does not pick one on the service's behalf.
-    pub(crate) fn subscription(
-        &self,
-        topic: &str,
-        default_subscription: Option<&str>,
-    ) -> Result<PulsarSubscription, PulsarError> {
-        let subscription = default_subscription.ok_or_else(|| PulsarError::NoSubscription {
-            topic: topic.to_owned(),
-        })?;
+    /// The descriptor a bare `topic` opens: the broker's default `subscription` over it,
+    /// carrying what was declared for it.
+    pub(crate) fn subscription(&self, topic: &str, subscription: &str) -> PulsarSubscription {
         let declared = self.lock().get(topic).cloned().unwrap_or_default();
-        Ok(PulsarSubscription::new(topic, subscription).declaring(&declared))
+        PulsarSubscription::new(topic, subscription).declaring(&declared)
     }
 
     /// Nothing here panics while the map is held, so the lock cannot have been poisoned.
@@ -452,7 +439,10 @@ impl DeclaredRetries {
 /// Nothing is republished from the service, on any of the three addressing forms, so
 /// `out_retry(..)` over this descriptor is a compile error and the registration's declaration
 /// reaches the consumer instead.
-impl SubscriptionSource<ConnectedPulsarBroker> for PulsarSubscription {
+impl<Subscription> SubscriptionSource<ConnectedPulsarBroker<Subscription>> for PulsarSubscription
+where
+    Subscription: Send + Sync + 'static,
+{
     type Subscriber = PulsarSubscriber;
     type Copies = BrokerMoves;
 
@@ -462,7 +452,7 @@ impl SubscriptionSource<ConnectedPulsarBroker> for PulsarSubscription {
 
     async fn subscribe(
         self,
-        connected: &ConnectedPulsarBroker,
+        connected: &ConnectedPulsarBroker<Subscription>,
     ) -> Result<PulsarSubscriber, PulsarError> {
         connected.subscribe_descriptor(self).await
     }
@@ -501,7 +491,11 @@ impl SubscriptionSource<ConnectedPulsarBroker> for PulsarSubscription {
 /// does. What is left to the server - the ack timeout and redelivery timing - the
 /// [`testing` module docs](crate::testing) name.
 #[cfg(feature = "testing")]
-impl SubscriptionSource<crate::testing::ConnectedPulsarTestBroker> for PulsarSubscription {
+impl<Subscription> SubscriptionSource<crate::testing::ConnectedPulsarTestBroker<Subscription>>
+    for PulsarSubscription
+where
+    Subscription: Send + Sync + 'static,
+{
     type Subscriber = crate::testing::PulsarTestSubscriber;
     type Copies = BrokerMoves;
 
@@ -511,7 +505,7 @@ impl SubscriptionSource<crate::testing::ConnectedPulsarTestBroker> for PulsarSub
 
     async fn subscribe(
         self,
-        connected: &crate::testing::ConnectedPulsarTestBroker,
+        connected: &crate::testing::ConnectedPulsarTestBroker<Subscription>,
     ) -> Result<Self::Subscriber, PulsarError> {
         connected.subscribe_descriptor(self).await
     }

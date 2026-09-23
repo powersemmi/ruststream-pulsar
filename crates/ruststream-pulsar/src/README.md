@@ -121,9 +121,11 @@ let broker = PulsarBroker::new("pulsar://localhost:6650").default_subscription("
 ```
 
 Every handler mounted by name joins that one durable cursor, so two instances of a service are
-competing consumers rather than two independent readers. A broker that sets no default refuses a
-bare name at startup with [`PulsarError::NoSubscription`](PulsarError), which names both fixes.
-The retry declaration reaches that consumer too; every other setting above needs a descriptor.
+competing consumers rather than two independent readers. The name is part of the broker's type:
+`default_subscription` returns a `PulsarBroker<DefaultSubscription>`, and only that form opens a
+bare name, so mounting one on a broker that names none is a compile error naming both fixes. A
+service that mounts descriptors alone never writes the type parameter. The retry declaration
+reaches that consumer too; every other setting above needs a descriptor.
 
 Subscribing validates first: an empty subscription name, an empty topic list, a malformed topic
 name and a pattern that is not a regular expression each return
@@ -544,6 +546,11 @@ pub async fn an_order_reaches_its_handler() {
 # }
 # fn main() {}
 ```
+
+The stand-in takes the same [`default_subscription`](testing::PulsarTestBroker::default_subscription)
+as the real broker, and a bare name mounts on it under the same rule. The harness finds a broker by
+its type, so a test of a service with a default subscription names that form:
+`tb.broker::<PulsarTestBroker<DefaultSubscription>>()`.
 
 The harness itself is the framework's, and
 <https://docs.rs/ruststream/latest/ruststream/testing/index.html> documents it.
