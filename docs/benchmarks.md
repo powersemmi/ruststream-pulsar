@@ -15,9 +15,9 @@ this page publishes what it produced here.
 
 ## The numbers
 
-The best of three interleaved rounds, with the slowest round in parentheses. Higher is better.
+The best of three interleaved rounds, with the median round in parentheses. Higher is better.
 
-<div id="benchmark-results" data-benchmark-labels='{"loading": "Loading the published results...", "scenario": "Scenario", "raw": "Raw client", "adapter": "This crate", "framework": "Full service", "adapterOverhead": "Crate overhead", "overhead": "Service overhead", "indistinguishable": "indistinguishable", "brokerBound": "broker-bound", "machine": "Machine", "os": "OS", "broker": "Broker", "build": "Build", "versions": "Versions", "measured": "Measured", "unavailable": "No results could be read. They are published at {url}.", "unknownSchema": "The published results declare schema {schema}, which this page does not render."}'></div>
+<div id="benchmark-results" data-benchmark-labels='{"loading": "Loading the published results...", "scenario": "Scenario", "raw": "Raw client", "adapter": "This crate", "framework": "Full service", "adapterOverhead": "Crate overhead", "overhead": "Service overhead", "indistinguishable": "indistinguishable", "brokerBound": "broker-bound", "machine": "Machine", "os": "OS", "broker": "Broker", "build": "Build", "versions": "Versions", "measured": "Measured", "instructions": "Instructions per message", "allocations": "Allocations per message", "cold": "Cold start (instructions / allocations)", "unavailable": "No results could be read. They are published at {url}.", "unknownSchema": "The published results declare schema {schema}, which this page does not render."}'></div>
 
 The table is read in your browser from the document the last run wrote, so nothing on this page is
 a copy that could have gone stale.
@@ -47,6 +47,39 @@ The probe's result is published with the machine below, so the check can be repe
 The machine-readable form of the same run, which the framework's site reads to build its
 cross-broker table, is at
 [`benchmarks/results.json`](https://powersemmi.github.io/ruststream-pulsar/latest/benchmarks/results.json).
+
+## The crate's own code
+
+<div id="benchmark-code"></div>
+
+The second table is this crate's own cost per message, counted rather than timed: instructions
+under callgrind and allocations under DHAT. Each scenario is the service a user writes, on
+`PulsarBroker` against the same stand as the comparison: a shared subscription, the crate's
+default, over a persistent topic, which keeps what is published to it until the service takes it.
+The messages are published from a thread of their own before the count starts, and by then the
+broker has stored every one of them. The batch scenario raises the batch wait so that every batch
+fills: with the default of ten milliseconds, how full a batch gets under valgrind would depend on
+the machine rather than on the code.
+
+What is counted is everything on the service's thread while it starts and while it drains the
+topic: the framework's dispatch, this crate's code, and the work of the `pulsar` client on that
+thread, whose connection and consumer run on the service's runtime. Threads the client runs on its
+own are not counted, and neither is the broker. Waiting on the socket costs no instructions. Most
+of each figure is the client's: of the nineteen allocations a delivery costs, four are this
+crate's.
+
+Instructions and allocations are per message in the steady state: the slope between a run of 1000
+deliveries and a run of 2000. The last column is what connecting, subscribing and taking the first
+delivery cost once. The numbers are absolute, the framework's own cost included; the core publishes
+that cost alone on its [benchmarks page](https://powersemmi.github.io/ruststream/latest/benchmarks/).
+
+A socket is in the loop, so a count moves a little with timing. Over five runs of one binary the
+per-message figures stayed within 0.03 percent in instructions, an allocation count moved by at
+most two blocks over a whole run, and the cold start moved by up to 0.5 percent. Each allocation
+floor is the highest count seen, and the limit sits a tenth of a percent above it, well short of
+one more allocation per message. `just bench-code` fails when a scenario allocates above that
+limit, and with `--baseline=main` on more than two percent more instructions, and a pull request
+that changes the cost cites its numbers.
 
 ## The machine
 
@@ -81,8 +114,16 @@ just bench
 ```
 
 The recipe starts the stand from `docker-compose.test.yml`, runs both scenarios, stops the stand
-and rewrites `docs/benchmarks/results.json` with what it measured. It takes about a quarter of an
-hour and wants the machine to itself. The message count is not fixed: a probe run sets it so that
+and rewrites `docs/benchmarks/results.json` with what it measured. It takes a few minutes and
+wants the machine to itself. The message count is not fixed: a probe run sets it so that
 every measured run lasts at least five seconds on whatever machine it is taken on. Every run owns a
 fresh topic and drops it when it is done, so a long session does not leave the stand carrying its
 history.
+
+```bash
+just bench-code
+```
+
+The recipe starts the same stand, counts the code table under valgrind, stops the stand and
+rewrites the `code` section of the same document. It takes about four minutes. It needs valgrind
+and the benchmark runner: `cargo install --locked gungraun-runner --version =0.19.4`.
