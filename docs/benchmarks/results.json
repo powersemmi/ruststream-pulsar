@@ -3,7 +3,7 @@
   "crate": "ruststream-pulsar",
   "crate_version": "0.7.0",
   "core_version": "0.7.0-rc.9",
-  "measured_at": "2026-09-21",
+  "measured_at": "2026-09-23",
   "environment": {
     "cpu": "AMD Ryzen 9 7900X 12-Core Processor",
     "architecture": "x86_64",
@@ -13,58 +13,106 @@
     "memory_speed": "unknown",
     "os": "Linux 7.2.6-x64v3-xanmod1-1",
     "broker": "apachepulsar/pulsar:4.1.2 in Docker on localhost",
-    "round_trip": "0.044 ms round trip",
+    "round_trip": "0.047 ms round trip",
     "rustc": "1.98.1",
     "profile": "bench, inheriting release (opt-level = 3, lto = false, codegen-units = 16)",
     "features": "ruststream-pulsar default (none), ruststream macros,json",
-    "rustflags": "none (the recipe clears RUSTFLAGS, so the numbers are not tied to this CPU)"
+    "rustflags": "none (the recipe clears RUSTFLAGS, so the numbers are not tied to this CPU)",
+    "valgrind": "3.25.1"
   },
   "scenarios": [
     {
       "name": "Exclusive subscription, 128 B JSON, ack each",
       "unit": "msg/s",
-      "messages": 165935,
+      "messages": 167273,
       "pairs": 3,
       "raw": {
-        "best": 27957,
-        "worst": 27882
+        "best": 27631,
+        "median": 27620,
+        "worst": 27511
       },
       "adapter": {
-        "best": 27926,
-        "worst": 21823
+        "best": 27672,
+        "median": 27633,
+        "worst": 27465
       },
       "framework": {
-        "best": 27930,
-        "worst": 27854
+        "best": 27685,
+        "median": 27677,
+        "worst": 26522
       },
-      "adapter_overhead_percent": 0.1,
+      "adapter_overhead_percent": -0.1,
       "adapter_verdict": "indistinguishable",
-      "overhead_percent": 0.1,
+      "overhead_percent": -0.2,
       "verdict": "indistinguishable",
       "broker_bound": true
     },
     {
       "name": "Shared subscription, 128 B JSON, ack each",
       "unit": "msg/s",
-      "messages": 175328,
+      "messages": 171673,
       "pairs": 3,
       "raw": {
-        "best": 27996,
-        "worst": 27926
+        "best": 27754,
+        "median": 27744,
+        "worst": 27735
       },
       "adapter": {
-        "best": 27900,
-        "worst": 27792
+        "best": 27776,
+        "median": 27662,
+        "worst": 27659
       },
       "framework": {
-        "best": 27954,
-        "worst": 22197
+        "best": 27674,
+        "median": 27660,
+        "worst": 27654
       },
-      "adapter_overhead_percent": 0.3,
+      "adapter_overhead_percent": -0.1,
       "adapter_verdict": "indistinguishable",
-      "overhead_percent": 0.2,
-      "verdict": "indistinguishable",
+      "overhead_percent": 0.3,
+      "verdict": "measured",
       "broker_bound": true
+    }
+  ],
+  "code": [
+    {
+      "name": "shared subscription, JSON decode into a small struct, ack each",
+      "messages": 1000,
+      "framework": {
+        "instructions": 63539.6,
+        "allocations": 18.9
+      },
+      "cold": {
+        "instructions": 675921,
+        "allocations": 273
+      },
+      "gated": true
+    },
+    {
+      "name": "reply through this crate's publisher, broker receipt awaited",
+      "messages": 1000,
+      "framework": {
+        "instructions": 129865.9,
+        "allocations": 38.0
+      },
+      "cold": {
+        "instructions": 691824,
+        "allocations": 288
+      },
+      "gated": true
+    },
+    {
+      "name": "shared subscription in batches of 64, assembled on the client",
+      "messages": 1000,
+      "framework": {
+        "instructions": 63945.5,
+        "allocations": 18.2
+      },
+      "cold": {
+        "instructions": 689216,
+        "allocations": 277
+      },
+      "gated": true
     }
   ]
 }
