@@ -5,7 +5,6 @@
 mod bindings;
 mod broker;
 mod context;
-mod default_subscription;
 mod error;
 mod message;
 pub mod prelude;
@@ -18,9 +17,6 @@ mod topic;
 
 pub use broker::{ConnectedPulsarBroker, OperationRetries, PulsarBroker};
 pub use context::{Position, PulsarBatchContext, PulsarContext, SeekHandle};
-pub use default_subscription::{
-    DefaultSubscription, NamesDefaultSubscription, NoDefaultSubscription,
-};
 pub use error::PulsarError;
 pub use message::{PARTITION_KEY_HEADER, PulsarMessage, PulsarPosition};
 pub use publisher::{PulsarPublish, PulsarPublishOptions, PulsarPublishSteps, PulsarPublisher};

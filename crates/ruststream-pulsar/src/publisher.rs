@@ -284,15 +284,12 @@ impl PulsarPublish {
     }
 }
 
-impl<Subscription> PublishPolicy<ConnectedPulsarBroker<Subscription>> for PulsarPublish
-where
-    Subscription: Send + Sync + 'static,
-{
+impl PublishPolicy<ConnectedPulsarBroker> for PulsarPublish {
     type Live = PulsarPublisher;
 
     fn pair(
         self,
-        connected: &ConnectedPulsarBroker<Subscription>,
+        connected: &ConnectedPulsarBroker,
     ) -> impl Future<Output = Result<Self::Live, PairError>> {
         ready(Ok(connected.publisher()))
     }

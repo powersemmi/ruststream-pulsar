@@ -439,10 +439,7 @@ impl DeclaredRetries {
 /// Nothing is republished from the service, on any of the three addressing forms, so
 /// `out_retry(..)` over this descriptor is a compile error and the registration's declaration
 /// reaches the consumer instead.
-impl<Subscription> SubscriptionSource<ConnectedPulsarBroker<Subscription>> for PulsarSubscription
-where
-    Subscription: Send + Sync + 'static,
-{
+impl SubscriptionSource<ConnectedPulsarBroker> for PulsarSubscription {
     type Subscriber = PulsarSubscriber;
     type Copies = BrokerMoves;
 
@@ -452,7 +449,7 @@ where
 
     async fn subscribe(
         self,
-        connected: &ConnectedPulsarBroker<Subscription>,
+        connected: &ConnectedPulsarBroker,
     ) -> Result<PulsarSubscriber, PulsarError> {
         connected.subscribe_descriptor(self).await
     }

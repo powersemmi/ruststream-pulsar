@@ -43,6 +43,11 @@
 //! production, and a `nack(requeue = true)` goes back to the subscription, so a retry can land on
 //! a sibling.
 //!
+//! [`PulsarTestBroker::default_subscription`] mirrors the real broker's, refusal included: a bare
+//! `#[subscriber("orders")]` joins it, and without it the subscription is refused with
+//! [`PulsarError::Invalid`](crate::PulsarError::Invalid) naming the setting, as it is against a
+//! server.
+//!
 //! Where that stops short of a server, and why:
 //!
 //! * `KeyShared` assigns by the key's hash modulo the consumer count, not by Pulsar's hash
@@ -53,10 +58,6 @@
 //! * [`ack_timeout`](crate::PulsarSubscription::ack_timeout) bounds a delayed retry here as it
 //!   does against a server, but it redelivers nothing on its own: credit and the server's own
 //!   redelivery timers are its clock, not the transport's.
-//! * A bare topic name joins [`PulsarTestBroker::default_subscription`], which mirrors the real
-//!   broker's. Without one the harness refuses to start, naming the setting; the real broker's
-//!   mount does not compile. The harness finds a broker by the type of its connected form, so the
-//!   stand-in keeps one type and checks when it subscribes.
 //! * A second consumer of an [`Exclusive`](crate::SubscriptionType::Exclusive) subscription is
 //!   refused here. A server answers that the subscription is busy and the client waits for the
 //!   holder to leave, so a service that mounts one twice fails its test here and does not start

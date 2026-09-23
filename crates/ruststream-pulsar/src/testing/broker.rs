@@ -92,8 +92,8 @@ impl PulsarTestBroker {
     /// [`PulsarBroker::default_subscription`](crate::PulsarBroker::default_subscription).
     ///
     /// Set it when the service under test sets one: a bare topic name without it is refused when
-    /// the harness starts, with [`PulsarError::Invalid`] naming this method. The real broker
-    /// refuses the same mount at compile time.
+    /// it subscribes, with [`PulsarError::Invalid`] naming this method, as the real broker
+    /// refuses it.
     ///
     /// # Examples
     ///
@@ -252,12 +252,6 @@ impl ConnectedBroker for ConnectedPulsarTestBroker {
     }
 }
 
-/// Why the stand-in checks at run time what the real broker checks at compile time: the harness
-/// finds a broker by the type of its connected form, and the framework's mount bound for a bare
-/// name is that same connected type implementing `Subscribe`. A stand-in whose type carried the
-/// default subscription would compile-check the mount, but `tb.broker::<PulsarTestBroker>()` would
-/// then miss the stand-in of every service that sets one. The stand-in keeps one type, and the
-/// production mount keeps the compile-time check.
 impl Subscribe for ConnectedPulsarTestBroker {
     type Subscriber = PulsarTestSubscriber;
     /// The same answer the real broker gives, so a mount site that compiles against one compiles

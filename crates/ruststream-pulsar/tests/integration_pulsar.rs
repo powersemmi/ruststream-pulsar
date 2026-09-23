@@ -528,12 +528,29 @@ async fn a_declaration_over_a_bare_name_routes_exhausted_messages() {
 }
 
 /// A bare topic name joins the subscription the broker names as its default, and the server
-/// reports that name and no other.
+/// reports that name and no other; a broker that names none refuses a bare name before anything
+/// subscribes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_bare_name_joins_the_default_subscription_the_broker_names() {
     let Some(url) = test_url() else { return };
     let topic = unique("by-name-default");
     let subscription = unique("orders-worker");
+
+    let unnamed = PulsarBroker::new(&url)
+        .connect()
+        .await
+        .expect("broker connects");
+    let refused = unnamed
+        .subscribe(&topic)
+        .await
+        .expect_err("a bare name without a default subscription must not open");
+    let advice = refused.to_string();
+    assert!(matches!(refused, PulsarError::Invalid(_)), "{advice}");
+    assert!(
+        advice.contains("PulsarBroker::default_subscription"),
+        "{advice}"
+    );
+    unnamed.shutdown().await.expect("shutdown succeeds");
 
     let connected = PulsarBroker::new(&url)
         .default_subscription(&subscription)
