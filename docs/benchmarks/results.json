@@ -79,11 +79,11 @@
       "name": "shared subscription, JSON decode into a small struct, ack each",
       "messages": 1000,
       "framework": {
-        "instructions": 63539.6,
+        "instructions": 63539.2,
         "allocations": 18.9
       },
       "cold": {
-        "instructions": 675921,
+        "instructions": 677998,
         "allocations": 273
       },
       "gated": true
@@ -92,11 +92,11 @@
       "name": "reply through this crate's publisher, broker receipt awaited",
       "messages": 1000,
       "framework": {
-        "instructions": 129865.9,
+        "instructions": 129823.5,
         "allocations": 38.0
       },
       "cold": {
-        "instructions": 691824,
+        "instructions": 693857,
         "allocations": 288
       },
       "gated": true
@@ -105,11 +105,11 @@
       "name": "shared subscription in batches of 64, assembled on the client",
       "messages": 1000,
       "framework": {
-        "instructions": 63945.5,
+        "instructions": 63948.0,
         "allocations": 18.2
       },
       "cold": {
-        "instructions": 689216,
+        "instructions": 689063,
         "allocations": 277
       },
       "gated": true
