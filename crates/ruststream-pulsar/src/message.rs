@@ -15,6 +15,9 @@ use ruststream::{
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::PulsarError;
+#[cfg(feature = "testing")]
+use crate::in_process::{Delivery, Settlement};
+use crate::subscriber::PulsarSeeker;
 
 /// Header carrying the partition key, mapped onto the message's `partition_key` (which
 /// `KeyShared` subscriptions order by).
@@ -131,6 +134,22 @@ pub(crate) enum DriverCmd {
 
 pub(crate) type SettleSender = mpsc::UnboundedSender<DriverCmd>;
 
+/// How a delivery settles: through its subscription's driver task, or, under the `testing`
+/// feature, on the in-process transport it came from.
+///
+/// Without the feature there is one variant, so the type is the driver channel itself.
+#[derive(Debug)]
+enum Settle {
+    Driver(SettleSender),
+    #[cfg(feature = "testing")]
+    InProcess(Box<Settlement>),
+}
+
+// The zero-cost promise of the in-process mode, held by the compiler: a build without it gives
+// a delivery's settlement exactly the size of the driver channel it wraps.
+#[cfg(not(feature = "testing"))]
+const _: () = assert!(size_of::<Settle>() == size_of::<SettleSender>());
+
 /// Refuses a delay the consumer's own timer would cut short.
 ///
 /// A delayed retry is held in this process, so the delivery stays unacknowledged for the whole
@@ -167,7 +186,7 @@ pub struct PulsarMessage {
     headers: HeaderMap,
     topic: String,
     id: MessageIdData,
-    settle: SettleSender,
+    settle: Settle,
     /// The subscription's acknowledgement timeout, which bounds how long a delayed retry may
     /// hold the delivery before the consumer redelivers it anyway.
     ack_timeout: Option<Duration>,
@@ -203,7 +222,32 @@ impl PulsarMessage {
             headers,
             topic: message.topic.clone(),
             id: message.message_id().clone(),
-            settle,
+            settle: Settle::Driver(settle),
+            ack_timeout,
+        }
+    }
+
+    /// A delivery of the in-process transport, reporting what a live one reports: its topic's
+    /// full name, and a message id whose entry id is its place in the topic's log.
+    #[cfg(feature = "testing")]
+    pub(crate) fn in_process(
+        delivery: Delivery,
+        settlement: Settlement,
+        ack_timeout: Option<Duration>,
+    ) -> Self {
+        let entry_id = u64::try_from(settlement.seq()).unwrap_or(u64::MAX);
+        Self {
+            payload: delivery.payload,
+            headers: delivery.headers,
+            topic: delivery.topic,
+            id: MessageIdData {
+                ledger_id: 0,
+                entry_id,
+                // The sentinel addresses the topic as a whole, as the end-of-log marks do.
+                partition: Some(-1),
+                ..MessageIdData::default()
+            },
+            settle: Settle::InProcess(Box::new(settlement)),
             ack_timeout,
         }
     }
@@ -215,15 +259,16 @@ impl PulsarMessage {
         &self.topic
     }
 
-    /// The channel back to the subscription's driver task, which owns both settlement and
-    /// seeking. The per-delivery context mints its seeker off this, so a delivery carries the
-    /// reposition handle without the subscriber having to stamp one onto every message.
-    pub(crate) fn driver(&self) -> &SettleSender {
-        &self.settle
-    }
-
-    async fn send_settle(self, kind: SettleKind) -> Result<(), AckError> {
-        send_settle(self.settle, self.topic, self.id, kind).await
+    /// The handle that repositions this delivery's subscription. A live one is minted off the
+    /// channel to the subscription's driver task, which owns both settlement and seeking, so a
+    /// delivery carries the reposition handle without the subscriber stamping one onto every
+    /// message.
+    pub(crate) fn seeker(&self) -> PulsarSeeker {
+        match &self.settle {
+            Settle::Driver(driver) => PulsarSeeker::new(driver.clone()),
+            #[cfg(feature = "testing")]
+            Settle::InProcess(settlement) => settlement.seeker(),
+        }
     }
 }
 
@@ -272,16 +317,33 @@ impl IncomingMessage for PulsarMessage {
     }
 
     async fn ack(self) -> Result<(), AckError> {
-        self.send_settle(SettleKind::Ack).await
+        match self.settle {
+            Settle::Driver(driver) => {
+                send_settle(driver, self.topic, self.id, SettleKind::Ack).await
+            }
+            // The settlement is released as it drops, which is all an acknowledgement is here.
+            #[cfg(feature = "testing")]
+            Settle::InProcess(_) => Ok(()),
+        }
     }
 
     async fn nack(self, requeue: bool) -> Result<(), AckError> {
-        if requeue {
-            self.send_settle(SettleKind::Nack).await
+        // Acknowledging IS the drop: Pulsar has no terminal reject, and the dead-letter policy
+        // owns poison-message routing via repeated redelivery.
+        let kind = if requeue {
+            SettleKind::Nack
         } else {
-            // Acknowledging IS the drop: Pulsar has no terminal reject, and the dead-letter
-            // policy owns poison-message routing via repeated redelivery.
-            self.send_settle(SettleKind::Ack).await
+            SettleKind::Ack
+        };
+        match self.settle {
+            Settle::Driver(driver) => send_settle(driver, self.topic, self.id, kind).await,
+            #[cfg(feature = "testing")]
+            Settle::InProcess(settlement) => {
+                if requeue {
+                    (*settlement).requeue(self.payload, self.headers, self.topic);
+                }
+                Ok(())
+            }
         }
     }
 
@@ -317,16 +379,24 @@ impl IncomingMessage for PulsarMessage {
         if let Err(err) = within_ack_timeout(delay, self.ack_timeout, &self.topic) {
             return ready(Err(err));
         }
-        let cmd = DriverCmd::NackAfter(NackAfterCmd {
-            topic: self.topic,
-            id: self.id,
-            delay,
-            back: self.settle.clone(),
-        });
-        if self.settle.send(cmd).is_err() {
-            return ready(Err(AckError::Broker(Box::from(
-                "the subscription's driver task has shut down",
-            ))));
+        match self.settle {
+            Settle::Driver(driver) => {
+                let cmd = DriverCmd::NackAfter(NackAfterCmd {
+                    topic: self.topic,
+                    id: self.id,
+                    delay,
+                    back: driver.clone(),
+                });
+                if driver.send(cmd).is_err() {
+                    return ready(Err(AckError::Broker(Box::from(
+                        "the subscription's driver task has shut down",
+                    ))));
+                }
+            }
+            #[cfg(feature = "testing")]
+            Settle::InProcess(settlement) => {
+                (*settlement).nack_after(delay, self.payload, self.headers, self.topic);
+            }
         }
         ready(Ok(()))
     }

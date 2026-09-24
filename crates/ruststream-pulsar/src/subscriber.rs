@@ -13,20 +13,23 @@
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::{Stream, StreamExt};
 
 use pulsar::consumer::{Consumer, DeadLetterPolicy};
 use pulsar::proto::MessageIdData;
-use pulsar::{SubType, TokioExecutor};
+use pulsar::{Pulsar, SubType, TokioExecutor};
 use ruststream::{AckError, BatchSubscriber, BufferedSubscriber, Seekable, Subscriber};
-use tokio::sync::mpsc;
+use tokio::runtime::Handle;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::warn;
 
-use crate::broker::Core;
 use crate::error::{PulsarError, box_err};
+#[cfg(feature = "testing")]
+use crate::in_process::{LogSeeker, Queued};
 use crate::message::{
     DriverCmd, NackAfterCmd, PulsarMessage, PulsarPosition, SeekCmd, SettleKind, SettleSender,
     send_settle,
@@ -49,16 +52,52 @@ pub struct PulsarSubscriber {
     inner: BufferedSubscriber<Deliveries>,
 }
 
-/// The wire form of a subscription: one delivery at a time, off the driver task's channel.
+/// The wire form of a subscription: one delivery at a time, off the driver task's channel, or,
+/// under the `testing` feature, off the in-process transport's queue.
 ///
 /// This is everything the client offers, and [`PulsarSubscriber`] is this plus the batches.
+/// Without the feature there is one variant, so the type is the consumer's channel itself.
 #[derive(Debug)]
-struct Deliveries {
+enum Deliveries {
+    Consumer(ConsumerDeliveries),
+    #[cfg(feature = "testing")]
+    InProcess(Queued),
+}
+
+// The zero-cost promise of the in-process mode, held by the compiler: a build without it gives
+// the wire form exactly the size of the consumer channel it wraps.
+#[cfg(not(feature = "testing"))]
+const _: () = assert!(size_of::<Deliveries>() == size_of::<ConsumerDeliveries>());
+
+/// A live consumer's deliveries, off its driver task's channel.
+#[derive(Debug)]
+struct ConsumerDeliveries {
     rx: mpsc::Receiver<(u64, Result<PulsarMessage, PulsarError>)>,
     cmd: SettleSender,
     /// The delivery generation: a seek bumps it, and items queued under an older generation
     /// are discarded on the way out - a reposition must not deliver stale buffered messages.
     epoch: Arc<AtomicU64>,
+}
+
+impl ConsumerDeliveries {
+    /// The next delivery of the current generation. Items queued under an older generation
+    /// (before a seek) are discarded here.
+    fn poll_next(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<PulsarMessage, PulsarError>>> {
+        loop {
+            match self.rx.poll_recv(cx) {
+                Poll::Ready(Some((epoch, item))) => {
+                    if epoch == self.epoch.load(Ordering::Acquire) {
+                        return Poll::Ready(Some(item));
+                    }
+                }
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+    }
 }
 
 impl std::fmt::Debug for PulsarSubscriber {
@@ -76,16 +115,16 @@ impl PulsarSubscriber {
         &self.topic
     }
 
-    /// Opens the client consumer and starts the subscription's driver on the runtime the broker
-    /// connected on.
+    /// Opens the client consumer and starts the subscription's driver on `runtime`, the one the
+    /// broker connected on.
     pub(crate) async fn open(
-        core: &Core,
+        client: &Pulsar<TokioExecutor>,
         descriptor: PulsarSubscription,
+        runtime: &Handle,
     ) -> Result<Self, PulsarError> {
         let display = descriptor.display_topic();
         let batch_wait = descriptor.batch_wait;
-        let mut builder = core
-            .client
+        let mut builder = client
             .consumer()
             .with_subscription(&descriptor.subscription)
             .with_subscription_type(match descriptor.sub_type {
@@ -126,9 +165,9 @@ impl PulsarSubscriber {
         let (out_tx, out_rx) = mpsc::channel(CHANNEL_CAPACITY);
         let (settle_tx, settle_rx) = mpsc::unbounded_channel();
         let epoch = Arc::new(AtomicU64::new(0));
-        core.runtime.spawn(drive(
+        runtime.spawn(drive(
             consumer,
-            core.client.clone(),
+            client.clone(),
             out_tx,
             settle_tx.clone(),
             settle_rx,
@@ -139,13 +178,19 @@ impl PulsarSubscriber {
 
         Ok(Self::batching(
             display,
-            Deliveries {
+            Deliveries::Consumer(ConsumerDeliveries {
                 rx: out_rx,
                 cmd: settle_tx,
                 epoch,
-            },
+            }),
             batch_wait,
         ))
+    }
+
+    /// A subscription on the in-process transport, batched the way a live one is.
+    #[cfg(feature = "testing")]
+    pub(crate) fn in_process(topic: String, queued: Queued, batch_wait: Duration) -> Self {
+        Self::batching(topic, Deliveries::InProcess(queued), batch_wait)
     }
 
     /// Wraps the wire deliveries in the framework's client-side buffer.
@@ -168,22 +213,22 @@ impl PulsarSubscriber {
 /// redelivers from the new position; per-message acknowledgement state needs no reset.
 ///
 /// One type serves both transports, so a service that repositions itself reads the same
-/// [`SeekHandle`](crate::SeekHandle) key whether it runs against a server or against the
-/// in-process stand-in.
+/// [`SeekHandle`](crate::SeekHandle) key whether it runs against a server or in process under
+/// the test harness.
 #[derive(Clone)]
 pub struct PulsarSeeker {
     inner: SeekerKind,
 }
 
-/// Which subscription the handle moves. The stand-in's arm exists only with the `testing`
+/// Which subscription the handle moves. The in-process arm exists only with the `testing`
 /// feature, and the field is private, so a service sees one type either way.
 #[derive(Clone)]
 enum SeekerKind {
     /// A live consumer, repositioned through its subscription's driver task.
     Consumer(SettleSender),
-    /// An in-process subscription, repositioned over the stand-in's retained log.
+    /// An in-process subscription, repositioned over the transport's retained log.
     #[cfg(feature = "testing")]
-    InProcess(crate::testing::seek::LogSeeker),
+    InProcess(LogSeeker),
 }
 
 impl std::fmt::Debug for PulsarSeeker {
@@ -201,9 +246,9 @@ impl PulsarSeeker {
         }
     }
 
-    /// Mints a handle over the in-process stand-in's retained log.
+    /// Mints a handle over the in-process transport's retained log.
     #[cfg(feature = "testing")]
-    pub(crate) fn in_process(seeker: crate::testing::seek::LogSeeker) -> Self {
+    pub(crate) const fn in_process(seeker: LogSeeker) -> Self {
         Self {
             inner: SeekerKind::InProcess(seeker),
         }
@@ -217,7 +262,7 @@ impl ruststream::Seeker for PulsarSeeker {
     async fn seek(&self, to: PulsarPosition) -> Result<(), PulsarError> {
         match &self.inner {
             SeekerKind::Consumer(cmd) => {
-                let (done, wait) = tokio::sync::oneshot::channel();
+                let (done, wait) = oneshot::channel();
                 cmd.send(DriverCmd::Seek(SeekCmd { position: to, done }))
                     .map_err(|_| PulsarError::Receive {
                         topic: String::new(),
@@ -241,7 +286,11 @@ impl Seekable for Deliveries {
     type Seeker = PulsarSeeker;
 
     fn seeker(&self) -> PulsarSeeker {
-        PulsarSeeker::new(self.cmd.clone())
+        match self {
+            Self::Consumer(consumer) => PulsarSeeker::new(consumer.cmd.clone()),
+            #[cfg(feature = "testing")]
+            Self::InProcess(queued) => queued.seeker(),
+        }
     }
 }
 
@@ -250,22 +299,13 @@ impl Subscriber for Deliveries {
     type Error = PulsarError;
 
     fn stream(&mut self) -> impl Stream<Item = Result<PulsarMessage, PulsarError>> + Send + '_ {
-        // Poll the channel in place rather than wrapping it in an owning stream, so `stream`
-        // can be called again after the returned stream is dropped (the runtime and the
-        // conformance helpers re-enter it per call). Items queued under an older generation
-        // (before a seek) are discarded here.
-        futures::stream::poll_fn(move |cx| {
-            loop {
-                match self.rx.poll_recv(cx) {
-                    std::task::Poll::Ready(Some((epoch, item))) => {
-                        if epoch == self.epoch.load(Ordering::Acquire) {
-                            return std::task::Poll::Ready(Some(item));
-                        }
-                    }
-                    std::task::Poll::Ready(None) => return std::task::Poll::Ready(None),
-                    std::task::Poll::Pending => return std::task::Poll::Pending,
-                }
-            }
+        // Poll in place rather than wrapping the source in an owning stream, so `stream` can be
+        // called again after the returned stream is dropped (the runtime and the conformance
+        // helpers re-enter it per call).
+        futures::stream::poll_fn(move |cx| match self {
+            Self::Consumer(consumer) => consumer.poll_next(cx),
+            #[cfg(feature = "testing")]
+            Self::InProcess(queued) => queued.poll_next(cx),
         })
     }
 }
@@ -309,7 +349,7 @@ impl BatchSubscriber for PulsarSubscriber {
 #[allow(clippy::too_many_arguments)]
 async fn drive(
     mut consumer: Consumer<Vec<u8>, TokioExecutor>,
-    client: pulsar::Pulsar<TokioExecutor>,
+    client: Pulsar<TokioExecutor>,
     out: mpsc::Sender<(u64, Result<PulsarMessage, PulsarError>)>,
     settle_tx: SettleSender,
     mut settle_rx: mpsc::UnboundedReceiver<DriverCmd>,
@@ -418,7 +458,7 @@ async fn drive(
 
 async fn apply(
     consumer: &mut Consumer<Vec<u8>, TokioExecutor>,
-    client: &pulsar::Pulsar<TokioExecutor>,
+    client: &Pulsar<TokioExecutor>,
     cmd: DriverCmd,
 ) {
     match cmd {
@@ -482,7 +522,7 @@ fn end_of_log(mark: u64) -> MessageIdData {
 
 async fn apply_seek(
     consumer: &mut Consumer<Vec<u8>, TokioExecutor>,
-    client: &pulsar::Pulsar<TokioExecutor>,
+    client: &Pulsar<TokioExecutor>,
     SeekCmd { position, done }: SeekCmd,
 ) {
     let (message_id, timestamp) = match position {

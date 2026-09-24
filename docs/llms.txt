@@ -22,7 +22,7 @@ This site holds the entry pages. The crate's guide is its overview on docs.rs, a
 - [Per-message settings](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#per-message-settings): the partition key of one publish
 - [The prelude](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#the-prelude): what a routes file and a handler body import
 - [The generated document](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#the-generated-document): what the `asyncapi` feature reports
-- [Testing](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#testing): the in-process broker behind the `testing` feature, driven by `TestApp`
+- [Testing](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#testing): the production app under `TestApp`, `PulsarBroker` in process behind the `testing` feature or against a live Pulsar
 - [Operations](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#operations): the service URL, authentication and the client's limits
 
 ## Optional

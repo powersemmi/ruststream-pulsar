@@ -2,19 +2,21 @@
 //!
 //! The subject here is the application: a body reads the subscription's seeker off its delivery
 //! context (or, for a batch, off the subscription-scoped one) and moves the subscription. So the
-//! test is a `TestApp` run against the in-process stand-in, which retains a log and therefore
-//! backs both halves of the crate's seek surface - the `start_at(..)` clause that opens the
-//! subscription at the beginning of it, and the `SeekHandle` key the body reads.
+//! test is a `TestApp` run of the production app, with the broker connected in process, whose
+//! transport retains a log and therefore backs the `SeekHandle` key the body reads.
 //!
-//! That the stand-in's repositioning matches the framework's contract is `conformance_pulsar.rs`,
+//! That the in-process repositioning matches the framework's contract is `conformance_pulsar.rs`,
 //! which runs `capabilities::seeking` against it; that a real consumer seeks is the live suite in
 //! `integration_pulsar.rs`.
 #![cfg(feature = "testing")]
 
 use ruststream::testing::TestApp;
+use ruststream_pulsar::PulsarPublisher;
 use ruststream_pulsar::prelude::*;
-use ruststream_pulsar::testing::PulsarTestBroker;
 use serde::{Deserialize, Serialize};
+
+/// The address the service's broker is built with; the in-process mode dials nothing.
+const URL: &str = "pulsar://localhost:6650";
 
 /// The producer's contract: an entry marked poisoned asks the consumer to abandon the rest of
 /// the backlog and resume at the tip of the log.
@@ -69,38 +71,42 @@ fn poison(id: u64) -> Job {
     Job { id, poisoned: true }
 }
 
-/// Fills the log before the service exists, so `start_at` has a backlog to open on.
-async fn backlog(broker: &PulsarTestBroker, address: &str) {
-    let ingress = broker.publisher();
+/// Publishes a run in one burst through a publisher taken off the broker, so all of it is queued
+/// before the handler sees its first job: the harness drives a publish of its own to completion
+/// before the next, and this run has to wait behind the marker.
+///
+/// The tests run on the single-threaded runtime, where nothing else runs until the burst awaits
+/// something that is not ready; an in-process publish never is.
+async fn burst(ingress: &PulsarPublisher, address: &str) {
     for job in [job(1), poison(2), job(3), job(4)] {
         ingress
             .message(&job)
             .to(address)
             .publish()
             .await
-            .expect("the stand-in publishes before connect");
+            .expect("the broker takes the publish");
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn a_handler_repositions_its_own_subscription() {
-    let broker = PulsarTestBroker::new().default_subscription("workers");
-    backlog(&broker, "jobs").await;
-
+    let broker = PulsarBroker::new(URL).default_subscription("workers");
+    let ingress = broker.publisher();
     let app = RustStream::new(AppInfo::new("seek", "0.1.0")).with_broker(broker, |b| {
-        b.include(skip_poison.start_at(PulsarPosition::earliest()));
+        b.include(skip_poison);
     });
     let tb = TestApp::start(app).await.expect("start harness");
-    tb.settle().await.expect("the opening replay settles");
+    burst(&ingress, "jobs").await;
+    tb.settle().await.expect("the run settles");
 
-    // The subscription opened at the beginning of the log and stopped at the marker: jobs 3 and
-    // 4 were queued behind it, and the seek to the tip dropped them.
-    tb.broker::<PulsarTestBroker>()
+    // The handler stopped at the marker: jobs 3 and 4 were queued behind it, and the seek to the
+    // tip dropped them.
+    tb.broker::<PulsarBroker>()
         .subscriber("jobs")
         .assert_called(2)
         .settled(HandlerOutcome::ack());
     assert_eq!(
-        tb.broker::<PulsarTestBroker>()
+        tb.broker::<PulsarBroker>()
             .subscriber("jobs")
             .received::<Job>(),
         vec![job(1), poison(2)],
@@ -108,13 +114,13 @@ async fn a_handler_repositions_its_own_subscription() {
     );
 
     // The subscription is live at its new position, not stranded there.
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .message(&job(5))
         .to("jobs")
         .publish()
         .await
         .expect("publish");
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .subscriber("jobs")
         .assert_called(3)
         .with(&job(5))
@@ -126,31 +132,27 @@ async fn a_handler_repositions_its_own_subscription() {
 ///
 /// The mount site names one number, the batch size, and nothing there says Pulsar assembles its
 /// batches on the client rather than pulling them off the wire. The seeker reaches through that
-/// buffer, so a batch subscription opens on a backlog exactly as a single-delivery one does.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+/// buffer, so a batch subscription repositions exactly as a single-delivery one does.
+#[tokio::test]
 async fn a_batch_repositions_the_subscription_it_came_from() {
-    let broker = PulsarTestBroker::new().default_subscription("workers");
-    backlog(&broker, "jobs.bulk").await;
-
+    let broker = PulsarBroker::new(URL).default_subscription("workers");
+    let ingress = broker.publisher();
     let app = RustStream::new(AppInfo::new("seek-batch", "0.1.0")).with_broker(broker, |b| {
-        b.include(
-            skip_poison_batch
-                .batch(nonzero!(2))
-                .start_at(PulsarPosition::earliest()),
-        );
+        b.include(skip_poison_batch.batch(nonzero!(2)));
     });
     let tb = TestApp::start(app).await.expect("start harness");
-    tb.settle().await.expect("the opening replay settles");
+    burst(&ingress, "jobs.bulk").await;
+    tb.settle().await.expect("the run settles");
 
     // One batch, closed by the size rather than by the deadline, and it carried the marker: the
     // seek to the tip dropped jobs 3 and 4 before a second batch could form.
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .subscriber("jobs.bulk")
         .assert_called_once()
         .assert_batch_sizes(&[2])
         .settled(HandlerOutcome::ack());
     assert_eq!(
-        tb.broker::<PulsarTestBroker>()
+        tb.broker::<PulsarBroker>()
             .subscriber("jobs.bulk")
             .received::<Job>(),
         vec![job(1), poison(2)],
@@ -159,13 +161,13 @@ async fn a_batch_repositions_the_subscription_it_came_from() {
 
     // The batch's seek moved the live subscription rather than breaking it: the next entry still
     // arrives, at the repositioned tip, as a batch of its own.
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .message(&job(5))
         .to("jobs.bulk")
         .publish()
         .await
         .expect("publish");
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .subscriber("jobs.bulk")
         .assert_called(2)
         .assert_batch_sizes(&[2, 1])
