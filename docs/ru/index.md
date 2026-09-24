@@ -3,8 +3,8 @@
 **`ruststream-pulsar`** запускает сервис [RustStream](https://powersemmi.github.io/ruststream/) на
 Apache Pulsar. Топик - это журнал, который брокер хранит, поэтому подписка по нему перематывается.
 Вы выбираете один из четырёх типов подписки, подписываетесь на список топиков или на шаблон и
-ограничиваете число повторов сообщения топиком dead-letter. Фича `testing` даёт внутрипроцессный
-брокер.
+ограничиваете число повторов сообщения топиком dead-letter. С фичей `testing` тесты запускают
+рабочее приложение, а брокер работает внутри процесса.
 
 Транспорт построен на клиенте [`pulsar`](https://docs.rs/pulsar), который ведёт StreamNative.
 
@@ -39,7 +39,8 @@ dead-letter, объявленные при монтировании, стано�
   [настройки отдельного сообщения](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#per-message-settings).
 - [Сгенерированный документ](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#the-generated-document)
   и [тестирование](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#testing):
-  что попадает в AsyncAPI и что умеет внутрипроцессный брокер.
+  что попадает в AsyncAPI и как рабочее приложение проходит тесты под обвязкой `TestApp`, внутри
+  процесса или против живого брокера.
 - [Эксплуатация](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#operations):
   адрес сервиса, аутентификация и ограничения клиента.
 

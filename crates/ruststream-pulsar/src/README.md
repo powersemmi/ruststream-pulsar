@@ -16,8 +16,8 @@ ruststream-pulsar = "0.7"
 serde = { version = "1", features = ["derive"] }
 ```
 
-Both features are additive and off by default: `testing` ships the in-process broker
-([Testing](#testing)), and `asyncapi` fills in the Pulsar half of the generated document
+Both features are additive and off by default: `testing` gives the broker its in-process mode
+for the test harness ([Testing](#testing)), and `asyncapi` fills in the Pulsar half of the generated document
 ([The generated document](#the-generated-document)).
 
 # A service
@@ -76,8 +76,8 @@ Three runnable programs are in `examples/`: `pulsar_service`, `pulsar_pattern` a
 
 [`PulsarSubscription`] is the descriptor of one subscription: the name it joins, the topics it
 reads, and the settings its consumer opens with. It sits inline in the `#[subscriber(..)]`
-decorator, and it is a source for the in-process broker as well, so the declaration a service
-ships is the one its tests run.
+decorator, and the test harness runs it unchanged, so the declaration a service ships is the one
+its tests run.
 
 | Form | Reads |
 |---|---|
@@ -498,18 +498,21 @@ so there is no reply address for a client to read out of a message.
 
 # Testing
 
-The `testing` feature ships [`PulsarTestBroker`](testing::PulsarTestBroker), an in-process broker
-that reproduces the crate's routing over a retained log with no server and no network. It has the
-real lifecycle, terminal state included, and [`PulsarSubscription`] and [`PulsarPublish`] are a
-source and a policy for it as well, so a test mounts the declaration the service ships rather than
-a rewrite of it.
+The `testing` feature gives [`PulsarBroker`] an in-process mode. `TestApp::start` runs the
+service's production app, the same builder `main` runs, with the broker connected in process: no
+server, no network. A test addresses the broker by its own type, `tb.broker::<PulsarBroker>()`.
+A service enables the feature in its dev-dependencies:
+
+```toml
+[dev-dependencies]
+ruststream-pulsar = { version = "0.7", features = ["testing"] }
+```
 
 ```
 # #[cfg(feature = "testing")]
 # mod demo {
 use ruststream::testing::TestApp;
 use ruststream_pulsar::prelude::*;
-use ruststream_pulsar::testing::PulsarTestBroker;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Eq, Outgoing, PartialEq, Serialize)]
@@ -523,44 +526,82 @@ async fn handle(order: &Order) -> HandlerOutcome {
     HandlerOutcome::ack()
 }
 
-pub async fn an_order_reaches_its_handler() {
-    let app = RustStream::new(AppInfo::new("orders", "0.1.0"))
-        .with_broker(PulsarTestBroker::new(), |b| {
+/// The app `main` runs, and the one the tests hand the harness.
+pub fn app() -> RustStream {
+    RustStream::new(AppInfo::new("orders", "0.1.0"))
+        .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
             b.include(handle);
-        });
-    let tb = TestApp::start(app).await.expect("start the harness");
+        })
+}
 
-    tb.broker::<PulsarTestBroker>()
+pub async fn an_order_reaches_its_handler() -> Result<(), Box<dyn std::error::Error>> {
+    let tb = TestApp::start(app()).await?;
+
+    tb.broker::<PulsarBroker>()
         .message(&Order { id: 1 })
         .to("orders")
         .publish()
-        .await
-        .expect("publish");
+        .await?;
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .subscriber("orders")
         .assert_called_once()
         .with(&Order { id: 1 })
         .settled(HandlerOutcome::ack());
+    tb.shutdown().await?;
+    Ok(())
 }
 # }
+# #[cfg(feature = "testing")]
+# fn main() {
+#     tokio::runtime::Builder::new_multi_thread()
+#         .enable_all()
+#         .build()
+#         .unwrap()
+#         .block_on(demo::an_order_reaches_its_handler())
+#         .unwrap();
+# }
+# #[cfg(not(feature = "testing"))]
 # fn main() {}
 ```
 
-The stand-in takes the same [`default_subscription`](testing::PulsarTestBroker::default_subscription)
-as the real broker and refuses a bare name without it the same way; set it when the service sets
-one.
+The in-process mode has no settings of its own. The default subscription, the retry cap and its
+dead-letter topic, and every descriptor setting are the broker's and the registration's, so a
+test runs the configuration production runs. It refuses what a server refuses, with the error the
+live broker returns: a service URL the client cannot parse, a destination that is no topic name, a
+second consumer of an `Exclusive` subscription, and a handle
+used after shutdown. One of these differs in how it fails: a server keeps a second `Exclusive`
+consumer waiting, so the service does not start, while in process the subscription is refused and
+the test fails at once.
+
+What the in-process mode models, and what it means for a test:
+
+* A topic is its fully qualified name, so `orders` and `persistent://public/default/orders` are
+  one topic.
+* A pattern subscription matches the full names of the `public/default` namespace, the one the
+  client lists. It reads a topic that existed when it opened at once, and a topic created later
+  from the client's next listing, thirty seconds on; what reached that topic before then is not
+  delivered to it. A test of a new topic advances the paused clock by thirty seconds.
+* A message reaches every subscription over its topic once, and the subscription type picks the
+  consumer. Which consumer of a `Shared` or `KeyShared` subscription takes it is the in-process
+  model's choice, not a server's; one delivery per subscription and one consumer per key hold on
+  both.
+* A subscription starts at the tip of its topics, and a seek moves the whole subscription over the
+  retained log. A run that must queue behind a message goes in through a publisher taken off the
+  broker before the app is built, followed by `tb.settle()`: the harness drives each of its own
+  publishes to completion before the next.
+* A delayed retry and a pattern's listing run on the runtime's clock, so `tb.advance(..)` on a
+  paused clock drives both.
+* A publish is framed the way the client frames it: a header value that is not UTF-8 arrives with
+  replacement characters, as it does from a server.
+
+What belongs to the server is asserted against one: the acknowledgement timeout's own
+redelivery, partitioned topics, `KeyShared` hash ranges, and a backlog kept while a subscription
+has no consumer. `TestApp::start_live(app())` runs the same test body against a running Pulsar;
+only the start call differs, and `just test-brokers` runs this crate's live suites that way.
 
 The harness itself is the framework's, and
 <https://docs.rs/ruststream/latest/ruststream/testing/index.html> documents it.
-
-What the stand-in emulates: every addressing form of the descriptor, the sharing rule of the
-subscription type, seeking over the retained log, client-side batching, the retry cap and its
-dead-letter topic, and a delayed retry driven by the harness clock. What it does not: `KeyShared`
-assigns by the key's hash modulo the consumer count rather than by Pulsar's hash ranges, a seek
-moves only the consumer that asked for it, `ack_timeout` redelivers nothing on its own, and topic
-names route literally, so `orders` and `persistent://public/default/orders` are two addresses here
-and one topic on a server. [`testing`] states each of those with its consequence for a test.
 
 # Operations
 

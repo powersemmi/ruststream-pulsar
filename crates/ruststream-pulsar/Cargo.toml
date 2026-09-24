@@ -22,9 +22,10 @@ workspace = true
 
 [features]
 default = []
-# The in-process test broker (TestableBroker + TestApp support). The conformance harness is a
-# broker-author tool and stays in this repo's dev-dependencies, not in the user-facing feature.
-testing = ["ruststream/testing"]
+# The broker's in-process mode: `TestApp::start` connects `PulsarBroker` without a server. A
+# service enables it in its dev-dependencies. The conformance harness is a broker-author tool and
+# stays in this repo's dev-dependencies, not in the user-facing feature.
+testing = ["ruststream/testing", "dep:url"]
 # The protocol bindings this crate contributes to the generated AsyncAPI document. Forwarded
 # from the core, because the hooks that carry them live behind the core's own feature.
 asyncapi = ["ruststream/asyncapi", "dep:serde"]
@@ -33,6 +34,7 @@ asyncapi = ["ruststream/asyncapi", "dep:serde"]
 ruststream = { workspace = true, default-features = false }
 pulsar.workspace = true
 regex.workspace = true
+url = { workspace = true, optional = true }
 bytes.workspace = true
 futures.workspace = true
 # Only the binding bodies are serialized here; the payload codecs are the core's.

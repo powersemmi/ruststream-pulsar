@@ -1,8 +1,8 @@
 //! What the subscription type does on a real broker.
 //!
 //! The type decides which consumer of a subscription takes a message, and the server decides it:
-//! the in-process stand-in reproduces the rule so a service can be unit-tested against it, but
-//! the rule itself belongs to Pulsar. So each type is driven here against a server, and the
+//! the in-process mode reproduces the rule so a service's tests run on it, but the rule itself
+//! belongs to Pulsar. So each type is driven here against a server, and the
 //! server is asked what it recorded for the subscription, which is the only way to tell a
 //! descriptor that reached the consumer from one that was read and dropped.
 //!
@@ -109,8 +109,8 @@ async fn the_server_reports_the_type_the_descriptor_named() {
 /// The server answers the second attach with "consumer busy" and the client retries that answer
 /// rather than surfacing it, so the call neither returns a subscriber nor an error while the
 /// first consumer holds the subscription, and completes once it leaves. That is the behaviour a
-/// service meets, and it is not the one the in-process stand-in has: there a second attach is
-/// refused, which is where a unit test and a deployment part company.
+/// service meets, and it is not the one the in-process mode has: there a second attach is
+/// refused, which is where a test and a deployment part company.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_second_consumer_of_an_exclusive_subscription_waits_for_the_first() {
     let Some(url) = test_url() else { return };
@@ -233,7 +233,7 @@ async fn a_shared_subscription_hands_each_message_to_one_consumer() {
 }
 
 /// Per-key ordering rests on a key staying with one consumer, which is the claim the server's
-/// hash ranges make and the stand-in can only approximate.
+/// hash ranges make and the in-process mode can only approximate.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_key_shared_subscription_keeps_a_key_on_one_consumer() {
     let Some(url) = test_url() else { return };

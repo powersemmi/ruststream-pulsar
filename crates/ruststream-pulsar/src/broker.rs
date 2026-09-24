@@ -12,13 +12,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use pulsar::{Authentication, OperationRetryOptions, Pulsar, TokioExecutor};
+#[cfg(feature = "testing")]
+use ruststream::testing::{Coordinator, InProcess, TestableBroker};
 use ruststream::{
     Broker, BrokerMoves, ConnectedBroker, DeclareRetryError, DefaultPublish, DescribeServer,
     RetryDeclaration, ServerSpec, Subscribe,
 };
+#[cfg(feature = "testing")]
+use ruststream::{BytesMut, OutgoingMessage, RawMessage};
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::error::{PulsarError, box_err};
+#[cfg(feature = "testing")]
+use crate::in_process::{self, Bus, Route, Subscriptions};
 use crate::publisher::{PulsarProducer, PulsarPublish, PulsarPublisher};
 use crate::subscriber::PulsarSubscriber;
 use crate::subscription::{DeclaredRetries, PulsarSubscription};
@@ -111,6 +117,22 @@ impl From<OperationRetries> for OperationRetryOptions {
     }
 }
 
+/// What a connected broker and every handle derived from it speak over: the client, or, under
+/// the `testing` feature, the in-process transport the test harness connected instead.
+///
+/// Without the feature there is one variant, so the type is the client itself and every `match`
+/// on it is irrefutable: a production build carries no second transport and no branch to it.
+pub(crate) enum Transport {
+    Client(Pulsar<TokioExecutor>),
+    #[cfg(feature = "testing")]
+    InProcess(Arc<Bus>),
+}
+
+// The zero-cost promise of the in-process mode, held by the compiler: a build without it gives
+// the transport exactly the size of the client it wraps.
+#[cfg(not(feature = "testing"))]
+const _: () = assert!(size_of::<Transport>() == size_of::<Pulsar<TokioExecutor>>());
+
 /// The live client state shared by the connected form and every handle derived from it.
 ///
 /// Why runtime checks exist here at all: the client handle is `Clone` and would happily
@@ -118,7 +140,7 @@ impl From<OperationRetries> for OperationRetryOptions {
 /// outlive `shutdown` (aliasing) - so the closed state is an explicit flag a stale handle
 /// trips over instead of silently succeeding.
 pub(crate) struct Core {
-    pub(crate) client: Pulsar<TokioExecutor>,
+    pub(crate) transport: Transport,
     pub(crate) closed: AtomicBool,
     /// Per-topic producers, shared by every publisher handle so shutdown can close them.
     pub(crate) producers: Mutex<HashMap<String, Arc<Mutex<PulsarProducer>>>>,
@@ -126,9 +148,25 @@ pub(crate) struct Core {
     default_subscription: Option<String>,
     /// What registrations mounted by a bare topic name declared about their retries.
     pub(crate) declared_retries: DeclaredRetries,
+    /// The subscriptions this connection opened, which the test harness's routing answer reads
+    /// on either transport.
+    #[cfg(feature = "testing")]
+    opened: Subscriptions,
 }
 
 impl Core {
+    fn new(transport: Transport, default_subscription: Option<String>) -> Self {
+        Self {
+            transport,
+            closed: AtomicBool::new(false),
+            producers: Mutex::new(HashMap::new()),
+            default_subscription,
+            declared_retries: DeclaredRetries::default(),
+            #[cfg(feature = "testing")]
+            opened: Subscriptions::default(),
+        }
+    }
+
     pub(crate) fn ensure_open(&self) -> Result<(), PulsarError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(PulsarError::NotConnected);
@@ -274,13 +312,10 @@ impl Broker for PulsarBroker {
                     .build()
                     .await
                     .map_err(|e| PulsarError::Connect(box_err(e)))?;
-                Ok::<_, PulsarError>(Arc::new(Core {
-                    client,
-                    closed: AtomicBool::new(false),
-                    producers: Mutex::new(HashMap::new()),
-                    default_subscription: self.default_subscription.clone(),
-                    declared_retries: DeclaredRetries::default(),
-                }))
+                Ok::<_, PulsarError>(Arc::new(Core::new(
+                    Transport::Client(client),
+                    self.default_subscription.clone(),
+                )))
             })
             .await?
             .clone();
@@ -290,6 +325,36 @@ impl Broker for PulsarBroker {
         })
     }
 }
+
+/// The in-process mode: the connected form a test runs the production app against, carrying the
+/// in-process transport in place of the client and every setting of this broker.
+///
+/// The service URL is parsed as the client parses it, so a broker a service could not connect is
+/// not one a test can connect either. The connection cell is the one `connect` fills, so a
+/// publisher taken from the broker before the harness connected it publishes in process.
+#[cfg(feature = "testing")]
+impl InProcess for PulsarBroker {
+    async fn connect_in_process(self) -> Result<Self::Connected, Self::Error> {
+        in_process::check_url(&self.url)?;
+        let core = self
+            .cell
+            .get_or_init(async || {
+                Arc::new(Core::new(
+                    Transport::InProcess(Bus::new()),
+                    self.default_subscription.clone(),
+                ))
+            })
+            .await
+            .clone();
+        Ok(ConnectedPulsarBroker {
+            core,
+            cell: self.cell,
+        })
+    }
+}
+
+#[cfg(feature = "testing")]
+ruststream::register_testable_broker!(PulsarBroker);
 
 /// The description carries the address a client dials and nothing else: the generated `AsyncAPI`
 /// document is published and shared, so a `user:password@` in the service URL must not reach it.
@@ -329,7 +394,22 @@ impl ConnectedPulsarBroker {
     ) -> Result<PulsarSubscriber, PulsarError> {
         descriptor.validate()?;
         self.core.ensure_open()?;
-        PulsarSubscriber::open(&self.core, descriptor).await
+        #[cfg(feature = "testing")]
+        let (route, name, subscription) = (
+            Route::of(&descriptor)?,
+            descriptor.source_name().to_owned(),
+            descriptor.subscription().to_owned(),
+        );
+        #[cfg(feature = "testing")]
+        let recorded = route.clone();
+        let subscriber = match &self.core.transport {
+            Transport::Client(client) => PulsarSubscriber::open(client, descriptor).await,
+            #[cfg(feature = "testing")]
+            Transport::InProcess(bus) => in_process::subscribe(bus, descriptor, route),
+        }?;
+        #[cfg(feature = "testing")]
+        self.core.opened.record(name, subscription, recorded);
+        Ok(subscriber)
     }
 }
 
@@ -339,6 +419,10 @@ impl ConnectedBroker for ConnectedPulsarBroker {
 
     async fn shutdown(self) -> Result<(), Self::Error> {
         self.core.closed.store(true, Ordering::Release);
+        #[cfg(feature = "testing")]
+        if let Transport::InProcess(bus) = &self.core.transport {
+            bus.close();
+        }
         // The client has no close of its own; producers are the handles holding broker-side
         // state worth a clean goodbye.
         let producers: Vec<_> = {
@@ -372,7 +456,6 @@ impl Subscribe for ConnectedPulsarBroker {
                  `PulsarSubscription::new(topic, subscription)`"
             ))
         })?;
-        // The stand-in builds the same descriptor, so the two cannot drift apart.
         let descriptor = self.core.declared_retries.subscription(name, subscription);
         self.subscribe_descriptor(descriptor).await
     }
@@ -392,8 +475,70 @@ impl DefaultPublish for ConnectedPulsarBroker {
     type Policy = PulsarPublish;
 }
 
+/// The harness's view of the connected broker: what it injects and reads back on the in-process
+/// transport, and, on either transport, which subscriptions a publish reaches.
+///
+/// # Panics
+///
+/// `inject` and `published` panic on a broker connected with `connect`: the harness drives only
+/// the transport `connect_in_process` produced, and a live connection has no log to read and no
+/// synchronous way to take a message. `inject` panics on a destination that is no topic name,
+/// which a server refuses and the trait gives no way to report.
+#[cfg(feature = "testing")]
+impl TestableBroker for ConnectedPulsarBroker {
+    fn install_coordinator(&self, coordinator: Coordinator) {
+        if let Transport::InProcess(bus) = &self.core.transport {
+            bus.install(coordinator);
+        }
+    }
+
+    fn inject(&self, message: OutgoingMessage<'_>) {
+        let bus = self.bus("inject");
+        // An injection stands in for an external producer; against a shut-down transport it is
+        // dropped, which is what a producer talking to a closed broker achieves in effect.
+        if self.core.ensure_open().is_err() {
+            return;
+        }
+        let name = message.name();
+        let owned = OutgoingMessage::produced(name, BytesMut::from(message.payload()))
+            .with_headers(message.headers().clone());
+        if let Err(err) = bus.publish(owned, None) {
+            panic!("the injected message to {name:?} is not one a server takes: {err}");
+        }
+    }
+
+    fn published(&self, name: &str) -> Vec<RawMessage> {
+        self.bus("published").published(name)
+    }
+
+    /// Pulsar's routing: a message reaches every subscription over its topic once, and within one
+    /// subscription one of its consumers, so each durable subscription the topic reaches is owed
+    /// the message once, by the first of its consumers in `subscriptions`. A topic reads the same
+    /// under either spelling, and a pattern matches the fully qualified names of the
+    /// `public/default` namespace.
+    fn routes(&self, destination: &str, subscriptions: &[&str]) -> Vec<usize> {
+        self.core.opened.routes(destination, subscriptions)
+    }
+}
+
+#[cfg(feature = "testing")]
+impl ConnectedPulsarBroker {
+    /// The in-process transport, which is all the harness injects into and reads back from.
+    fn bus(&self, what: &str) -> &Arc<Bus> {
+        match &self.core.transport {
+            Transport::InProcess(bus) => bus,
+            Transport::Client(_) => panic!(
+                "TestableBroker::{what} reached a broker connected with `connect`; the harness \
+                 drives the transport `connect_in_process` produces"
+            ),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "testing")]
+    use ruststream::Publisher;
     use ruststream::nonzero;
 
     use super::*;
@@ -440,6 +585,51 @@ mod tests {
         assert_eq!(unbounded.max_retries, None);
         assert_eq!(unbounded.retry_delay, DEFAULT_RETRY_DELAY);
         assert_eq!(unbounded.operation_timeout, DEFAULT_OPERATION_TIMEOUT);
+    }
+
+    /// A URL the client cannot connect with is refused in process as `connect` refuses it, so a
+    /// test cannot pass on a broker the service could not start.
+    #[cfg(feature = "testing")]
+    #[tokio::test]
+    async fn an_address_connect_refuses_is_refused_in_process() {
+        for url in ["not a url", "pulsar://"] {
+            let refused = PulsarBroker::new(url).connect_in_process().await;
+            assert!(
+                matches!(refused, Err(PulsarError::Connect(_))),
+                "{url:?} must be refused, got {refused:?}",
+            );
+        }
+    }
+
+    /// A publisher taken off the broker before the harness connected it shares the connection the
+    /// in-process transition fills, as it shares the one `connect` fills.
+    #[cfg(feature = "testing")]
+    #[tokio::test]
+    async fn an_early_publisher_publishes_in_process() {
+        let broker = PulsarBroker::new("pulsar://localhost:6650");
+        let early = broker.publisher();
+        let connected = broker
+            .connect_in_process()
+            .await
+            .expect("connects in process");
+
+        early
+            .publish(
+                OutgoingMessage::produced("orders", BytesMut::from(&b"{}"[..])),
+                None,
+            )
+            .await
+            .expect("the early publisher reaches the in-process transport");
+        assert_eq!(connected.published("orders").len(), 1);
+
+        connected.shutdown().await.expect("shutdown");
+        let late = early
+            .publish(
+                OutgoingMessage::produced("orders", BytesMut::from(&b"{}"[..])),
+                None,
+            )
+            .await;
+        assert!(matches!(late, Err(PulsarError::NotConnected)), "{late:?}");
     }
 
     /// The generated document is published and shared, so what a service put in its URL to
