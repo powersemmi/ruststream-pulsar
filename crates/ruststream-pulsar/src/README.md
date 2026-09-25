@@ -120,8 +120,9 @@ let broker = PulsarBroker::new("pulsar://localhost:6650").default_subscription("
 # let _ = broker;
 ```
 
-Every handler mounted by name joins that one durable cursor, so two instances of a service are
-competing consumers rather than two independent readers. A bare name on a broker that names no
+A handler mounted by name joins the durable cursor that name has on its topic: each topic keeps
+its own cursor under the name, so handlers on the same topic compete, and two instances of a
+service are competing consumers of each topic rather than two independent readers. A bare name on a broker that names no
 default subscription fails at startup with [`PulsarError::Invalid`](PulsarError), naming the
 setting. The retry declaration reaches that consumer too; every other setting above needs a
 descriptor.
