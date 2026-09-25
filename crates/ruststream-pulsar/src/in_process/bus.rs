@@ -6,23 +6,36 @@ use std::sync::{Arc, OnceLock};
 use bytes::Bytes;
 use ruststream::testing::Coordinator;
 use ruststream::{BytesMut, HeaderMap, OutgoingMessage, RawMessage, Str};
+use tokio::runtime::Handle;
 
 use crate::error::PulsarError;
 use crate::in_process::router::AddressRouter;
 use crate::message::{PARTITION_KEY_HEADER, to_pulsar_message};
 use crate::topic::PulsarTopic;
 
-/// The in-process transport: the router with its retained log, and the harness coordinator it
-/// counts in-flight deliveries with.
-#[derive(Debug, Default)]
+/// The in-process transport: the router with its retained log, the harness coordinator it
+/// counts in-flight deliveries with, and the runtime the broker connected on, which a delayed
+/// redelivery waits on.
+#[derive(Debug)]
 pub(crate) struct Bus {
     router: AddressRouter,
     coordinator: OnceLock<Coordinator>,
+    runtime: Handle,
 }
 
 impl Bus {
-    pub(crate) fn new() -> Arc<Self> {
-        Arc::new(Self::default())
+    pub(crate) fn new(runtime: Handle) -> Arc<Self> {
+        Arc::new(Self {
+            router: AddressRouter::default(),
+            coordinator: OnceLock::new(),
+            runtime,
+        })
+    }
+
+    /// The runtime the broker connected on: a task the transport starts on its own behalf runs
+    /// there, whichever thread settles the delivery that asked for it.
+    pub(crate) const fn runtime(&self) -> &Handle {
+        &self.runtime
     }
 
     pub(crate) const fn router(&self) -> &AddressRouter {
@@ -103,9 +116,9 @@ mod tests {
 
     /// The log keeps the buffer the publish wrote, as the client does: the bytes it stored are the
     /// ones the framework encoded, at the same address.
-    #[test]
-    fn a_publish_hands_the_buffer_to_the_log() {
-        let bus = Bus::new();
+    #[tokio::test]
+    async fn a_publish_hands_the_buffer_to_the_log() {
+        let bus = Bus::new(Handle::current());
         let buffer = BytesMut::from(&b"{\"id\":1}"[..]);
         let at = buffer.as_ptr();
 
@@ -125,9 +138,9 @@ mod tests {
     }
 
     /// A destination the live publisher refuses is refused here, with the same error.
-    #[test]
-    fn a_destination_that_is_no_topic_is_refused() {
-        let bus = Bus::new();
+    #[tokio::test]
+    async fn a_destination_that_is_no_topic_is_refused() {
+        let bus = Bus::new(Handle::current());
         let refused = bus
             .publish(
                 OutgoingMessage::produced("a/b", BytesMut::from(&b"{}"[..])),
@@ -139,9 +152,9 @@ mod tests {
 
     /// Pulsar carries properties as text, so a header value that is not UTF-8 arrives the way a
     /// server delivers it, not as the bytes the publish wrote.
-    #[test]
-    fn a_header_arrives_as_the_text_pulsar_carries() {
-        let bus = Bus::new();
+    #[tokio::test]
+    async fn a_header_arrives_as_the_text_pulsar_carries() {
+        let bus = Bus::new(Handle::current());
         let mut headers = HeaderMap::new();
         headers.insert("x-raw", vec![0xff, b'a']);
         bus.publish(
