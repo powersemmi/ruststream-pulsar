@@ -330,6 +330,37 @@ async fn a_seek_moves_the_whole_subscription() {
     assert_eq!(replayed, ["o1", "o2", "o3", "o4"]);
 }
 
+/// A seek replays the seeker's topics, so a sibling of the subscription keeps what it queued from
+/// a topic the seeker does not read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_seek_keeps_what_a_sibling_queued_from_another_topic() {
+    let broker = connected().await;
+    let mut returns = broker
+        .subscribe_descriptor(
+            PulsarSubscription::topics(["orders", "returns"], "workers")
+                .subscription_type(SubscriptionType::Shared),
+        )
+        .await
+        .expect("subscribe");
+    let mut refunds = broker
+        .subscribe_descriptor(
+            PulsarSubscription::topics(["orders", "refunds"], "workers")
+                .subscription_type(SubscriptionType::Shared),
+        )
+        .await
+        .expect("subscribe");
+    publish(&broker, "refunds", "r1").await;
+
+    returns
+        .seeker()
+        .seek(PulsarPosition::latest())
+        .await
+        .expect("the seek is accepted");
+
+    assert_eq!(drain(&mut refunds).await, ["r1"]);
+    assert!(drain(&mut returns).await.is_empty());
+}
+
 /// A non-persistent topic keeps no log, so a seek over one is accepted and replays nothing, as
 /// the live suite drives against a server.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
