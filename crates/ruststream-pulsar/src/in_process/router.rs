@@ -544,11 +544,16 @@ impl AddressRouter {
             })
             .map(|(sibling, _)| *sibling)
             .collect();
+        // Only what the seek replays is dropped: a sibling that also reads a topic the seeker
+        // does not keeps what it queued from that topic.
         let mut discarded = 0;
         for sibling in &siblings {
             if let Some(consumer) = state.consumers.get_mut(sibling) {
-                discarded += consumer.queue.len();
-                consumer.queue.clear();
+                let before = consumer.queue.len();
+                consumer
+                    .queue
+                    .retain(|delivery| !topics.contains(&delivery.topic));
+                discarded += before - consumer.queue.len();
             }
         }
         let mut replayed = 0;

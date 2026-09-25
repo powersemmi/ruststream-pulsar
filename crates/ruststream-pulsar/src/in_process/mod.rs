@@ -47,13 +47,21 @@ pub(crate) use seek::LogSeeker;
 ///
 /// # Errors
 ///
-/// Returns [`PulsarError::Connect`] for a URL that does not parse or names no host.
+/// Returns [`PulsarError::Connect`] for a URL that does not parse, names no host, or uses a
+/// scheme other than `pulsar` and `pulsar+ssl`. The client parses one URL, so a comma-separated
+/// broker list is refused here as `connect` refuses it.
 pub(crate) fn check_url(url: &str) -> Result<(), PulsarError> {
     let parsed = Url::parse(url).map_err(|err| {
         PulsarError::Connect(Box::from(format!(
             "the service URL is not one the client can connect with: {err}"
         )))
     })?;
+    if !matches!(parsed.scheme(), "pulsar" | "pulsar+ssl") {
+        return Err(PulsarError::Connect(Box::from(format!(
+            "the service URL's scheme {:?} is not one the client dials: pulsar or pulsar+ssl",
+            parsed.scheme()
+        ))));
+    }
     if parsed.host_str().is_none() {
         return Err(PulsarError::Connect(Box::from(
             "the service URL names no host for the client to connect to",
@@ -88,4 +96,22 @@ pub(crate) fn subscribe(
         Queued::new(Arc::clone(bus), id, descriptor.ack_timeout),
         descriptor.batch_wait,
     ))
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::check_url;
+
+    #[test]
+    fn a_url_the_client_does_not_dial_is_refused() {
+        assert!(check_url("pulsar://broker:6650").is_ok());
+        assert!(check_url("pulsar+ssl://broker:6651").is_ok());
+        for refused in [
+            "http://broker:6650",
+            "pulsar://one:6650,two:6650",
+            "broker:6650",
+        ] {
+            assert!(check_url(refused).is_err(), "{refused}");
+        }
+    }
 }
