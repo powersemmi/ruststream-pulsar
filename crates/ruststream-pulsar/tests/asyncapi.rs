@@ -97,14 +97,17 @@ fn document() -> Value {
             "pulsar",
             PulsarBroker::new("pulsar://broker:6650").describe_server(),
         )
-        .with_broker(PulsarTestBroker::new(), |b| {
-            b.include(created);
-            b.include(by_name);
-            b.include(regional);
-            b.include(audit);
-            b.include(telemetry);
-            b.include(halves);
-        });
+        .with_broker(
+            PulsarTestBroker::new().default_subscription("workers"),
+            |b| {
+                b.include(created);
+                b.include(by_name);
+                b.include(regional);
+                b.include(audit);
+                b.include(telemetry);
+                b.include(halves);
+            },
+        );
     serde_json::from_str(
         &build_spec(&app)
             .to_json()

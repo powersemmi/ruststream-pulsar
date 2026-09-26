@@ -43,6 +43,11 @@
 //! production, and a `nack(requeue = true)` goes back to the subscription, so a retry can land on
 //! a sibling.
 //!
+//! [`PulsarTestBroker::default_subscription`] mirrors the real broker's, refusal included: a bare
+//! `#[subscriber("orders")]` joins it, and without it the subscription is refused with
+//! [`PulsarError::Invalid`](crate::PulsarError::Invalid) naming the setting, as it is against a
+//! server.
+//!
 //! Where that stops short of a server, and why:
 //!
 //! * `KeyShared` assigns by the key's hash modulo the consumer count, not by Pulsar's hash

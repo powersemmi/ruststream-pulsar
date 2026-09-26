@@ -20,11 +20,11 @@ use ruststream::conformance::{capabilities, harness};
 use ruststream_pulsar::testing::PulsarTestBroker;
 use ruststream_pulsar::{PulsarBroker, PulsarSubscription};
 
-use crate::live::test_url;
+use crate::live::{test_url, unique};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pulsar_test_broker_passes_conformance_suite() {
-    harness::run_suite(PulsarTestBroker::new).await;
+    harness::run_suite(|| PulsarTestBroker::new().default_subscription("conformance")).await;
 }
 
 /// The lifecycle ladder against the stand-in, through the crate's own descriptor: synchronous
@@ -37,7 +37,7 @@ async fn pulsar_test_broker_passes_conformance_suite() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pulsar_test_broker_passes_lifecycle() {
     harness::lifecycle(
-        PulsarTestBroker::new,
+        || PulsarTestBroker::new().default_subscription("conformance"),
         |name| PulsarSubscription::new(name, "conformance"),
         |connected| connected.publisher(),
     )
@@ -51,7 +51,7 @@ async fn pulsar_test_broker_passes_lifecycle() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pulsar_test_broker_passes_seeking_suite() {
     capabilities::seeking(
-        PulsarTestBroker::new,
+        || PulsarTestBroker::new().default_subscription("conformance"),
         |name| Name::new(name.to_owned()),
         |connected| connected.publisher(),
     )
@@ -65,7 +65,7 @@ async fn pulsar_test_broker_passes_seeking_suite() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pulsar_test_broker_passes_batches_suite() {
     capabilities::batches(
-        PulsarTestBroker::new,
+        || PulsarTestBroker::new().default_subscription("conformance"),
         |name| Name::new(name.to_owned()),
         |connected| connected.publisher(),
     )
@@ -83,7 +83,7 @@ async fn pulsar_broker_passes_lifecycle() {
     // from inheriting the previous run's messages.
     let sub = format!("lifecycle-{}", std::process::id());
     harness::lifecycle(
-        || PulsarBroker::new(url.clone()),
+        || PulsarBroker::new(url.clone()).default_subscription(unique("conformance")),
         |name| PulsarSubscription::new(name, sub.clone()),
         |connected| connected.publisher(),
     )
@@ -96,7 +96,7 @@ async fn pulsar_broker_passes_seeking_suite() {
     let Some(url) = test_url() else { return };
     let sub = format!("seeking-{}", std::process::id());
     capabilities::seeking(
-        || PulsarBroker::new(url.clone()),
+        || PulsarBroker::new(url.clone()).default_subscription(unique("conformance")),
         |name| PulsarSubscription::new(name, sub.clone()),
         |connected| connected.publisher(),
     )
@@ -111,7 +111,7 @@ async fn pulsar_broker_passes_batches_suite() {
     let Some(url) = test_url() else { return };
     let sub = format!("batches-{}", std::process::id());
     capabilities::batches(
-        || PulsarBroker::new(url.clone()),
+        || PulsarBroker::new(url.clone()).default_subscription(unique("conformance")),
         |name| PulsarSubscription::new(name, sub.clone()),
         |connected| connected.publisher(),
     )

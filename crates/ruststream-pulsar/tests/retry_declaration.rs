@@ -149,7 +149,7 @@ async fn reconcile_by_name(order: &Order) -> HandlerOutcome {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_bare_name_carries_its_declaration_to_the_consumer() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarTestBroker::new().default_subscription("workers"),
         |b| {
             b.include(reconcile_by_name)
                 .max_attempts(nonzero!(5))
@@ -180,7 +180,7 @@ async fn a_bare_name_carries_its_declaration_to_the_consumer() {
 #[tokio::test]
 async fn a_bare_name_refuses_half_a_declaration() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarTestBroker::new().default_subscription("workers"),
         |b| {
             b.include(reconcile_by_name).max_attempts(nonzero!(5));
         },
