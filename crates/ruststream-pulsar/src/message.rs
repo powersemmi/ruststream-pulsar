@@ -13,8 +13,6 @@ use ruststream::{
     AckError, BytesMut, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned, Str,
 };
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::sleep;
-use tracing::warn;
 
 use crate::error::PulsarError;
 #[cfg(feature = "testing")]
@@ -114,10 +112,23 @@ pub(crate) struct SettleCmd {
     pub(crate) done: oneshot::Sender<Result<(), AckError>>,
 }
 
+/// A delayed negative acknowledgement shipped from a message handle to the subscription's driver
+/// task, which waits it out on its own runtime, the one the broker connected on.
+#[derive(Debug)]
+pub(crate) struct NackAfterCmd {
+    pub(crate) topic: String,
+    pub(crate) id: MessageIdData,
+    pub(crate) delay: Duration,
+    /// The delivery's own channel back to the driver. The wait holds it, so the driver keeps
+    /// serving settlements until the negative acknowledgement has gone out.
+    pub(crate) back: SettleSender,
+}
+
 /// Everything the driver task can be asked to do while its stream runs.
 #[derive(Debug)]
 pub(crate) enum DriverCmd {
     Settle(SettleCmd),
+    NackAfter(NackAfterCmd),
     Seek(SeekCmd),
 }
 
@@ -263,7 +274,7 @@ impl PulsarMessage {
 
 /// Asks the subscription's driver task to settle the delivery `id` of `topic`, and waits for its
 /// answer.
-async fn send_settle(
+pub(crate) async fn send_settle(
     driver: SettleSender,
     topic: String,
     id: MessageIdData,
@@ -347,15 +358,17 @@ impl IncomingMessage for PulsarMessage {
     /// Holds the delivery unacknowledged for `delay`, then negatively acknowledges it so the
     /// broker redelivers.
     ///
-    /// The wait runs on a task of its own: the subscription's dispatch loop must not stop for it,
-    /// and the delivery's settlement channel keeps the subscription's driver alive until the wait
-    /// is over. `Ok` therefore means the delay was accepted, not that the redelivery has happened
-    /// yet.
+    /// The wait runs on a task of its own, started by the subscription's driver on the runtime
+    /// the broker connected on: the dispatch loop must not stop for it, and a handler on a
+    /// dedicated thread may settle from a runtime that stops before the delay is out. The
+    /// delivery's settlement channel keeps the driver alive until the wait is over. `Ok`
+    /// therefore means the delay was accepted, not that the redelivery has happened yet.
     ///
     /// # Errors
     ///
     /// Returns [`AckError::Broker`] when the delay is not shorter than the subscription's
-    /// `ack_timeout`, which would redeliver the message before the delay was over.
+    /// `ack_timeout`, which would redeliver the message before the delay was over, or when the
+    /// subscription's driver task has shut down.
     ///
     /// # Cancel safety
     ///
@@ -368,21 +381,17 @@ impl IncomingMessage for PulsarMessage {
         }
         match self.settle {
             Settle::Driver(driver) => {
-                let (topic, id) = (self.topic, self.id);
-                tokio::spawn(async move {
-                    sleep(delay).await;
-                    let named = topic.clone();
-                    if let Err(err) = send_settle(driver, topic, id, SettleKind::Nack).await {
-                        warn!(
-                            target: "ruststream_pulsar::subscriber",
-                            topic = %named,
-                            delay = ?delay,
-                            error = %err,
-                            "a delayed retry could not be negatively acknowledged; the broker \
-                             redelivers it once the consumer's ack timeout elapses",
-                        );
-                    }
+                let cmd = DriverCmd::NackAfter(NackAfterCmd {
+                    topic: self.topic,
+                    id: self.id,
+                    delay,
+                    back: driver.clone(),
                 });
+                if driver.send(cmd).is_err() {
+                    return ready(Err(AckError::Broker(Box::from(
+                        "the subscription's driver task has shut down",
+                    ))));
+                }
             }
             #[cfg(feature = "testing")]
             Settle::InProcess(settlement) => {

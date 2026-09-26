@@ -176,7 +176,9 @@ the dead-letter policy below. The client queues acknowledgements, so a settlemen
 
 `retry_after(delay)` is delayed redelivery with no copy published, but the wait is this process's:
 Pulsar's negative acknowledgement carries no delay of its own, so the delivery stays
-unacknowledged for `delay` and is negatively acknowledged when it is over. A process that exits
+unacknowledged for `delay` and is negatively acknowledged when it is over. The wait runs on the
+runtime the broker connected on, so a handler on a dedicated thread may settle from a runtime that
+stops before the delay is out. A process that exits
 mid-wait loses the wait, not the message, and the broker redelivers once `ack_timeout` elapses or
 at once when the consumer disconnects. A delay that is not shorter than the subscription's
 `ack_timeout` is refused at the call, with an error naming both values; a subscription with no

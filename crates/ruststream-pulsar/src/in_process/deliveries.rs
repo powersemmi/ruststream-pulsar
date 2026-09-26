@@ -172,7 +172,9 @@ impl Settlement {
             });
             return;
         }
-        tokio::spawn(async move {
+        // On the runtime the broker connected on, not the settling caller's: a handler on a
+        // dedicated thread settles from a runtime that may stop before the delay is out.
+        self.bus.runtime().spawn(async move {
             sleep(delay).await;
             bus.router().requeue(id, delivery, None);
         });

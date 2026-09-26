@@ -20,6 +20,7 @@ use ruststream::{
 };
 #[cfg(feature = "testing")]
 use ruststream::{BytesMut, OutgoingMessage, RawMessage};
+use tokio::runtime::Handle;
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::error::{PulsarError, box_err};
@@ -148,6 +149,9 @@ pub(crate) struct Core {
     default_subscription: Option<String>,
     /// What registrations mounted by a bare topic name declared about their retries.
     pub(crate) declared_retries: DeclaredRetries,
+    /// The runtime `connect` ran on. Every task the broker starts runs here: a subscription's
+    /// driver, and through it a delayed retry, whichever thread settles the delivery.
+    pub(crate) runtime: Handle,
     /// The subscriptions this connection opened, which the test harness's routing answer reads
     /// on either transport.
     #[cfg(feature = "testing")]
@@ -155,9 +159,10 @@ pub(crate) struct Core {
 }
 
 impl Core {
-    fn new(transport: Transport, default_subscription: Option<String>) -> Self {
+    fn new(transport: Transport, default_subscription: Option<String>, runtime: Handle) -> Self {
         Self {
             transport,
+            runtime,
             closed: AtomicBool::new(false),
             producers: Mutex::new(HashMap::new()),
             default_subscription,
@@ -315,6 +320,7 @@ impl Broker for PulsarBroker {
                 Ok::<_, PulsarError>(Arc::new(Core::new(
                     Transport::Client(client),
                     self.default_subscription.clone(),
+                    Handle::current(),
                 )))
             })
             .await?
@@ -339,9 +345,11 @@ impl InProcess for PulsarBroker {
         let core = self
             .cell
             .get_or_init(async || {
+                let runtime = Handle::current();
                 Arc::new(Core::new(
-                    Transport::InProcess(Bus::new()),
+                    Transport::InProcess(Bus::new(runtime.clone())),
                     self.default_subscription.clone(),
+                    runtime,
                 ))
             })
             .await
@@ -403,7 +411,9 @@ impl ConnectedPulsarBroker {
         #[cfg(feature = "testing")]
         let recorded = route.clone();
         let subscriber = match &self.core.transport {
-            Transport::Client(client) => PulsarSubscriber::open(client, descriptor).await,
+            Transport::Client(client) => {
+                PulsarSubscriber::open(client, descriptor, &self.core.runtime).await
+            }
             #[cfg(feature = "testing")]
             Transport::InProcess(bus) => in_process::subscribe(bus, descriptor, route),
         }?;
