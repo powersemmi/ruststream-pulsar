@@ -12,13 +12,12 @@
 //! Everything reported here is read off the descriptor, before anything connects. A namespace
 //! that only one topic of a multi-topic subscription agrees with is reported by nobody: a
 //! single-valued field standing for several topics describes a deployment that does not exist.
-#![cfg(all(feature = "testing", feature = "asyncapi"))]
+#![cfg(feature = "asyncapi")]
 
 use ruststream::DescribeServer;
 use ruststream::asyncapi::build_spec;
 use ruststream::conformance::harness;
 use ruststream_pulsar::prelude::*;
-use ruststream_pulsar::testing::PulsarTestBroker;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
@@ -98,7 +97,7 @@ fn document() -> Value {
             PulsarBroker::new("pulsar://broker:6650").describe_server(),
         )
         .with_broker(
-            PulsarTestBroker::new().default_subscription("workers"),
+            PulsarBroker::new("pulsar://broker:6650").default_subscription("workers"),
             |b| {
                 b.include(created);
                 b.include(by_name);

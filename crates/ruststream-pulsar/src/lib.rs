@@ -6,13 +6,13 @@ mod bindings;
 mod broker;
 mod context;
 mod error;
+#[cfg(feature = "testing")]
+mod in_process;
 mod message;
 pub mod prelude;
 mod publisher;
 mod subscriber;
 mod subscription;
-#[cfg(feature = "testing")]
-pub mod testing;
 mod topic;
 
 pub use broker::{ConnectedPulsarBroker, OperationRetries, PulsarBroker};

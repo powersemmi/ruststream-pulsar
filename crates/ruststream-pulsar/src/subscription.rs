@@ -28,8 +28,9 @@ pub enum SubscriptionType {
     ///
     /// A server answers a second attach with "consumer busy" and the client waits for the holder
     /// to leave rather than reporting it, so a second consumer of this subscription is a service
-    /// that does not start. The in-process stand-in refuses the attach instead, which is the one
-    /// place the two disagree.
+    /// that does not start. In process, under the test harness, the attach is refused with
+    /// [`PulsarError::Subscribe`](crate::PulsarError::Subscribe) instead, so the test fails
+    /// rather than hangs.
     Exclusive,
     /// Competing consumers, round-robin. The default.
     #[default]
@@ -92,7 +93,7 @@ struct PulsarOperation<'a> {
 /// topic a spent delivery moves to.
 ///
 /// Both halves together, because that is what the Pulsar client applies. The live consumer and
-/// the in-process stand-in read this one value, so a cap driven in a test is the cap production
+/// the in-process transport read this one value, so a cap driven in a test is the cap production
 /// configures.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DeadLetterRoute {
@@ -129,9 +130,8 @@ pub(crate) const DEFAULT_BATCH_WAIT: Duration = Duration::from_millis(10);
 /// on [`Shared`](SubscriptionType::Shared) and [`KeyShared`](SubscriptionType::KeyShared) and
 /// nowhere else - so a declaration over the other two types refuses to start.
 ///
-/// Implements [`SubscriptionSource`] for the real broker and, behind the `testing` feature, for
-/// the in-process stand-in, so the declaration below sits inline in the `#[subscriber(..)]`
-/// decorator and mounts on either:
+/// Implements [`SubscriptionSource`] for the broker, so the declaration below sits inline in the
+/// `#[subscriber(..)]` decorator:
 ///
 /// ```
 /// use std::time::Duration;
@@ -223,9 +223,8 @@ impl PulsarSubscription {
         &self.subscription
     }
 
-    /// Takes in what a registration declared about its retries. What both
-    /// [`SubscriptionSource`] impls do with the declaration, and what a bare topic name's
-    /// descriptor is built with.
+    /// Takes in what a registration declared about its retries. What the [`SubscriptionSource`]
+    /// impl does with the declaration, and what a bare topic name's descriptor is built with.
     pub(crate) fn declaring(mut self, declaration: &RetryDeclaration) -> Self {
         self.retry = declaration.clone();
         self
@@ -233,9 +232,9 @@ impl PulsarSubscription {
 
     /// The name the framework reports for a subscription on this descriptor: the topic when
     /// there is exactly one, the subscription name otherwise, since a list and a pattern have no
-    /// single topic to name. Both [`SubscriptionSource`] impls read it, so a handler is reported
-    /// under one name whichever broker it mounted on.
-    fn source_name(&self) -> &str {
+    /// single topic to name. The test harness's routing answer reads it too, so a subscription
+    /// is owed a publish under the name it is reported by.
+    pub(crate) fn source_name(&self) -> &str {
         match &self.topics {
             Topics::List(topics) if topics.len() == 1 => &topics[0],
             _ => &self.subscription,
@@ -471,71 +470,18 @@ impl SubscriptionSource<ConnectedPulsarBroker> for PulsarSubscription {
     }
 }
 
-/// The descriptor is a source for the in-process stand-in too, so the declaration a service
-/// ships is the one its tests run: the same `#[subscriber(PulsarSubscription::new(..))]` mounts
-/// on [`PulsarTestBroker`](crate::testing::PulsarTestBroker) under a
-/// [`TestApp`](ruststream::testing::TestApp), with no second descriptor and nothing to change at
-/// the mount site.
-///
-/// All three forms route: one topic, the list of
-/// [`topics`](PulsarSubscription::topics), and the regular expression of
-/// [`pattern`](PulsarSubscription::pattern), which the stand-in matches against every topic
-/// published to, including topics that first appear after the subscription opened. The
-/// [`subscription_type`](PulsarSubscription::subscription_type) decides which consumer of the
-/// subscription takes a message, so competing consumers split a stream in process as they do in
-/// production. So does the registration's declaration: the stand-in counts a message's
-/// redeliveries and moves it to the declared dead-letter topic at the limit, the way the client
-/// does. What is left to the server - the ack timeout and redelivery timing - the
-/// [`testing` module docs](crate::testing) name.
-#[cfg(feature = "testing")]
-impl SubscriptionSource<crate::testing::ConnectedPulsarTestBroker> for PulsarSubscription {
-    type Subscriber = crate::testing::PulsarTestSubscriber;
-    type Copies = BrokerMoves;
-
-    fn name(&self) -> &str {
-        self.source_name()
-    }
-
-    async fn subscribe(
-        self,
-        connected: &crate::testing::ConnectedPulsarTestBroker,
-    ) -> Result<Self::Subscriber, PulsarError> {
-        connected.subscribe_descriptor(self).await
-    }
-
-    fn declare_retry(self, declaration: &RetryDeclaration) -> Self {
-        self.declaring(declaration)
-    }
-
-    /// The same values the real broker reports, so a document built against the stand-in is the
-    /// document the service publishes.
-    #[cfg(feature = "asyncapi")]
-    fn channel_bindings(&self) -> Bindings {
-        self.describe_channel()
-    }
-
-    #[cfg(feature = "asyncapi")]
-    fn operation_bindings(&self) -> Bindings {
-        self.describe_operation()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use ruststream::nonzero;
 
     use super::*;
 
-    /// Takes the declaration in the way the runtime does. Spelled out because the descriptor is
-    /// a source for two brokers, so the bare method call names no impl.
+    /// Takes the declaration in the way the runtime does.
     fn declared(
         subscription: PulsarSubscription,
         declaration: &RetryDeclaration,
     ) -> PulsarSubscription {
-        <PulsarSubscription as SubscriptionSource<ConnectedPulsarBroker>>::declare_retry(
-            subscription,
-            declaration,
-        )
+        SubscriptionSource::declare_retry(subscription, declaration)
     }
 
     #[test]

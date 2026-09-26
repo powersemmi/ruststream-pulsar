@@ -14,10 +14,14 @@
 //! step and not the other refuses to start rather than running with a cap nobody enforces.
 #![cfg(feature = "testing")]
 
+use std::time::Duration;
+
 use ruststream::testing::TestApp;
 use ruststream_pulsar::prelude::*;
-use ruststream_pulsar::testing::PulsarTestBroker;
 use serde::{Deserialize, Serialize};
+
+/// The address the service's broker is built with; the in-process mode dials nothing.
+const URL: &str = "pulsar://localhost:6650";
 
 #[derive(Debug, Deserialize, Eq, Outgoing, PartialEq, Serialize)]
 struct Order {
@@ -48,7 +52,7 @@ async fn audit(order: &Order) -> HandlerOutcome {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_declared_cap_ends_at_the_dead_letter_topic() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarBroker::new(URL),
         |b| {
             b.include(reconcile)
                 .max_attempts(nonzero!(3))
@@ -57,7 +61,7 @@ async fn the_declared_cap_ends_at_the_dead_letter_topic() {
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .message(&Order { id: 1 })
         .to("orders")
         .publish()
@@ -65,10 +69,10 @@ async fn the_declared_cap_ends_at_the_dead_letter_topic() {
         .expect("publish");
     tb.settle().await.expect("settle");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .subscriber("orders")
         .assert_called(3);
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .published::<Order>("orders-dlq")
         .assert_called_once()
         .with(&Order { id: 1 });
@@ -79,7 +83,7 @@ async fn the_declared_cap_ends_at_the_dead_letter_topic() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_multi_topic_subscription_declares_one_destination() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarBroker::new(URL),
         |b| {
             b.include(reconcile_regional)
                 .max_attempts(nonzero!(2))
@@ -88,7 +92,7 @@ async fn a_multi_topic_subscription_declares_one_destination() {
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .message(&Order { id: 2 })
         .to("orders-us")
         .publish()
@@ -96,10 +100,10 @@ async fn a_multi_topic_subscription_declares_one_destination() {
         .expect("publish");
     tb.settle().await.expect("settle");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .subscriber("regional")
         .assert_called(2);
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .published::<Order>("regional-dlq")
         .assert_called_once();
 }
@@ -108,10 +112,13 @@ async fn a_multi_topic_subscription_declares_one_destination() {
 /// property of the client rather than of how the subscription found its topics. The destination
 /// is named outside the pattern on purpose - a dead-letter topic the pattern itself selects
 /// feeds the spent message straight back to the handler, here and on a server alike.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+///
+/// The topic appears after the subscription opened, so the client reads it from its next listing
+/// of the namespace; the paused clock is what lets the test reach that listing.
+#[tokio::test(start_paused = true)]
 async fn a_pattern_subscription_carries_the_same_policy() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarBroker::new(URL),
         |b| {
             b.include(audit)
                 .max_attempts(nonzero!(2))
@@ -120,7 +127,17 @@ async fn a_pattern_subscription_carries_the_same_policy() {
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
-    tb.broker::<PulsarTestBroker>()
+    // The first publish creates the topic; the pattern reads it once the client lists it again.
+    tb.broker::<PulsarBroker>()
+        .message(&Order { id: 0 })
+        .to("audit-eu")
+        .publish()
+        .await
+        .expect("publish");
+    tb.advance(Duration::from_secs(30))
+        .await
+        .expect("the client lists the namespace again");
+    tb.broker::<PulsarBroker>()
         .message(&Order { id: 3 })
         .to("audit-eu")
         .publish()
@@ -128,10 +145,10 @@ async fn a_pattern_subscription_carries_the_same_policy() {
         .expect("publish");
     tb.settle().await.expect("settle");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .subscriber("audit")
         .assert_called(2);
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .published::<Order>("dlq-audit")
         .assert_called_once();
 }
@@ -149,7 +166,7 @@ async fn reconcile_by_name(order: &Order) -> HandlerOutcome {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_bare_name_carries_its_declaration_to_the_consumer() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new().default_subscription("workers"),
+        PulsarBroker::new(URL).default_subscription("workers"),
         |b| {
             b.include(reconcile_by_name)
                 .max_attempts(nonzero!(5))
@@ -158,7 +175,7 @@ async fn a_bare_name_carries_its_declaration_to_the_consumer() {
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .message(&Order { id: 11 })
         .to("orders")
         .publish()
@@ -166,10 +183,10 @@ async fn a_bare_name_carries_its_declaration_to_the_consumer() {
         .expect("publish");
     tb.settle().await.expect("settle");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .subscriber("orders")
         .assert_called(5);
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .published::<Order>("orders-dead")
         .assert_called_once()
         .with(&Order { id: 11 });
@@ -180,7 +197,7 @@ async fn a_bare_name_carries_its_declaration_to_the_consumer() {
 #[tokio::test]
 async fn a_bare_name_refuses_half_a_declaration() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new().default_subscription("workers"),
+        PulsarBroker::new(URL).default_subscription("workers"),
         |b| {
             b.include(reconcile_by_name).max_attempts(nonzero!(5));
         },
@@ -199,7 +216,7 @@ async fn a_bare_name_refuses_half_a_declaration() {
 #[tokio::test]
 async fn a_cap_without_a_destination_refuses_to_start() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarBroker::new(URL),
         |b| {
             b.include(reconcile).max_attempts(nonzero!(3));
         },
@@ -217,7 +234,7 @@ async fn a_cap_without_a_destination_refuses_to_start() {
 #[tokio::test]
 async fn a_destination_without_a_cap_refuses_to_start() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarBroker::new(URL),
         |b| {
             b.include(reconcile).dead_letter("orders-dlq");
         },
@@ -247,7 +264,7 @@ async fn confirm(order: &Order) -> Receipt {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_declaration_composes_with_a_reply_position() {
     let app = RustStream::new(AppInfo::new("payments", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarBroker::new(URL),
         |b| {
             b.include(confirm)
                 .out_reply(Publish)
@@ -257,7 +274,7 @@ async fn the_declaration_composes_with_a_reply_position() {
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .message(&Order { id: 7 })
         .to("payments")
         .publish()
@@ -265,7 +282,7 @@ async fn the_declaration_composes_with_a_reply_position() {
         .expect("publish");
     tb.settle().await.expect("settle");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .published::<Receipt>("receipts")
         .assert_called_once()
         .with(&Receipt { id: 7 });

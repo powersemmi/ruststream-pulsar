@@ -1,5 +1,5 @@
 site_name: ruststream-pulsar
-site_description: The Apache Pulsar broker for RustStream - subscription types, pattern subscriptions, dead-lettering, seeking, and an in-process test broker.
+site_description: The Apache Pulsar broker for RustStream - subscription types, pattern subscriptions, dead-lettering, seeking, and an in-process mode that runs the production app in tests.
 site_url: https://powersemmi.github.io/ruststream-pulsar/
 repo_url: https://github.com/powersemmi/ruststream-pulsar
 repo_name: powersemmi/ruststream-pulsar
