@@ -12,9 +12,9 @@ tokio 运行时和构建。这套流程属于框架本身，写在
 
 ## 数字 { #the-numbers }
 
-三个交错轮次中的最佳值，括号里是最差的一轮。越大越好。
+三个交错轮次中的最佳值，括号里是中位的一轮。越大越好。
 
-<div id="benchmark-results" data-benchmark-results="../../benchmarks/results.json" data-benchmark-labels='{"loading": "正在加载公布的结果...", "scenario": "场景", "raw": "裸客户端", "adapter": "本 crate", "framework": "完整服务", "adapterOverhead": "crate 开销", "overhead": "服务开销", "indistinguishable": "无法区分", "brokerBound": "受 Broker 限制", "machine": "机器", "os": "操作系统", "broker": "Broker", "build": "构建", "versions": "版本", "measured": "测量于", "unavailable": "读不到结果。它们公布在 {url}。", "unknownSchema": "公布的结果声明的 schema 是 {schema}，这一页不渲染它。"}'></div>
+<div id="benchmark-results" data-benchmark-results="../../benchmarks/results.json" data-benchmark-labels='{"loading": "正在加载公布的结果...", "scenario": "场景", "raw": "裸客户端", "adapter": "本 crate", "framework": "完整服务", "adapterOverhead": "crate 开销", "overhead": "服务开销", "indistinguishable": "无法区分", "brokerBound": "受 Broker 限制", "machine": "机器", "os": "操作系统", "broker": "Broker", "build": "构建", "versions": "版本", "measured": "测量于", "codeMeasured": "代码开销测量于", "instructions": "每条消息的指令数", "allocations": "每条消息的内存分配次数", "cold": "冷启动（指令 / 分配）", "unavailable": "读不到结果。它们公布在 {url}。", "unknownSchema": "公布的结果声明的 schema 是 {schema}，这一页不渲染它。"}'></div>
 
 表格由浏览器从上一次运行写下的文档读出，所以这一页上没有任何会过期的副本。
 
@@ -37,6 +37,32 @@ tokio 运行时和构建。这套流程属于框架本身，写在
 同一次运行的机器可读形式在
 [`benchmarks/results.json`](https://powersemmi.github.io/ruststream-pulsar/latest/benchmarks/results.json)，
 框架的站点用它拼出跨 Broker 的汇总表。
+
+## crate 自身的代码 { #the-crates-own-code }
+
+<div id="benchmark-code"></div>
+
+第二张表是本 crate 自身在每条消息上的开销，是数出来的，不是计时得来的：指令数由 callgrind 统计，
+内存分配次数由 DHAT 统计。每个场景都是用户会写的那种服务，跑在 `PulsarBroker` 上，连的是和上面的
+对比相同的测试台。订阅是共享订阅，也就是本 crate 的默认值；主题是持久主题，发布到它上面的消息会一直
+保存，直到服务取走。消息在计数开始之前由一个单独的线程发布，到那时 Broker 已经存下了每一条。批量
+场景调大了批的等待时间，让每一批都装满：如果用默认的十毫秒，在 valgrind 下一批能装多满取决于机器，
+而不是代码。
+
+计入的是服务线程在启动期间和取空主题期间所做的一切：框架的分发、本 crate 的代码，以及 `pulsar`
+客户端在这个线程上的工作，因为它的连接和消费者都跑在服务的运行时上。客户端自己开的线程不计入，
+Broker 也不计入。在套接字上等待不花指令。每个数字的大部分属于客户端：一次投递的十九次内存分配里，
+属于本 crate 的是四次。
+
+指令数和分配次数都是稳态下每条消息的值：1000 次投递的运行和 2000 次投递的运行之间的斜率。最后一列
+是连接、订阅和处理第一次投递一次性付出的开销。这些数字是绝对值，框架自身的开销也算在内；框架单独的
+开销由核心库在它的[基准测试页面](https://powersemmi.github.io/ruststream/latest/zh/benchmarks/)上公布。
+
+循环里有套接字，所以计数会随时序略有变动。同一个二进制文件运行五次，每条消息的指令数相差不到
+万分之三，一整次运行的内存分配次数最多相差两次，冷启动最多变动千分之五。每个场景的分配下限取
+观测到的最大值，上限再高出千分之一，远低于每条消息多一次分配的量。`just bench-code` 在分配次数
+超过这个上限时失败，加上 `--baseline=main` 时，指令数多出百分之二以上也算失败；改变开销的合并
+请求要附上自己的数字。
 
 ## 机器 { #the-machine }
 
@@ -68,6 +94,14 @@ just bench
 ```
 
 这条 recipe 从 `docker-compose.test.yml` 起停测试台，跑完两个场景，然后把测到的结果写回
-`docs/benchmarks/results.json`。它要花一刻钟左右，并且需要整台机器。消息条数不是固定的：一次
+`docs/benchmarks/results.json`。它要花几分钟，并且需要整台机器。消息条数不是固定的：一次
 试探运行会把它定下来，使得每一次被测量的运行在所在机器上都不短于五秒。每次运行都拥有一个新的
 主题，跑完就把它删掉，所以一段很长的会话不会把历史留给测试台。
+
+```bash
+just bench-code
+```
+
+这条 recipe 起同一套测试台，在 valgrind 下统计代码表，停掉测试台，并重写同一份文档里的 `code`
+部分。它大约需要四分钟。它需要 valgrind 和基准测试运行器：
+`cargo install --locked gungraun-runner --version =0.19.4`。
