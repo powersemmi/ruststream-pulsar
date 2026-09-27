@@ -653,6 +653,51 @@ mod tests {
         assert!(matches!(late, Err(PulsarError::NotConnected)), "{late:?}");
     }
 
+    /// A delivery held across the shutdown has no consumer to go back to in process, so handing it
+    /// back answers an error rather than promising a redelivery that never comes.
+    #[cfg(feature = "testing")]
+    #[tokio::test]
+    async fn a_delivery_held_across_shutdown_is_not_handed_back_in_process() {
+        use futures::StreamExt;
+        use ruststream::{IncomingMessage, Subscriber};
+
+        let connected = PulsarBroker::new("pulsar://localhost:6650")
+            .connect_in_process()
+            .await
+            .expect("connects in process");
+        let mut subscriber = connected
+            .subscribe_descriptor(PulsarSubscription::new("orders", "workers"))
+            .await
+            .expect("subscribes");
+        let publisher = connected.publisher();
+        for _ in 0..2 {
+            publisher
+                .publish(
+                    OutgoingMessage::produced("orders", BytesMut::from(&b"{}"[..])),
+                    None,
+                )
+                .await
+                .expect("publishes");
+        }
+        let (requeued, delayed) = {
+            let mut stream = subscriber.stream();
+            let mut next = async || {
+                stream
+                    .next()
+                    .await
+                    .expect("the subscription is open")
+                    .expect("a delivery")
+            };
+            (next().await, next().await)
+        };
+        connected.shutdown().await.expect("shutdown");
+
+        let requeue = requeued.nack(true).await;
+        assert!(requeue.is_err(), "{requeue:?}");
+        let delay = delayed.nack_after(Duration::from_secs(1)).await;
+        assert!(delay.is_err(), "{delay:?}");
+    }
+
     /// The generated document is published and shared, so what a service put in its URL to
     /// authenticate must not be in it.
     #[test]

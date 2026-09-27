@@ -453,8 +453,10 @@ impl AddressRouter {
     /// and at the limit produces the message to the dead-letter topic instead of handing it
     /// back, which is where the Pulsar client applies the policy too.
     ///
-    /// Reports whether a consumer was still there to take it; a dead-lettered message reports
-    /// `false`, because the produce has already counted its own enqueues.
+    /// Reports `None` when the consumer `id` is gone (its subscriber dropped, or the broker shut
+    /// down), which returns nothing; otherwise whether a consumer was there to take it, where a
+    /// dead-lettered message reports `false`, because the produce has already counted its own
+    /// enqueues.
     // significant_drop_tightening misfires: the guard is used up to the last statement.
     #[allow(clippy::significant_drop_tightening)]
     pub(crate) fn requeue(
@@ -462,11 +464,9 @@ impl AddressRouter {
         id: ConsumerId,
         mut delivery: Delivery,
         coordinator: Option<&Coordinator>,
-    ) -> bool {
+    ) -> Option<bool> {
         let mut state = self.lock();
-        let Some(consumer) = state.consumers.get(&id) else {
-            return false;
-        };
+        let consumer = state.consumers.get(&id)?;
         let membership = consumer.membership.clone();
         let dead_letter = consumer.dead_letter.clone();
         delivery.redeliveries = delivery.redeliveries.saturating_add(1);
@@ -477,14 +477,19 @@ impl AddressRouter {
             let topic = PulsarTopic::parse(&policy.topic)
                 .map_or(policy.topic, |topic| topic.as_str().to_owned());
             state.deliver(&topic, delivery.payload, delivery.headers, coordinator);
-            return false;
+            return Some(false);
         }
         let members = state.members_of(&delivery.topic, &membership.name, Instant::now());
         if members.is_empty() {
-            return false;
+            return Some(false);
         }
         let target = state.choose(&membership.name, membership.sharing, &members, &delivery);
-        state.enqueue(target, delivery)
+        Some(state.enqueue(target, delivery))
+    }
+
+    /// Whether the consumer `id` is still attached.
+    pub(crate) fn attached(&self, id: ConsumerId) -> bool {
+        self.lock().consumers.contains_key(&id)
     }
 
     /// Appends `payload` to the topic's log and hands it to every subscription reading the topic,
