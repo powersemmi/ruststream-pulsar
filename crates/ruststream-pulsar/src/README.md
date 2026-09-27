@@ -613,6 +613,9 @@ The harness itself is the framework's, and
 * [`operation_retries`](PulsarBroker::operation_retries) bounds how long that waiting lasts, for
   the reconnect and for every other operation a server has not accepted yet. Unbounded by
   default, which is what waits out a restart.
+* [`max_message_size`](PulsarBroker::max_message_size) is the largest payload a publish may carry,
+  five mebibytes by default as on the server; a larger one fails before it is sent, on both
+  transports. A deployment that changed the server's `maxMessageSize` sets the same value here.
 * Credentials in the URL never reach the generated document, which carries the host and the port.
 * `shutdown` closes the producers this crate opened; the client has no close of its own, so the
   terminal state carries no diagnostics.

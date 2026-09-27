@@ -6,9 +6,10 @@
 //! transport as a variant of their own, so a service's descriptors, publish policies and handlers
 //! run against it unchanged. It has no configuration of its own: the default subscription, the
 //! retry declarations and every descriptor setting come from the production broker. It never
-//! succeeds where a server fails: a destination that is no topic name, a descriptor the client
-//! refuses, a second consumer of an exclusive subscription and a handle outliving its connection are refused here with the error the live broker
-//! returns.
+//! succeeds where a server fails: a destination that is no topic name, a payload over the
+//! broker's `max_message_size`, a descriptor the client refuses, a second consumer of an
+//! exclusive subscription and a handle outliving its connection are refused here with the error
+//! the live broker returns.
 //!
 //! What it models: fully qualified topic names; single-topic, multi-topic and pattern
 //! subscriptions, a pattern reading the `public/default` namespace by full name and a topic

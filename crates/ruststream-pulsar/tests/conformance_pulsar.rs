@@ -36,6 +36,10 @@ use crate::live::{test_url, unique};
 /// The address the service's broker is built with; the in-process legs dial nothing.
 const URL: &str = "pulsar://localhost:6650";
 
+/// The largest payload a server accepts unless its deployment says otherwise, and the broker's
+/// default limit.
+const MAX_MESSAGE_SIZE: usize = 5 * 1024 * 1024;
+
 /// How many deliveries `broker_moves` requeues before the client moves the message.
 const ATTEMPTS: NonZeroU32 = nonzero!(3u32);
 
@@ -352,6 +356,10 @@ async fn pulsar_broker_refusals_match_in_process() {
         || production(&url).operation_retries(OperationRetries::attempts(nonzero!(1u32))),
         |connected| connected.publisher(),
         [
+            Refusal::PayloadOver {
+                name: unique_subject("conformance.size"),
+                limit: MAX_MESSAGE_SIZE,
+            },
             Refusal::Publish {
                 name: "not/a-topic".to_owned(),
             },
