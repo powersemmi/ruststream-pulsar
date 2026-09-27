@@ -89,6 +89,30 @@ async fn the_in_process_mode_passes_conformance_suite() {
     harness::run_suite(|| production(URL)).await;
 }
 
+/// The lifecycle ladder in process, through the crate's own descriptor. The live leg below runs
+/// the same suite, which is what says the two agree.
+#[allow(clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_in_process_mode_passes_lifecycle() {
+    harness::lifecycle(in_process, descriptor("lifecycle"), |connected| {
+        connected.publisher()
+    })
+    .await;
+}
+
+/// The same ladder over the bare-name form, which resolves through `Subscribe` and the broker's
+/// default subscription rather than through the descriptor.
+#[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_in_process_mode_passes_lifecycle_by_name() {
+    harness::lifecycle(
+        in_process,
+        |name| Name::new(name.to_owned()),
+        |connected| connected.publisher(),
+    )
+    .await;
+}
+
 /// The client moves a spent delivery itself, so the cap and the dead-letter topic a registration
 /// declares are applied in process too, on both addressing forms.
 #[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
@@ -193,6 +217,30 @@ fn the_document_carries_no_credentials() {
         },
         "pulsar",
     );
+}
+
+#[allow(clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_broker_passes_lifecycle() {
+    let Some(url) = test_url() else { return };
+    Box::pin(harness::lifecycle(
+        move || production(&url),
+        descriptor("lifecycle"),
+        |connected| connected.publisher(),
+    ))
+    .await;
+}
+
+#[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_broker_passes_lifecycle_by_name() {
+    let Some(url) = test_url() else { return };
+    Box::pin(harness::lifecycle(
+        move || production(&url),
+        |name| Name::new(name.to_owned()),
+        |connected| connected.publisher(),
+    ))
+    .await;
 }
 
 /// A shutdown finishes the acknowledgement and the publish handed to it. A subscription the

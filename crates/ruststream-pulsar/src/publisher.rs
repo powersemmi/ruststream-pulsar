@@ -170,7 +170,7 @@ impl Publisher for PulsarPublisher {
         // The destination outlives the message, so the client's message can consume it.
         let topic = msg.name();
         let producer = Box::pin(self.producer_for(core, client, topic)).await?;
-        let message = to_pulsar_message(msg, key);
+        let message = to_pulsar_message(msg, key)?;
         let receipt = {
             let mut producer = producer.lock().await;
             Box::pin(producer.send_non_blocking(message))

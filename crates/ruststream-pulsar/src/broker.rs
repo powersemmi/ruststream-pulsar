@@ -510,8 +510,9 @@ impl DefaultPublish for ConnectedPulsarBroker {
 ///
 /// `inject` and `published` panic on a broker connected with `connect`: the harness drives only
 /// the transport `connect_in_process` produced, and a live connection has no log to read and no
-/// synchronous way to take a message. `inject` panics on a destination that is no topic name,
-/// which a server refuses and the trait gives no way to report.
+/// synchronous way to take a message. `inject` panics on a message a server refuses (a
+/// destination that is no topic name, a header value that is not UTF-8), which the trait gives no
+/// way to report.
 #[cfg(feature = "testing")]
 impl TestableBroker for ConnectedPulsarBroker {
     fn install_coordinator(&self, coordinator: Coordinator) {

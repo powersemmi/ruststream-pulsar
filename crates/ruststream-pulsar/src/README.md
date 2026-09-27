@@ -594,8 +594,8 @@ What the in-process mode models, and what it means for a test:
   publishes to completion before the next.
 * A delayed retry and a pattern's listing run on the runtime's clock, so `tb.advance(..)` on a
   paused clock drives both.
-* A publish is framed the way the client frames it: a header value that is not UTF-8 arrives with
-  replacement characters, as it does from a server.
+* A publish is framed the way the client frames it: Pulsar carries headers as text, so a header
+  value that is not UTF-8 fails the publish on both transports.
 
 What belongs to the server is asserted against one: the acknowledgement timeout's own
 redelivery, partitioned topics, `KeyShared` hash ranges, and a backlog kept while a subscription
