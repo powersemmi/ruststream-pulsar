@@ -7,6 +7,7 @@ mod live;
 
 use std::collections::BTreeSet;
 use std::pin::pin;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -322,6 +323,57 @@ async fn a_delayed_nack_from_a_stopped_runtime_is_still_redelivered() {
     again.ack().await.expect("ack succeeds");
 
     connected.shutdown().await.expect("shutdown succeeds");
+}
+
+/// A subscription opened, and a publisher first used, from a runtime that stops right after (a
+/// handler on a dedicated thread) keep working: the consumer and the producer are built on the
+/// runtime the broker connected on, so the connection they need outlives the one that asked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_subscription_and_a_producer_opened_from_a_stopped_runtime_keep_working() {
+    let Some(url) = test_url() else { return };
+    let connected = Arc::new(connect(&url).await);
+    let topic = unique("foreign-open");
+
+    let (opening, source) = (
+        Arc::clone(&connected),
+        PulsarSubscription::new(&topic, unique("sub")),
+    );
+    let mut subscriber =
+        on_foreign_runtime(async move || opening.subscribe_descriptor(source).await)
+            .await
+            .expect("the subscription opens from a runtime of its own");
+    let publisher = connected.publisher();
+    let (first_use, name) = (publisher.clone(), topic.clone());
+    on_foreign_runtime(async move || {
+        first_use
+            .publish(OutgoingMessage::new(&name, b"first".as_slice()), None)
+            .await
+    })
+    .await
+    .expect("the first publish goes out from a runtime of its own");
+    publisher
+        .publish(OutgoingMessage::new(&topic, b"second".as_slice()), None)
+        .await
+        .expect("the producer outlives the runtime that asked for it");
+
+    {
+        let mut stream = pin!(subscriber.stream());
+        for expected in [b"first".as_slice(), b"second".as_slice()] {
+            let msg = tokio::time::timeout(RECV_TIMEOUT, stream.next())
+                .await
+                .expect("the subscription keeps receiving")
+                .expect("the subscription is open")
+                .expect("the delivery is ok");
+            assert_eq!(msg.payload(), expected);
+            msg.ack().await.expect("ack succeeds");
+        }
+    }
+    drop(subscriber);
+    Arc::into_inner(connected)
+        .expect("the foreign runtimes let go of the connection")
+        .shutdown()
+        .await
+        .expect("shutdown succeeds");
 }
 
 /// Runs `work` on a single-threaded runtime of its own thread, stopped as soon as `work` returns,

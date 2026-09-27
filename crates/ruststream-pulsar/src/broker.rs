@@ -412,7 +412,19 @@ impl ConnectedPulsarBroker {
         let recorded = route.clone();
         let subscriber = match &self.core.transport {
             Transport::Client(client) => {
-                PulsarSubscriber::open(client, descriptor, &self.core).await?
+                // The consumer is built on the runtime the broker connected on: the client starts
+                // the connection it needs on the runtime that asks, and a subscription opened from
+                // a runtime that stops (a dedicated thread's) would lose that connection with it.
+                let (client, core) = (client.clone(), Arc::clone(&self.core));
+                let topic = descriptor.display_topic();
+                self.core
+                    .runtime
+                    .spawn(async move { PulsarSubscriber::open(&client, descriptor, &core).await })
+                    .await
+                    .map_err(|err| PulsarError::Subscribe {
+                        topic,
+                        source: box_err(err),
+                    })??
             }
             #[cfg(feature = "testing")]
             Transport::InProcess(bus) => {

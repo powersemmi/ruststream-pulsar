@@ -115,18 +115,31 @@ impl PulsarPublisher {
         if let Some(producer) = producers.get(&full) {
             return Ok(Arc::clone(producer));
         }
-        let producer = Box::pin(
-            client
-                .producer()
-                .with_topic(&full)
-                .with_options(keyed_routing())
-                .build(),
-        )
-        .await
-        .map_err(|e| PulsarError::Publish {
-            topic: topic.to_owned(),
-            source: box_err(e),
-        })?;
+        // Built on the runtime the broker connected on: the client starts the connection a
+        // producer needs on the runtime that asks, and the first publish may come from a runtime
+        // that stops right after (a handler on a dedicated thread).
+        let (client, named) = (client.clone(), full.clone());
+        let producer = core
+            .runtime
+            .spawn(async move {
+                Box::pin(
+                    client
+                        .producer()
+                        .with_topic(named)
+                        .with_options(keyed_routing())
+                        .build(),
+                )
+                .await
+            })
+            .await
+            .map_err(|e| PulsarError::Publish {
+                topic: topic.to_owned(),
+                source: box_err(e),
+            })?
+            .map_err(|e| PulsarError::Publish {
+                topic: topic.to_owned(),
+                source: box_err(e),
+            })?;
         let producer = Arc::new(Mutex::new(producer));
         producers.insert(full, Arc::clone(&producer));
         Ok(producer)
