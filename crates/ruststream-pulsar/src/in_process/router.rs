@@ -521,6 +521,8 @@ impl AddressRouter {
     /// Both halves run in one critical section, so a concurrent publish lands wholly before or
     /// wholly after the swap. The harness accounting is finished here too, so a caller that
     /// awaits this seek can then wait for quiescence and see the replay.
+    ///
+    /// Reports whether the consumer was still attached; a detached one moves nothing.
     // significant_drop_tightening misfires: the guard is used up to the last statement.
     #[allow(clippy::significant_drop_tightening)]
     pub(crate) fn seek(
@@ -528,11 +530,11 @@ impl AddressRouter {
         id: ConsumerId,
         position: &PulsarPosition,
         coordinator: Option<&Coordinator>,
-    ) {
+    ) -> bool {
         let mut state = self.lock();
         let now = Instant::now();
         let Some(seeker) = state.consumers.get(&id) else {
-            return;
+            return false;
         };
         let subscription = seeker.membership.clone();
         let route = seeker.route.clone();
@@ -622,6 +624,7 @@ impl AddressRouter {
                 consumer.waker.wake();
             }
         }
+        true
     }
 
     /// Detaches every consumer and clears the retained log. Used by broker shutdown.

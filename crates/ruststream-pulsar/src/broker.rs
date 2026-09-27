@@ -412,7 +412,7 @@ impl ConnectedPulsarBroker {
         let recorded = route.clone();
         let subscriber = match &self.core.transport {
             Transport::Client(client) => {
-                PulsarSubscriber::open(client, descriptor, &self.core.runtime).await?
+                PulsarSubscriber::open(client, descriptor, &self.core).await?
             }
             #[cfg(feature = "testing")]
             Transport::InProcess(bus) => {

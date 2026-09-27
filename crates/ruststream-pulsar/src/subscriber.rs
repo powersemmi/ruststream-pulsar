@@ -22,11 +22,11 @@ use pulsar::consumer::{Consumer, DeadLetterPolicy};
 use pulsar::proto::MessageIdData;
 use pulsar::{Pulsar, SubType, TokioExecutor};
 use ruststream::{AckError, BatchSubscriber, BufferedSubscriber, Seekable, Subscriber};
-use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::warn;
 
+use crate::broker::Core;
 use crate::error::{PulsarError, box_err};
 #[cfg(feature = "testing")]
 use crate::in_process::{LogSeeker, Queued};
@@ -115,12 +115,12 @@ impl PulsarSubscriber {
         &self.topic
     }
 
-    /// Opens the client consumer and starts the subscription's driver on `runtime`, the one the
-    /// broker connected on.
+    /// Opens the client consumer and starts the subscription's driver on the runtime the broker
+    /// connected on.
     pub(crate) async fn open(
         client: &Pulsar<TokioExecutor>,
         descriptor: PulsarSubscription,
-        runtime: &Handle,
+        core: &Arc<Core>,
     ) -> Result<Self, PulsarError> {
         let display = descriptor.display_topic();
         let batch_wait = descriptor.batch_wait;
@@ -165,9 +165,10 @@ impl PulsarSubscriber {
         let (out_tx, out_rx) = mpsc::channel(CHANNEL_CAPACITY);
         let (settle_tx, settle_rx) = mpsc::unbounded_channel();
         let epoch = Arc::new(AtomicU64::new(0));
-        runtime.spawn(drive(
+        core.runtime.spawn(drive(
             consumer,
             client.clone(),
+            Arc::clone(core),
             out_tx,
             settle_tx.clone(),
             settle_rx,
@@ -274,10 +275,7 @@ impl ruststream::Seeker for PulsarSeeker {
                 })?
             }
             #[cfg(feature = "testing")]
-            SeekerKind::InProcess(seeker) => {
-                seeker.seek(&to);
-                Ok(())
-            }
+            SeekerKind::InProcess(seeker) => seeker.seek(&to),
         }
     }
 }
@@ -350,6 +348,8 @@ impl BatchSubscriber for PulsarSubscriber {
 async fn drive(
     mut consumer: Consumer<Vec<u8>, TokioExecutor>,
     client: Pulsar<TokioExecutor>,
+    // Read only by a seek, which must not reposition a subscription whose broker shut down.
+    core: Arc<Core>,
     out: mpsc::Sender<(u64, Result<PulsarMessage, PulsarError>)>,
     settle_tx: SettleSender,
     mut settle_rx: mpsc::UnboundedReceiver<DriverCmd>,
@@ -374,10 +374,10 @@ async fn drive(
                         Some(DriverCmd::Seek(seek)) => {
                             // The reposition drops the delivery waiting for capacity too.
                             epoch.fetch_add(1, Ordering::Release);
-                            apply_seek(&mut consumer, &client, seek).await;
+                            apply_seek(&mut consumer, &client, &core, seek).await;
                         }
                         Some(cmd) => {
-                            apply(&mut consumer, &client, cmd).await;
+                            apply(&mut consumer, &client, &core, cmd).await;
                             pending = Some((stamp, msg));
                         }
                         None => pending = Some((stamp, msg)),
@@ -396,9 +396,9 @@ async fn drive(
                     match cmd {
                         Some(DriverCmd::Seek(seek)) => {
                             epoch.fetch_add(1, Ordering::Release);
-                            apply_seek(&mut consumer, &client, seek).await;
+                            apply_seek(&mut consumer, &client, &core, seek).await;
                         }
-                        Some(cmd) => apply(&mut consumer, &client, cmd).await,
+                        Some(cmd) => apply(&mut consumer, &client, &core, cmd).await,
                         None => {}
                     }
                 }
@@ -449,7 +449,7 @@ async fn drive(
     // settle sender is gone.
     drop(settle_tx);
     while let Some(cmd) = settle_rx.recv().await {
-        apply(&mut consumer, &client, cmd).await;
+        apply(&mut consumer, &client, &core, cmd).await;
     }
     if let Err(err) = Box::pin(consumer.close()).await {
         tracing::debug!(topic = %topic, error = %err, "pulsar consumer close failed");
@@ -459,6 +459,7 @@ async fn drive(
 async fn apply(
     consumer: &mut Consumer<Vec<u8>, TokioExecutor>,
     client: &Pulsar<TokioExecutor>,
+    core: &Core,
     cmd: DriverCmd,
 ) {
     match cmd {
@@ -472,7 +473,7 @@ async fn apply(
                 .done
                 .send(result.map_err(|e| AckError::Broker(box_err(e))));
         }
-        DriverCmd::Seek(seek) => apply_seek(consumer, client, seek).await,
+        DriverCmd::Seek(seek) => apply_seek(consumer, client, core, seek).await,
     }
 }
 
@@ -520,11 +521,19 @@ fn end_of_log(mark: u64) -> MessageIdData {
     }
 }
 
+/// Repositions the consumer, or refuses once the broker shut down: the consumer outlives the
+/// shutdown while its subscriber is held, and a reposition through a handle that outlived the
+/// connection must report the dead connection rather than succeed.
 async fn apply_seek(
     consumer: &mut Consumer<Vec<u8>, TokioExecutor>,
     client: &Pulsar<TokioExecutor>,
+    core: &Core,
     SeekCmd { position, done }: SeekCmd,
 ) {
+    if let Err(closed) = core.ensure_open() {
+        let _ = done.send(Err(closed));
+        return;
+    }
     let (message_id, timestamp) = match position {
         PulsarPosition::Earliest => (Some(end_of_log(EARLIEST_MARK)), None),
         PulsarPosition::Latest => (Some(end_of_log(LATEST_MARK)), None),

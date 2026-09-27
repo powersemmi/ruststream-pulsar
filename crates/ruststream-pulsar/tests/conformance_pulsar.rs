@@ -136,6 +136,17 @@ async fn the_in_process_mode_resolves_publish_options() {
     .await;
 }
 
+/// The in-process transport retains a log, so the framework's own seeking suite is what says its
+/// repositioning matches the contract - the same suite the live broker runs below.
+#[allow(clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_in_process_mode_passes_seeking_suite() {
+    capabilities::seeking(in_process, descriptor("seeking"), |connected| {
+        connected.publisher()
+    })
+    .await;
+}
+
 /// Pulsar's client hands over one delivery at a time, so this crate's batches are assembled on
 /// the client. The suite is what says the assembly honours the contract.
 #[allow(clippy::redundant_closure_for_method_calls)]
@@ -304,6 +315,18 @@ async fn pulsar_broker_refusals_match_in_process() {
                 refused: held(),
             },
         ],
+    ))
+    .await;
+}
+
+#[allow(clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_broker_passes_seeking_suite() {
+    let Some(url) = test_url() else { return };
+    Box::pin(capabilities::seeking(
+        || production(&url),
+        descriptor("seeking"),
+        |connected| connected.publisher(),
     ))
     .await;
 }

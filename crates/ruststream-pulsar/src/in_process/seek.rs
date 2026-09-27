@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use ruststream::testing::Coordinator;
 
+use crate::error::PulsarError;
 use crate::in_process::bus::Bus;
 use crate::in_process::router::ConsumerId;
 use crate::message::PulsarPosition;
@@ -38,11 +39,22 @@ impl LogSeeker {
     }
 
     /// Repositions the subscription and wakes its consumers, so the next delivery reflects the
-    /// new position before this returns. A seek through a handle whose subscription is gone
-    /// (dropped, or the broker shut down) does nothing.
-    pub(crate) fn seek(&self, to: &PulsarPosition) {
-        self.bus
+    /// new position before this returns.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PulsarError::NotConnected`] through a handle whose subscription is gone (dropped,
+    /// or the broker shut down), as a live handle whose consumer is gone reports it rather than
+    /// repositioning nothing.
+    pub(crate) fn seek(&self, to: &PulsarPosition) -> Result<(), PulsarError> {
+        if self
+            .bus
             .router()
-            .seek(self.id, to, self.coordinator.as_ref());
+            .seek(self.id, to, self.coordinator.as_ref())
+        {
+            Ok(())
+        } else {
+            Err(PulsarError::NotConnected)
+        }
     }
 }
