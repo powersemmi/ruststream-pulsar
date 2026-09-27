@@ -315,12 +315,19 @@ fn listed_by(opened: Moment, created: Moment, now: Instant) -> bool {
 /// on, but which consumer that is differs from a server's. A delivery with no partition key
 /// hashes as the empty key, so unkeyed traffic gathers on one consumer.
 fn key_slot(delivery: &Delivery, consumers: usize) -> usize {
+    slot_of_key(
+        delivery
+            .headers
+            .get(PARTITION_KEY_HEADER)
+            .unwrap_or_default(),
+        consumers,
+    )
+}
+
+/// Which of `consumers` members of a `KeyShared` subscription owns `key`.
+fn slot_of_key(key: &[u8], consumers: usize) -> usize {
     let mut hasher = DefaultHasher::new();
-    delivery
-        .headers
-        .get(PARTITION_KEY_HEADER)
-        .unwrap_or_default()
-        .hash(&mut hasher);
+    key.hash(&mut hasher);
     let count = u64::try_from(consumers).unwrap_or(1).max(1);
     usize::try_from(hasher.finish() % count).unwrap_or(0)
 }
@@ -387,6 +394,32 @@ impl AddressRouter {
             },
         );
         Ok(id)
+    }
+
+    /// The consumer of `subscription` that takes the next unkeyed message published to `topic`,
+    /// the way [`RouterState::choose`] will pick it, without moving a `Shared` rotation; `None`
+    /// when no consumer of it reads the topic.
+    ///
+    /// The routing answer the harness waits on is asked before the publish and names no key, so
+    /// a `KeyShared` subscription answers for an unkeyed message.
+    pub(crate) fn next_pick(&self, topic: &str, subscription: &str) -> Option<ConsumerId> {
+        let state = self.lock();
+        let members = state.members_of(topic, subscription, Instant::now());
+        let first = *members.first()?;
+        let pick = match state.consumers[&first].membership.sharing {
+            SubscriptionType::Exclusive | SubscriptionType::Failover => first,
+            SubscriptionType::Shared => {
+                let turn = state
+                    .rotation
+                    .get(subscription)
+                    .copied()
+                    .unwrap_or_default();
+                members[turn % members.len()]
+            }
+            SubscriptionType::KeyShared => members[slot_of_key(&[], members.len())],
+        };
+        drop(state);
+        Some(pick)
     }
 
     /// Detaches a consumer. No-op if the id is unknown. A `Failover` standby becomes the active

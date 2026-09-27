@@ -40,7 +40,7 @@ use crate::subscription::PulsarSubscription;
 pub(crate) use bus::Bus;
 pub(crate) use deliveries::{Queued, Settlement};
 pub(crate) use route::{Route, Subscriptions};
-pub(crate) use router::Delivery;
+pub(crate) use router::{AddressRouter, ConsumerId, Delivery};
 pub(crate) use seek::LogSeeker;
 
 /// Refuses a service URL the client cannot connect with, as `connect` does before it dials.
@@ -70,7 +70,8 @@ pub(crate) fn check_url(url: &str) -> Result<(), PulsarError> {
     Ok(())
 }
 
-/// Opens a subscription for `descriptor` reading `route` on the in-process transport.
+/// Opens a subscription for `descriptor` reading `route` on the in-process transport, and
+/// returns it with the consumer the router knows it by.
 ///
 /// # Errors
 ///
@@ -80,7 +81,7 @@ pub(crate) fn subscribe(
     bus: &Arc<Bus>,
     descriptor: PulsarSubscription,
     route: Route,
-) -> Result<PulsarSubscriber, PulsarError> {
+) -> Result<(PulsarSubscriber, ConsumerId), PulsarError> {
     let display = descriptor.display_topic();
     let dead_letter = descriptor.dead_letter_policy()?;
     let membership = Membership::new(descriptor.subscription, descriptor.sub_type);
@@ -91,11 +92,12 @@ pub(crate) fn subscribe(
             topic: display.clone(),
             source: Box::new(held),
         })?;
-    Ok(PulsarSubscriber::in_process(
+    let subscriber = PulsarSubscriber::in_process(
         display,
         Queued::new(Arc::clone(bus), id, descriptor.ack_timeout),
         descriptor.batch_wait,
-    ))
+    );
+    Ok((subscriber, id))
 }
 
 #[cfg(test)]

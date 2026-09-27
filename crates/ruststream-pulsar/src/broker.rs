@@ -412,13 +412,19 @@ impl ConnectedPulsarBroker {
         let recorded = route.clone();
         let subscriber = match &self.core.transport {
             Transport::Client(client) => {
-                PulsarSubscriber::open(client, descriptor, &self.core.runtime).await
+                PulsarSubscriber::open(client, descriptor, &self.core.runtime).await?
             }
             #[cfg(feature = "testing")]
-            Transport::InProcess(bus) => in_process::subscribe(bus, descriptor, route),
-        }?;
+            Transport::InProcess(bus) => {
+                let (subscriber, consumer) = in_process::subscribe(bus, descriptor, route)?;
+                self.core
+                    .opened
+                    .record(name, subscription, recorded, Some(consumer));
+                return Ok(subscriber);
+            }
+        };
         #[cfg(feature = "testing")]
-        self.core.opened.record(name, subscription, recorded);
+        self.core.opened.record(name, subscription, recorded, None);
         Ok(subscriber)
     }
 }
@@ -523,11 +529,16 @@ impl TestableBroker for ConnectedPulsarBroker {
 
     /// Pulsar's routing: a message reaches every subscription over its topic once, and within one
     /// subscription one of its consumers, so each durable subscription the topic reaches is owed
-    /// the message once, by the first of its consumers in `subscriptions`. A topic reads the same
-    /// under either spelling, and a pattern matches the fully qualified names of the
-    /// `public/default` namespace.
+    /// the message once, by one of its consumers in `subscriptions`. In process that is the
+    /// consumer the transport picks for the next message; against a server, which picks its
+    /// consumer itself, it is the first of them. A topic reads the same under either spelling,
+    /// and a pattern matches the fully qualified names of the `public/default` namespace.
     fn routes(&self, destination: &str, subscriptions: &[&str]) -> Vec<usize> {
-        self.core.opened.routes(destination, subscriptions)
+        let router = match &self.core.transport {
+            Transport::InProcess(bus) => Some(bus.router()),
+            Transport::Client(_) => None,
+        };
+        self.core.opened.routes(destination, subscriptions, router)
     }
 }
 

@@ -84,6 +84,11 @@ fn observed_key(delivery: &PulsarMessage) -> Option<Vec<u8>> {
 // (`Fn(&str) -> _` / `Fn(&B) -> _`), so a bare method path - which binds one concrete lifetime -
 // would not type-check.
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_in_process_mode_passes_conformance_suite() {
+    harness::run_suite(|| production(URL)).await;
+}
+
 /// The client moves a spent delivery itself, so the cap and the dead-letter topic a registration
 /// declares are applied in process too, on both addressing forms.
 #[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
