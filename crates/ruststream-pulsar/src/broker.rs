@@ -743,6 +743,67 @@ mod tests {
         assert!(delay.is_err(), "{delay:?}");
     }
 
+    /// What a consumer leaves unsettled goes back to its subscription once the consumer closes,
+    /// and waits there for the subscription's next consumer, as on a server.
+    #[cfg(feature = "testing")]
+    #[tokio::test]
+    async fn what_a_closed_consumer_left_unsettled_reaches_the_next_one() {
+        use futures::StreamExt;
+        use ruststream::{IncomingMessage, Subscriber};
+
+        let connected = PulsarBroker::new("pulsar://localhost:6650")
+            .connect_in_process()
+            .await
+            .expect("connects in process");
+        let descriptor = PulsarSubscription::new("orders", "workers");
+        let publisher = connected.publisher();
+        let mut first = connected
+            .subscribe_descriptor(descriptor.clone())
+            .await
+            .expect("subscribes");
+        for payload in [b"dropped".as_slice(), b"requeued", b"queued"] {
+            publisher
+                .publish(
+                    OutgoingMessage::produced("orders", BytesMut::from(payload)),
+                    None,
+                )
+                .await
+                .expect("publishes");
+        }
+        let requeued = {
+            let mut stream = first.stream();
+            let dropped = stream.next().await.expect("open").expect("a delivery");
+            drop(dropped);
+            stream.next().await.expect("open").expect("a delivery")
+        };
+        drop(first);
+        requeued
+            .nack(true)
+            .await
+            .expect("a closed consumer still hands a delivery back");
+
+        let mut next = connected
+            .subscribe_descriptor(descriptor)
+            .await
+            .expect("subscribes again");
+        let mut stream = next.stream();
+        let mut back = Vec::new();
+        for _ in 0..3 {
+            let delivery = stream.next().await.expect("open").expect("a delivery");
+            back.push(delivery.payload().to_vec());
+            delivery.ack().await.expect("ack");
+        }
+        back.sort();
+        assert_eq!(
+            back,
+            [
+                b"dropped".to_vec(),
+                b"queued".to_vec(),
+                b"requeued".to_vec()
+            ]
+        );
+    }
+
     /// A payload up to the broker's limit is published and one byte more is refused, in process
     /// as against a server, where the check runs before the client sends anything.
     #[cfg(feature = "testing")]

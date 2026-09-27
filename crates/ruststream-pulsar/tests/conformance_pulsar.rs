@@ -268,13 +268,13 @@ async fn pulsar_broker_flushes_on_shutdown() {
     .await;
 }
 
-/// A settlement means on the server what the contract says it means. The server hands a
-/// delivery nobody settled back once its consumer closes.
+/// A settlement means on the server what it means in process: the two runs answer alike. The
+/// server hands a delivery nobody settled back once its consumer closes.
 #[allow(clippy::redundant_closure_for_method_calls)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn pulsar_broker_settles_as_the_contract_says() {
+async fn pulsar_broker_settles_as_it_does_in_process() {
     let Some(url) = test_url() else { return };
-    Box::pin(settlement::suite(
+    Box::pin(settlement::matches_in_process(
         || production(&url),
         descriptor("settlement"),
         |connected| connected.publisher(),

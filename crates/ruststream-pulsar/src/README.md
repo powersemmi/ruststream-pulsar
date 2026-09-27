@@ -592,14 +592,16 @@ What the in-process mode models, and what it means for a test:
   retained log. A run that must queue behind a message goes in through a publisher taken off the
   broker before the app is built, followed by `tb.settle()`: the harness drives each of its own
   publishes to completion before the next.
+* What a consumer leaves queued or unsettled goes back to its subscription when the consumer
+  closes, and waits for the subscription's next consumer while no other one reads it.
 * A delayed retry and a pattern's listing run on the runtime's clock, so `tb.advance(..)` on a
   paused clock drives both.
 * A publish is framed the way the client frames it: Pulsar carries headers as text, so a header
   value that is not UTF-8 fails the publish on both transports.
 
 What belongs to the server is asserted against one: the acknowledgement timeout's own
-redelivery, partitioned topics, `KeyShared` hash ranges, and a backlog kept while a subscription
-has no consumer. `TestApp::start_live(app())` runs the same test body against a running Pulsar;
+redelivery, partitioned topics, `KeyShared` hash ranges, and messages published while a
+subscription has no consumer. `TestApp::start_live(app())` runs the same test body against a running Pulsar;
 only the start call differs, and `just test-brokers` runs this crate's live suites that way.
 
 The harness itself is the framework's, and
