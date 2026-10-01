@@ -16,6 +16,7 @@ use ruststream::{
     Broker, BrokerMoves, ConnectedBroker, DeclareRetryError, DefaultPublish, DescribeServer,
     RetryDeclaration, ServerSpec, Subscribe,
 };
+use tokio::runtime::Handle;
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::error::{PulsarError, box_err};
@@ -126,6 +127,9 @@ pub(crate) struct Core {
     default_subscription: Option<String>,
     /// What registrations mounted by a bare topic name declared about their retries.
     pub(crate) declared_retries: DeclaredRetries,
+    /// The runtime `connect` ran on. Every task the broker starts runs here: a subscription's
+    /// driver, and through it a delayed retry, whichever thread settles the delivery.
+    pub(crate) runtime: Handle,
 }
 
 impl Core {
@@ -280,6 +284,7 @@ impl Broker for PulsarBroker {
                     producers: Mutex::new(HashMap::new()),
                     default_subscription: self.default_subscription.clone(),
                     declared_retries: DeclaredRetries::default(),
+                    runtime: Handle::current(),
                 }))
             })
             .await?

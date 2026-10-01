@@ -22,10 +22,15 @@ use pulsar::proto::MessageIdData;
 use pulsar::{SubType, TokioExecutor};
 use ruststream::{AckError, BatchSubscriber, BufferedSubscriber, Seekable, Subscriber};
 use tokio::sync::mpsc;
+use tokio::time::sleep;
+use tracing::warn;
 
 use crate::broker::Core;
 use crate::error::{PulsarError, box_err};
-use crate::message::{DriverCmd, PulsarMessage, PulsarPosition, SeekCmd, SettleKind, SettleSender};
+use crate::message::{
+    DriverCmd, NackAfterCmd, PulsarMessage, PulsarPosition, SeekCmd, SettleKind, SettleSender,
+    send_settle,
+};
 use crate::subscription::{PulsarSubscription, SubscriptionType, Topics};
 
 /// How many undelivered messages may sit between the driver and the consumer. Real prefetch is
@@ -71,6 +76,8 @@ impl PulsarSubscriber {
         &self.topic
     }
 
+    /// Opens the client consumer and starts the subscription's driver on the runtime the broker
+    /// connected on.
     pub(crate) async fn open(
         core: &Core,
         descriptor: PulsarSubscription,
@@ -119,7 +126,7 @@ impl PulsarSubscriber {
         let (out_tx, out_rx) = mpsc::channel(CHANNEL_CAPACITY);
         let (settle_tx, settle_rx) = mpsc::unbounded_channel();
         let epoch = Arc::new(AtomicU64::new(0));
-        tokio::spawn(drive(
+        core.runtime.spawn(drive(
             consumer,
             core.client.clone(),
             out_tx,
@@ -415,6 +422,7 @@ async fn apply(
     cmd: DriverCmd,
 ) {
     match cmd {
+        DriverCmd::NackAfter(cmd) => wait_then_nack(cmd),
         DriverCmd::Settle(cmd) => {
             let result = match cmd.kind {
                 SettleKind::Ack => consumer.ack_with_id(&cmd.topic, cmd.id).await,
@@ -426,6 +434,34 @@ async fn apply(
         }
         DriverCmd::Seek(seek) => apply_seek(consumer, client, seek).await,
     }
+}
+
+/// Waits out a delayed retry, then negatively acknowledges the delivery through its own channel.
+///
+/// The driver runs on the runtime the broker connected on, so the wait does too, whichever thread
+/// settled the delivery.
+fn wait_then_nack(
+    NackAfterCmd {
+        topic,
+        id,
+        delay,
+        back,
+    }: NackAfterCmd,
+) {
+    tokio::spawn(async move {
+        sleep(delay).await;
+        let named = topic.clone();
+        if let Err(err) = send_settle(back, topic, id, SettleKind::Nack).await {
+            warn!(
+                target: "ruststream_pulsar::subscriber",
+                topic = %named,
+                delay = ?delay,
+                error = %err,
+                "a delayed retry could not be negatively acknowledged; the broker redelivers it \
+                 once the consumer's ack timeout elapses",
+            );
+        }
+    });
 }
 
 /// The ids the protocol reserves for the two ends of a log, spelled `-1` for the beginning and
