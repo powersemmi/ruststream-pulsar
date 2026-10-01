@@ -55,6 +55,7 @@ impl Queued {
                     seq: delivery.seq,
                     redeliveries: delivery.redeliveries,
                     coordinator: self.coordinator.clone(),
+                    unsettled: Some(delivery.clone()),
                 };
                 Ok(PulsarMessage::in_process(
                     delivery,
@@ -79,7 +80,9 @@ impl Queued {
 /// finishes, and a `Failover` standby takes over.
 impl Drop for Queued {
     fn drop(&mut self) {
-        self.bus.router().unsubscribe(self.id);
+        self.bus
+            .router()
+            .unsubscribe(self.id, self.coordinator.as_ref());
     }
 }
 
@@ -96,10 +99,18 @@ pub(crate) struct Settlement {
     seq: usize,
     redeliveries: u32,
     coordinator: Option<Coordinator>,
+    /// The delivery until it is settled: one dropped without a settlement stays unacknowledged
+    /// on its consumer, and comes back once that consumer closes.
+    unsettled: Option<Delivery>,
 }
 
 impl Drop for Settlement {
     fn drop(&mut self) {
+        if let Some(delivery) = self.unsettled.take() {
+            self.bus
+                .router()
+                .hold(self.id, delivery, self.coordinator.as_ref());
+        }
         if let Some(coordinator) = &self.coordinator {
             coordinator.consumed();
         }
@@ -107,6 +118,12 @@ impl Drop for Settlement {
 }
 
 impl Settlement {
+    /// Settles the delivery for good: acknowledged, or rejected, which Pulsar performs as an
+    /// acknowledgement.
+    pub(crate) fn settle(mut self) {
+        self.unsettled = None;
+    }
+
     /// The log index of the delivery, which is its message id's entry id.
     pub(crate) const fn seq(&self) -> usize {
         self.seq
@@ -136,15 +153,15 @@ impl Settlement {
     ///
     /// # Errors
     ///
-    /// Returns [`AckError::Broker`] when the delivery's consumer is gone (its subscriber dropped,
-    /// or the broker shut down): nothing is left to hand the delivery back to, and an `Ok` would
-    /// promise a redelivery that never comes.
+    /// Returns [`AckError::Broker`] once the broker shut down: nothing is left to hand the
+    /// delivery back to, and an `Ok` would promise a redelivery that never comes.
     pub(crate) fn requeue(
-        self,
+        mut self,
         payload: Bytes,
         headers: HeaderMap,
         topic: String,
     ) -> Result<(), AckError> {
+        self.unsettled = None;
         let delivery = self.delivery(payload, headers, topic);
         let queued = self
             .bus
@@ -167,18 +184,19 @@ impl Settlement {
     ///
     /// # Errors
     ///
-    /// Returns [`AckError::Broker`] when the delivery's consumer is already gone, as
-    /// [`requeue`](Self::requeue) does.
+    /// Returns [`AckError::Broker`] once the broker shut down, as [`requeue`](Self::requeue)
+    /// does.
     pub(crate) fn nack_after(
-        self,
+        mut self,
         delay: Duration,
         payload: Bytes,
         headers: HeaderMap,
         topic: String,
     ) -> Result<(), AckError> {
-        if !self.bus.router().attached(self.id) {
+        if !self.bus.router().settles(self.id) {
             return Err(consumer_gone());
         }
+        self.unsettled = None;
         let delivery = self.delivery(payload, headers, topic);
         let bus = Arc::clone(&self.bus);
         let id = self.id;
@@ -206,6 +224,6 @@ impl Settlement {
 /// The answer a settlement gets once its consumer is gone.
 fn consumer_gone() -> AckError {
     AckError::Broker(Box::from(
-        "the subscription's consumer is closed, so the delivery cannot be handed back",
+        "the broker shut down, so the delivery cannot be handed back",
     ))
 }

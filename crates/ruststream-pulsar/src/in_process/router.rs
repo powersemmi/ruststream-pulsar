@@ -119,6 +119,9 @@ struct Consumer {
     membership: Membership,
     dead_letter: Option<DeadLetterRoute>,
     queue: VecDeque<Delivery>,
+    /// What this consumer was handed and dropped without settling. A server keeps such a
+    /// delivery unacknowledged until the consumer closes, then hands it back to the subscription.
+    unacked: Vec<Delivery>,
     waker: AtomicWaker,
 }
 
@@ -141,6 +144,13 @@ struct RouterState {
     /// Where each `Shared` subscription's rotation stands, by subscription name. Kept across a
     /// consumer joining or leaving, so the rotation carries on rather than restarting.
     rotation: HashMap<String, usize>,
+    /// Deliveries a closing consumer left unsettled or undelivered while no other consumer of its
+    /// subscription reads their topic, by subscription name. The subscription's next consumer
+    /// takes them, as it takes a durable subscription's backlog on a server.
+    parked: HashMap<String, Vec<Delivery>>,
+    /// The subscription each detached consumer belonged to, so a delivery it handed out and that
+    /// is dropped unsettled afterwards still finds its way back.
+    departed: HashMap<ConsumerId, (Membership, Option<DeadLetterRoute>)>,
 }
 
 impl RouterState {
@@ -281,6 +291,37 @@ impl RouterState {
         }
     }
 
+    /// Hands `delivery` back to the subscription `membership` names, the way a server hands back
+    /// what a closing consumer left: to one of the subscription's consumers that reads the topic,
+    /// or, while none does, to the subscription's next consumer. `counted` says whether the
+    /// harness already counts the delivery in flight.
+    fn hand_back(
+        &mut self,
+        membership: &Membership,
+        delivery: Delivery,
+        counted: bool,
+        coordinator: Option<&Coordinator>,
+    ) {
+        let members = self.members_of(&delivery.topic, &membership.name, Instant::now());
+        if members.is_empty() {
+            self.parked
+                .entry(membership.name.clone())
+                .or_default()
+                .push(delivery);
+            if counted && let Some(coordinator) = coordinator {
+                coordinator.consumed();
+            }
+            return;
+        }
+        let target = self.choose(&membership.name, membership.sharing, &members, &delivery);
+        if self.enqueue(target, delivery)
+            && !counted
+            && let Some(coordinator) = coordinator
+        {
+            coordinator.enqueued();
+        }
+    }
+
     /// Queues `delivery` for `id` and wakes it. Reports whether the consumer was still there.
     fn enqueue(&mut self, id: ConsumerId, delivery: Delivery) -> bool {
         let Some(consumer) = self.consumers.get_mut(&id) else {
@@ -363,6 +404,7 @@ impl AddressRouter {
         route: Route,
         membership: Membership,
         dead_letter: Option<DeadLetterRoute>,
+        coordinator: Option<&Coordinator>,
     ) -> Result<ConsumerId, ExclusiveHeld> {
         let mut state = self.lock();
         let contested = state.consumers.values().any(|consumer| {
@@ -382,17 +424,36 @@ impl AddressRouter {
             state.created.entry(topic.clone()).or_insert(opened);
         }
         let id = ConsumerId(self.next_id.fetch_add(1, Ordering::Relaxed));
-        state.consumers.insert(
-            id,
-            Consumer {
-                route,
-                opened,
-                membership,
-                dead_letter,
-                queue: VecDeque::new(),
-                waker: AtomicWaker::new(),
-            },
-        );
+        let name = membership.name.clone();
+        let consumer = Consumer {
+            route,
+            opened,
+            membership,
+            dead_letter,
+            queue: VecDeque::new(),
+            unacked: Vec::new(),
+            waker: AtomicWaker::new(),
+        };
+        // What the subscription's earlier consumers left is this one's to take, where it reads the
+        // topic.
+        let now = opened.at;
+        let (backlog, kept): (Vec<Delivery>, Vec<Delivery>) = state
+            .parked
+            .remove(&name)
+            .unwrap_or_default()
+            .into_iter()
+            .partition(|delivery| state.reads(&consumer, &delivery.topic, now));
+        if !kept.is_empty() {
+            state.parked.insert(name, kept);
+        }
+        if let Some(coordinator) = coordinator {
+            for _ in &backlog {
+                coordinator.enqueued();
+            }
+        }
+        let mut consumer = consumer;
+        consumer.queue.extend(backlog);
+        state.consumers.insert(id, consumer);
         Ok(id)
     }
 
@@ -424,8 +485,48 @@ impl AddressRouter {
 
     /// Detaches a consumer. No-op if the id is unknown. A `Failover` standby becomes the active
     /// consumer here, by being the first one left.
-    pub(crate) fn unsubscribe(&self, id: ConsumerId) {
-        self.lock().consumers.remove(&id);
+    ///
+    /// What the consumer had queued and what it left unsettled goes back to its subscription, as
+    /// a server hands a closing consumer's messages to the subscription's other consumers, or
+    /// keeps them for its next one. A delivery handed back after being delivered counts as a
+    /// redelivery.
+    pub(crate) fn unsubscribe(&self, id: ConsumerId, coordinator: Option<&Coordinator>) {
+        let mut state = self.lock();
+        let Some(consumer) = state.consumers.remove(&id) else {
+            return;
+        };
+        for delivery in consumer.queue {
+            state.hand_back(&consumer.membership, delivery, true, coordinator);
+        }
+        for mut delivery in consumer.unacked {
+            delivery.redeliveries = delivery.redeliveries.saturating_add(1);
+            state.hand_back(&consumer.membership, delivery, false, coordinator);
+        }
+        state
+            .departed
+            .insert(id, (consumer.membership, consumer.dead_letter));
+    }
+
+    /// Keeps `delivery`, which the consumer `id` dropped without settling it, unacknowledged
+    /// until that consumer closes. Once it has, the delivery goes back to its subscription at
+    /// once. The harness no longer counts it in flight.
+    pub(crate) fn hold(
+        &self,
+        id: ConsumerId,
+        mut delivery: Delivery,
+        coordinator: Option<&Coordinator>,
+    ) {
+        let mut state = self.lock();
+        if let Some(consumer) = state.consumers.get_mut(&id) {
+            consumer.unacked.push(delivery);
+            return;
+        }
+        // Gone with the broker's shutdown, the whole world is: nothing is left to go back to.
+        let Some((membership, _)) = state.departed.get(&id).cloned() else {
+            return;
+        };
+        delivery.redeliveries = delivery.redeliveries.saturating_add(1);
+        state.hand_back(&membership, delivery, false, coordinator);
     }
 
     /// Takes the next delivery queued for `id`, parking the caller on the consumer's waker while
@@ -453,10 +554,14 @@ impl AddressRouter {
     /// and at the limit produces the message to the dead-letter topic instead of handing it
     /// back, which is where the Pulsar client applies the policy too.
     ///
-    /// Reports `None` when the consumer `id` is gone (its subscriber dropped, or the broker shut
-    /// down), which returns nothing; otherwise whether a consumer was there to take it, where a
-    /// dead-lettered message reports `false`, because the produce has already counted its own
-    /// enqueues.
+    /// A consumer that has closed still hands the delivery back to its subscription, as the
+    /// client's consumer settles what it handed out until the connection goes; while no consumer
+    /// of the subscription reads the topic, the subscription's next consumer takes it.
+    ///
+    /// Reports `None` when the broker shut down, which leaves nothing to hand the delivery back
+    /// to; otherwise whether a consumer took it, where a dead-lettered or kept message reports
+    /// `false`, because the produce counted its own enqueues and a kept message is in nobody's
+    /// hands.
     // significant_drop_tightening misfires: the guard is used up to the last statement.
     #[allow(clippy::significant_drop_tightening)]
     pub(crate) fn requeue(
@@ -466,9 +571,10 @@ impl AddressRouter {
         coordinator: Option<&Coordinator>,
     ) -> Option<bool> {
         let mut state = self.lock();
-        let consumer = state.consumers.get(&id)?;
-        let membership = consumer.membership.clone();
-        let dead_letter = consumer.dead_letter.clone();
+        let (membership, dead_letter) = match state.consumers.get(&id) {
+            Some(consumer) => (consumer.membership.clone(), consumer.dead_letter.clone()),
+            None => state.departed.get(&id).cloned()?,
+        };
         delivery.redeliveries = delivery.redeliveries.saturating_add(1);
         if let Some(policy) = dead_letter
             && delivery.redeliveries >= policy.max_deliveries
@@ -481,15 +587,21 @@ impl AddressRouter {
         }
         let members = state.members_of(&delivery.topic, &membership.name, Instant::now());
         if members.is_empty() {
+            state
+                .parked
+                .entry(membership.name)
+                .or_default()
+                .push(delivery);
             return Some(false);
         }
         let target = state.choose(&membership.name, membership.sharing, &members, &delivery);
         Some(state.enqueue(target, delivery))
     }
 
-    /// Whether the consumer `id` is still attached.
-    pub(crate) fn attached(&self, id: ConsumerId) -> bool {
-        self.lock().consumers.contains_key(&id)
+    /// Whether the consumer `id` can still settle: attached, or closed while the broker runs.
+    pub(crate) fn settles(&self, id: ConsumerId) -> bool {
+        let state = self.lock();
+        state.consumers.contains_key(&id) || state.departed.contains_key(&id)
     }
 
     /// Appends `payload` to the topic's log and hands it to every subscription reading the topic,
@@ -642,6 +754,8 @@ impl AddressRouter {
         state.log.clear();
         state.created.clear();
         state.rotation.clear();
+        state.parked.clear();
+        state.departed.clear();
     }
 }
 
