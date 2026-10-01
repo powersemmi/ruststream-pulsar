@@ -6,21 +6,23 @@
 //! transport as a variant of their own, so a service's descriptors, publish policies and handlers
 //! run against it unchanged. It has no configuration of its own: the default subscription, the
 //! retry declarations and every descriptor setting come from the production broker. It never
-//! succeeds where a server fails: a destination that is no topic name, a descriptor the client
-//! refuses, a second consumer of an exclusive subscription and a handle outliving its connection are refused here with the error the live broker
-//! returns.
+//! succeeds where a server fails: a destination that is no topic name, a payload over the
+//! broker's `max_message_size`, a descriptor the client refuses, a second consumer of an
+//! exclusive subscription and a handle outliving its connection are refused here with the error
+//! the live broker returns.
 //!
 //! What it models: fully qualified topic names; single-topic, multi-topic and pattern
 //! subscriptions, a pattern reading the `public/default` namespace by full name and a topic
 //! created after it opened from the client's next listing, thirty seconds on; the four
 //! subscription types, with one delivery per subscription and the type choosing the consumer;
-//! negative acknowledgement back to the subscription; the client's dead-letter policy; delayed
-//! retries on the runtime's clock; the retained log a seek or `start_at` repositions over,
-//! subscription-wide; and a publish framed the way the client frames it. What belongs to the
-//! server and is left to the live mode: `KeyShared` hash ranges (a key stays on one consumer
-//! here, but which one differs), which consumer of a shared subscription a server picks, the
-//! acknowledgement timeout's own redelivery, partitioned topics, and a backlog kept while a
-//! subscription has no consumer.
+//! negative acknowledgement back to the subscription; what a closing consumer left queued or
+//! unsettled going back to its subscription, kept for the subscription's next consumer when no
+//! other one reads it; the client's dead-letter policy; delayed retries on the runtime's clock;
+//! the retained log a seek or `start_at` repositions over, subscription-wide; and a publish framed
+//! the way the client frames it. What belongs to the server and is left to the live mode:
+//! `KeyShared` hash ranges (a key stays on one consumer here, but which one differs), which
+//! consumer of a shared subscription a server picks, the acknowledgement timeout's own
+//! redelivery, partitioned topics, and messages published while a subscription has no consumer.
 
 mod bus;
 mod deliveries;
@@ -40,7 +42,7 @@ use crate::subscription::PulsarSubscription;
 pub(crate) use bus::Bus;
 pub(crate) use deliveries::{Queued, Settlement};
 pub(crate) use route::{Route, Subscriptions};
-pub(crate) use router::Delivery;
+pub(crate) use router::{AddressRouter, ConsumerId, Delivery};
 pub(crate) use seek::LogSeeker;
 
 /// Refuses a service URL the client cannot connect with, as `connect` does before it dials.
@@ -70,7 +72,8 @@ pub(crate) fn check_url(url: &str) -> Result<(), PulsarError> {
     Ok(())
 }
 
-/// Opens a subscription for `descriptor` reading `route` on the in-process transport.
+/// Opens a subscription for `descriptor` reading `route` on the in-process transport, and
+/// returns it with the consumer the router knows it by.
 ///
 /// # Errors
 ///
@@ -80,22 +83,23 @@ pub(crate) fn subscribe(
     bus: &Arc<Bus>,
     descriptor: PulsarSubscription,
     route: Route,
-) -> Result<PulsarSubscriber, PulsarError> {
+) -> Result<(PulsarSubscriber, ConsumerId), PulsarError> {
     let display = descriptor.display_topic();
     let dead_letter = descriptor.dead_letter_policy()?;
     let membership = Membership::new(descriptor.subscription, descriptor.sub_type);
     let id = bus
         .router()
-        .subscribe(route, membership, dead_letter)
+        .subscribe(route, membership, dead_letter, bus.coordinator())
         .map_err(|held| PulsarError::Subscribe {
             topic: display.clone(),
             source: Box::new(held),
         })?;
-    Ok(PulsarSubscriber::in_process(
+    let subscriber = PulsarSubscriber::in_process(
         display,
         Queued::new(Arc::clone(bus), id, descriptor.ack_timeout),
         descriptor.batch_wait,
-    ))
+    );
+    Ok((subscriber, id))
 }
 
 #[cfg(test)]
