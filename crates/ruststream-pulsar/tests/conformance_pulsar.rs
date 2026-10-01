@@ -36,6 +36,10 @@ use crate::live::{test_url, unique};
 /// The address the service's broker is built with; the in-process legs dial nothing.
 const URL: &str = "pulsar://localhost:6650";
 
+/// The largest payload a server accepts unless its deployment says otherwise, and the broker's
+/// default limit.
+const MAX_MESSAGE_SIZE: usize = 5 * 1024 * 1024;
+
 /// How many deliveries `broker_moves` requeues before the client moves the message.
 const ATTEMPTS: NonZeroU32 = nonzero!(3u32);
 
@@ -264,13 +268,13 @@ async fn pulsar_broker_flushes_on_shutdown() {
     .await;
 }
 
-/// A settlement means on the server what the contract says it means. The server hands a
-/// delivery nobody settled back once its consumer closes.
+/// A settlement means on the server what it means in process: the two runs answer alike. The
+/// server hands a delivery nobody settled back once its consumer closes.
 #[allow(clippy::redundant_closure_for_method_calls)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn pulsar_broker_settles_as_the_contract_says() {
+async fn pulsar_broker_settles_as_it_does_in_process() {
     let Some(url) = test_url() else { return };
-    Box::pin(settlement::suite(
+    Box::pin(settlement::matches_in_process(
         || production(&url),
         descriptor("settlement"),
         |connected| connected.publisher(),
@@ -352,6 +356,10 @@ async fn pulsar_broker_refusals_match_in_process() {
         || production(&url).operation_retries(OperationRetries::attempts(nonzero!(1u32))),
         |connected| connected.publisher(),
         [
+            Refusal::PayloadOver {
+                name: unique_subject("conformance.size"),
+                limit: MAX_MESSAGE_SIZE,
+            },
             Refusal::Publish {
                 name: "not/a-topic".to_owned(),
             },

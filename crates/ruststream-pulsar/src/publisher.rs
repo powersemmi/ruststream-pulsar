@@ -76,8 +76,10 @@ pub struct PulsarPublishOptions {
 /// The partition key travels per message: [`PulsarPublishSteps::partition_key`] names it at the
 /// call site, and a `partition-key` header names the same key for a caller that writes its
 /// headers itself. Awaits the broker's send receipt, so `Ok` means the
-/// broker stored the message. Buildable before `connect` and usable until `shutdown`;
-/// afterwards every publish reports [`PulsarError::NotConnected`].
+/// broker stored the message. A payload over the broker's
+/// [`max_message_size`](crate::PulsarBroker::max_message_size) fails with
+/// [`PulsarError::Publish`] without being sent. Buildable before `connect` and usable until
+/// `shutdown`; afterwards every publish reports [`PulsarError::NotConnected`].
 #[derive(Clone)]
 pub struct PulsarPublisher {
     cell: CoreCell,
@@ -161,6 +163,17 @@ impl Publisher for PulsarPublisher {
         options: Option<&Self::Options>,
     ) -> Result<(), Self::Error> {
         let core = self.core()?;
+        let size = msg.payload().len();
+        if size > core.max_message_size {
+            return Err(PulsarError::Publish {
+                topic: msg.name().to_owned(),
+                source: Box::from(format!(
+                    "the payload is {size} bytes, over the {} the broker's max_message_size \
+                     allows",
+                    core.max_message_size
+                )),
+            });
+        }
         let key = options.and_then(|options| options.partition_key.as_deref());
         let client = match &core.transport {
             Transport::Client(client) => client,

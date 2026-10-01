@@ -321,9 +321,11 @@ impl IncomingMessage for PulsarMessage {
             Settle::Driver(driver) => {
                 send_settle(driver, self.topic, self.id, SettleKind::Ack).await
             }
-            // The settlement is released as it drops, which is all an acknowledgement is here.
             #[cfg(feature = "testing")]
-            Settle::InProcess(_) => Ok(()),
+            Settle::InProcess(settlement) => {
+                settlement.settle();
+                Ok(())
+            }
         }
     }
 
@@ -342,6 +344,7 @@ impl IncomingMessage for PulsarMessage {
                 if requeue {
                     (*settlement).requeue(self.payload, self.headers, self.topic)
                 } else {
+                    settlement.settle();
                     Ok(())
                 }
             }
@@ -369,7 +372,7 @@ impl IncomingMessage for PulsarMessage {
     ///
     /// Returns [`AckError::Broker`] when the delay is not shorter than the subscription's
     /// `ack_timeout`, which would redeliver the message before the delay was over, or when the
-    /// subscription is gone (its driver task has shut down, or in process its consumer closed).
+    /// subscription is gone (its driver task has shut down, or in process the broker did).
     ///
     /// # Cancel safety
     ///
