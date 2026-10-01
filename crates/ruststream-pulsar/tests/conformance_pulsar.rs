@@ -36,6 +36,10 @@ use crate::live::{test_url, unique};
 /// The address the service's broker is built with; the in-process legs dial nothing.
 const URL: &str = "pulsar://localhost:6650";
 
+/// The largest payload a server accepts unless its deployment says otherwise, and the broker's
+/// default limit.
+const MAX_MESSAGE_SIZE: usize = 5 * 1024 * 1024;
+
 /// How many deliveries `broker_moves` requeues before the client moves the message.
 const ATTEMPTS: NonZeroU32 = nonzero!(3u32);
 
@@ -84,6 +88,35 @@ fn observed_key(delivery: &PulsarMessage) -> Option<Vec<u8>> {
 // (`Fn(&str) -> _` / `Fn(&B) -> _`), so a bare method path - which binds one concrete lifetime -
 // would not type-check.
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_in_process_mode_passes_conformance_suite() {
+    harness::run_suite(|| production(URL)).await;
+}
+
+/// The lifecycle ladder in process, through the crate's own descriptor. The live leg below runs
+/// the same suite, which is what says the two agree.
+#[allow(clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_in_process_mode_passes_lifecycle() {
+    harness::lifecycle(in_process, descriptor("lifecycle"), |connected| {
+        connected.publisher()
+    })
+    .await;
+}
+
+/// The same ladder over the bare-name form, which resolves through `Subscribe` and the broker's
+/// default subscription rather than through the descriptor.
+#[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_in_process_mode_passes_lifecycle_by_name() {
+    harness::lifecycle(
+        in_process,
+        |name| Name::new(name.to_owned()),
+        |connected| connected.publisher(),
+    )
+    .await;
+}
+
 /// The client moves a spent delivery itself, so the cap and the dead-letter topic a registration
 /// declares are applied in process too, on both addressing forms.
 #[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
@@ -128,6 +161,17 @@ async fn the_in_process_mode_resolves_publish_options() {
         key_cases(),
         observed_key,
     )
+    .await;
+}
+
+/// The in-process transport retains a log, so the framework's own seeking suite is what says its
+/// repositioning matches the contract - the same suite the live broker runs below.
+#[allow(clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_in_process_mode_passes_seeking_suite() {
+    capabilities::seeking(in_process, descriptor("seeking"), |connected| {
+        connected.publisher()
+    })
     .await;
 }
 
@@ -179,6 +223,30 @@ fn the_document_carries_no_credentials() {
     );
 }
 
+#[allow(clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_broker_passes_lifecycle() {
+    let Some(url) = test_url() else { return };
+    Box::pin(harness::lifecycle(
+        move || production(&url),
+        descriptor("lifecycle"),
+        |connected| connected.publisher(),
+    ))
+    .await;
+}
+
+#[allow(clippy::redundant_closure, clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_broker_passes_lifecycle_by_name() {
+    let Some(url) = test_url() else { return };
+    Box::pin(harness::lifecycle(
+        move || production(&url),
+        |name| Name::new(name.to_owned()),
+        |connected| connected.publisher(),
+    ))
+    .await;
+}
+
 /// A shutdown finishes the acknowledgement and the publish handed to it. A subscription the
 /// server has not seen starts at the tip, so the observer is a subscription of its own, open
 /// before the publish: each call names a new one.
@@ -200,13 +268,13 @@ async fn pulsar_broker_flushes_on_shutdown() {
     .await;
 }
 
-/// A settlement means on the server what the contract says it means. The server hands a
-/// delivery nobody settled back once its consumer closes.
+/// A settlement means on the server what it means in process: the two runs answer alike. The
+/// server hands a delivery nobody settled back once its consumer closes.
 #[allow(clippy::redundant_closure_for_method_calls)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn pulsar_broker_settles_as_the_contract_says() {
+async fn pulsar_broker_settles_as_it_does_in_process() {
     let Some(url) = test_url() else { return };
-    Box::pin(settlement::suite(
+    Box::pin(settlement::matches_in_process(
         || production(&url),
         descriptor("settlement"),
         |connected| connected.publisher(),
@@ -288,6 +356,10 @@ async fn pulsar_broker_refusals_match_in_process() {
         || production(&url).operation_retries(OperationRetries::attempts(nonzero!(1u32))),
         |connected| connected.publisher(),
         [
+            Refusal::PayloadOver {
+                name: unique_subject("conformance.size"),
+                limit: MAX_MESSAGE_SIZE,
+            },
             Refusal::Publish {
                 name: "not/a-topic".to_owned(),
             },
@@ -299,6 +371,18 @@ async fn pulsar_broker_refusals_match_in_process() {
                 refused: held(),
             },
         ],
+    ))
+    .await;
+}
+
+#[allow(clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_broker_passes_seeking_suite() {
+    let Some(url) = test_url() else { return };
+    Box::pin(capabilities::seeking(
+        || production(&url),
+        descriptor("seeking"),
+        |connected| connected.publisher(),
     ))
     .await;
 }

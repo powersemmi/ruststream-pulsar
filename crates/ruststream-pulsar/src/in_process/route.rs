@@ -11,6 +11,7 @@ use std::sync::{Mutex, MutexGuard};
 use regex::Regex;
 
 use crate::error::PulsarError;
+use crate::in_process::{AddressRouter, ConsumerId};
 use crate::subscription::{PulsarSubscription, Topics};
 use crate::topic::PulsarTopic;
 
@@ -97,13 +98,19 @@ impl Route {
     }
 }
 
+/// The consumers of one durable subscription the routing answer weighs: each one's position in
+/// the names asked about, and the in-process consumer behind it.
+type Members = Vec<(usize, Option<ConsumerId>)>;
+
 /// One subscription the connected broker opened: the name the framework reports it under, the
-/// topics it reads, and the durable subscription it joined.
+/// topics it reads, the durable subscription it joined, and, in process, the consumer the router
+/// knows it by.
 #[derive(Debug)]
 struct Opened {
     name: String,
     route: Route,
     subscription: String,
+    consumer: Option<ConsumerId>,
 }
 
 /// Every subscription a connected broker opened, in the order it opened them, on either
@@ -115,12 +122,20 @@ pub(crate) struct Subscriptions {
 
 impl Subscriptions {
     /// Records a subscription the broker has just opened: the name the framework reports it
-    /// under, the durable subscription it joined, and the topics it reads.
-    pub(crate) fn record(&self, name: String, subscription: String, route: Route) {
+    /// under, the durable subscription it joined, the topics it reads, and the in-process
+    /// consumer behind it (`None` against a server).
+    pub(crate) fn record(
+        &self,
+        name: String,
+        subscription: String,
+        route: Route,
+        consumer: Option<ConsumerId>,
+    ) {
         self.lock().push(Opened {
             name,
             route,
             subscription,
+            consumer,
         });
     }
 
@@ -129,18 +144,23 @@ impl Subscriptions {
     ///
     /// Pulsar hands a message to every subscription over its topic, once each, and within one
     /// subscription to one of its consumers. So the answer names each durable subscription the
-    /// topic reaches once, by the first of its consumers in `names`: the harness counts what a
-    /// subscription handled by the name it reports, and competing consumers mounted on one
-    /// descriptor report one name, whichever of them the server picked. A name this broker did
-    /// not open reaches the topic it spells.
-    pub(crate) fn routes(&self, destination: &str, names: &[&str]) -> Vec<usize> {
+    /// topic reaches once, by the consumer that takes the message: the one `router` picks next on
+    /// the in-process transport, and, against a server, which picks for itself, the first of its
+    /// consumers in `names`. A name this broker did not open reaches the topic it spells.
+    pub(crate) fn routes(
+        &self,
+        destination: &str,
+        names: &[&str],
+        router: Option<&AddressRouter>,
+    ) -> Vec<usize> {
         let Ok(topic) = PulsarTopic::parse(destination) else {
             // The server refuses the publish, so it reaches nobody.
             return Vec::new();
         };
         let opened = self.lock();
-        let mut reached: Vec<&str> = Vec::new();
-        let mut positions = Vec::new();
+        // Per durable subscription the topic reaches, in order of its first consumer in `names`:
+        // the positions of its consumers there, and the router's consumer for each.
+        let mut reached: Vec<(&str, Members)> = Vec::new();
         for (position, name) in names.iter().enumerate() {
             // The k-th subscription reported under a name is the k-th one opened under it.
             let occurrence = names[..position]
@@ -151,21 +171,43 @@ impl Subscriptions {
                 .iter()
                 .filter(|record| record.name == *name)
                 .nth(occurrence);
-            let (selects, subscription) = record.map_or_else(
+            let (selects, subscription, consumer) = record.map_or_else(
                 || {
                     (
                         PulsarTopic::parse(name).is_ok_and(|named| named == topic),
                         *name,
+                        None,
                     )
                 },
-                |record| (record.route.selects(&topic), record.subscription.as_str()),
+                |record| {
+                    (
+                        record.route.selects(&topic),
+                        record.subscription.as_str(),
+                        record.consumer,
+                    )
+                },
             );
-            if selects && !reached.contains(&subscription) {
-                reached.push(subscription);
-                positions.push(position);
+            if !selects {
+                continue;
+            }
+            match reached.iter_mut().find(|(seen, _)| *seen == subscription) {
+                Some((_, consumers)) => consumers.push((position, consumer)),
+                None => reached.push((subscription, vec![(position, consumer)])),
             }
         }
+        let mut positions: Vec<usize> = reached
+            .iter()
+            .map(|(subscription, consumers)| {
+                let pick = router.and_then(|router| router.next_pick(topic.as_str(), subscription));
+                consumers
+                    .iter()
+                    .find(|(_, consumer)| pick.is_some() && *consumer == pick)
+                    .unwrap_or(&consumers[0])
+                    .0
+            })
+            .collect();
         drop(opened);
+        positions.sort_unstable();
         positions
     }
 
@@ -186,6 +228,7 @@ mod tests {
             descriptor.source_name().to_owned(),
             descriptor.subscription().to_owned(),
             Route::of(descriptor).expect("a valid descriptor"),
+            None,
         );
     }
 
@@ -205,7 +248,7 @@ mod tests {
         record(&subscriptions, &PulsarSubscription::new("orders", "audit"));
 
         assert_eq!(
-            subscriptions.routes("orders", &["orders", "orders", "orders"]),
+            subscriptions.routes("orders", &["orders", "orders", "orders"], None),
             [0, 2]
         );
     }
@@ -220,12 +263,12 @@ mod tests {
         );
 
         assert_eq!(
-            subscriptions.routes("persistent://public/default/orders", &["orders"]),
+            subscriptions.routes("persistent://public/default/orders", &["orders"], None),
             [0]
         );
         assert!(
             subscriptions
-                .routes("non-persistent://public/default/orders", &["orders"])
+                .routes("non-persistent://public/default/orders", &["orders"], None)
                 .is_empty()
         );
     }
@@ -244,12 +287,12 @@ mod tests {
         );
 
         assert_eq!(
-            subscriptions.routes("audit-eu", &["audit", "anchored"]),
+            subscriptions.routes("audit-eu", &["audit", "anchored"], None),
             [0]
         );
         assert!(
             subscriptions
-                .routes("acme/eu/audit-eu", &["audit", "anchored"])
+                .routes("acme/eu/audit-eu", &["audit", "anchored"], None)
                 .is_empty()
         );
     }

@@ -119,6 +119,9 @@ struct Consumer {
     membership: Membership,
     dead_letter: Option<DeadLetterRoute>,
     queue: VecDeque<Delivery>,
+    /// What this consumer was handed and dropped without settling. A server keeps such a
+    /// delivery unacknowledged until the consumer closes, then hands it back to the subscription.
+    unacked: Vec<Delivery>,
     waker: AtomicWaker,
 }
 
@@ -141,6 +144,13 @@ struct RouterState {
     /// Where each `Shared` subscription's rotation stands, by subscription name. Kept across a
     /// consumer joining or leaving, so the rotation carries on rather than restarting.
     rotation: HashMap<String, usize>,
+    /// Deliveries a closing consumer left unsettled or undelivered while no other consumer of its
+    /// subscription reads their topic, by subscription name. The subscription's next consumer
+    /// takes them, as it takes a durable subscription's backlog on a server.
+    parked: HashMap<String, Vec<Delivery>>,
+    /// The subscription each detached consumer belonged to, so a delivery it handed out and that
+    /// is dropped unsettled afterwards still finds its way back.
+    departed: HashMap<ConsumerId, (Membership, Option<DeadLetterRoute>)>,
 }
 
 impl RouterState {
@@ -281,6 +291,37 @@ impl RouterState {
         }
     }
 
+    /// Hands `delivery` back to the subscription `membership` names, the way a server hands back
+    /// what a closing consumer left: to one of the subscription's consumers that reads the topic,
+    /// or, while none does, to the subscription's next consumer. `counted` says whether the
+    /// harness already counts the delivery in flight.
+    fn hand_back(
+        &mut self,
+        membership: &Membership,
+        delivery: Delivery,
+        counted: bool,
+        coordinator: Option<&Coordinator>,
+    ) {
+        let members = self.members_of(&delivery.topic, &membership.name, Instant::now());
+        if members.is_empty() {
+            self.parked
+                .entry(membership.name.clone())
+                .or_default()
+                .push(delivery);
+            if counted && let Some(coordinator) = coordinator {
+                coordinator.consumed();
+            }
+            return;
+        }
+        let target = self.choose(&membership.name, membership.sharing, &members, &delivery);
+        if self.enqueue(target, delivery)
+            && !counted
+            && let Some(coordinator) = coordinator
+        {
+            coordinator.enqueued();
+        }
+    }
+
     /// Queues `delivery` for `id` and wakes it. Reports whether the consumer was still there.
     fn enqueue(&mut self, id: ConsumerId, delivery: Delivery) -> bool {
         let Some(consumer) = self.consumers.get_mut(&id) else {
@@ -315,12 +356,19 @@ fn listed_by(opened: Moment, created: Moment, now: Instant) -> bool {
 /// on, but which consumer that is differs from a server's. A delivery with no partition key
 /// hashes as the empty key, so unkeyed traffic gathers on one consumer.
 fn key_slot(delivery: &Delivery, consumers: usize) -> usize {
+    slot_of_key(
+        delivery
+            .headers
+            .get(PARTITION_KEY_HEADER)
+            .unwrap_or_default(),
+        consumers,
+    )
+}
+
+/// Which of `consumers` members of a `KeyShared` subscription owns `key`.
+fn slot_of_key(key: &[u8], consumers: usize) -> usize {
     let mut hasher = DefaultHasher::new();
-    delivery
-        .headers
-        .get(PARTITION_KEY_HEADER)
-        .unwrap_or_default()
-        .hash(&mut hasher);
+    key.hash(&mut hasher);
     let count = u64::try_from(consumers).unwrap_or(1).max(1);
     usize::try_from(hasher.finish() % count).unwrap_or(0)
 }
@@ -356,6 +404,7 @@ impl AddressRouter {
         route: Route,
         membership: Membership,
         dead_letter: Option<DeadLetterRoute>,
+        coordinator: Option<&Coordinator>,
     ) -> Result<ConsumerId, ExclusiveHeld> {
         let mut state = self.lock();
         let contested = state.consumers.values().any(|consumer| {
@@ -375,24 +424,109 @@ impl AddressRouter {
             state.created.entry(topic.clone()).or_insert(opened);
         }
         let id = ConsumerId(self.next_id.fetch_add(1, Ordering::Relaxed));
-        state.consumers.insert(
-            id,
-            Consumer {
-                route,
-                opened,
-                membership,
-                dead_letter,
-                queue: VecDeque::new(),
-                waker: AtomicWaker::new(),
-            },
-        );
+        let name = membership.name.clone();
+        let consumer = Consumer {
+            route,
+            opened,
+            membership,
+            dead_letter,
+            queue: VecDeque::new(),
+            unacked: Vec::new(),
+            waker: AtomicWaker::new(),
+        };
+        // What the subscription's earlier consumers left is this one's to take, where it reads the
+        // topic.
+        let now = opened.at;
+        let (backlog, kept): (Vec<Delivery>, Vec<Delivery>) = state
+            .parked
+            .remove(&name)
+            .unwrap_or_default()
+            .into_iter()
+            .partition(|delivery| state.reads(&consumer, &delivery.topic, now));
+        if !kept.is_empty() {
+            state.parked.insert(name, kept);
+        }
+        if let Some(coordinator) = coordinator {
+            for _ in &backlog {
+                coordinator.enqueued();
+            }
+        }
+        let mut consumer = consumer;
+        consumer.queue.extend(backlog);
+        state.consumers.insert(id, consumer);
         Ok(id)
+    }
+
+    /// The consumer of `subscription` that takes the next unkeyed message published to `topic`,
+    /// the way [`RouterState::choose`] will pick it, without moving a `Shared` rotation; `None`
+    /// when no consumer of it reads the topic.
+    ///
+    /// The routing answer the harness waits on is asked before the publish and names no key, so
+    /// a `KeyShared` subscription answers for an unkeyed message.
+    pub(crate) fn next_pick(&self, topic: &str, subscription: &str) -> Option<ConsumerId> {
+        let state = self.lock();
+        let members = state.members_of(topic, subscription, Instant::now());
+        let first = *members.first()?;
+        let pick = match state.consumers[&first].membership.sharing {
+            SubscriptionType::Exclusive | SubscriptionType::Failover => first,
+            SubscriptionType::Shared => {
+                let turn = state
+                    .rotation
+                    .get(subscription)
+                    .copied()
+                    .unwrap_or_default();
+                members[turn % members.len()]
+            }
+            SubscriptionType::KeyShared => members[slot_of_key(&[], members.len())],
+        };
+        drop(state);
+        Some(pick)
     }
 
     /// Detaches a consumer. No-op if the id is unknown. A `Failover` standby becomes the active
     /// consumer here, by being the first one left.
-    pub(crate) fn unsubscribe(&self, id: ConsumerId) {
-        self.lock().consumers.remove(&id);
+    ///
+    /// What the consumer had queued and what it left unsettled goes back to its subscription, as
+    /// a server hands a closing consumer's messages to the subscription's other consumers, or
+    /// keeps them for its next one. A delivery handed back after being delivered counts as a
+    /// redelivery.
+    pub(crate) fn unsubscribe(&self, id: ConsumerId, coordinator: Option<&Coordinator>) {
+        let mut state = self.lock();
+        let Some(consumer) = state.consumers.remove(&id) else {
+            return;
+        };
+        for delivery in consumer.queue {
+            state.hand_back(&consumer.membership, delivery, true, coordinator);
+        }
+        for mut delivery in consumer.unacked {
+            delivery.redeliveries = delivery.redeliveries.saturating_add(1);
+            state.hand_back(&consumer.membership, delivery, false, coordinator);
+        }
+        state
+            .departed
+            .insert(id, (consumer.membership, consumer.dead_letter));
+    }
+
+    /// Keeps `delivery`, which the consumer `id` dropped without settling it, unacknowledged
+    /// until that consumer closes. Once it has, the delivery goes back to its subscription at
+    /// once. The harness no longer counts it in flight.
+    pub(crate) fn hold(
+        &self,
+        id: ConsumerId,
+        mut delivery: Delivery,
+        coordinator: Option<&Coordinator>,
+    ) {
+        let mut state = self.lock();
+        if let Some(consumer) = state.consumers.get_mut(&id) {
+            consumer.unacked.push(delivery);
+            return;
+        }
+        // Gone with the broker's shutdown, the whole world is: nothing is left to go back to.
+        let Some((membership, _)) = state.departed.get(&id).cloned() else {
+            return;
+        };
+        delivery.redeliveries = delivery.redeliveries.saturating_add(1);
+        state.hand_back(&membership, delivery, false, coordinator);
     }
 
     /// Takes the next delivery queued for `id`, parking the caller on the consumer's waker while
@@ -420,8 +554,14 @@ impl AddressRouter {
     /// and at the limit produces the message to the dead-letter topic instead of handing it
     /// back, which is where the Pulsar client applies the policy too.
     ///
-    /// Reports whether a consumer was still there to take it; a dead-lettered message reports
-    /// `false`, because the produce has already counted its own enqueues.
+    /// A consumer that has closed still hands the delivery back to its subscription, as the
+    /// client's consumer settles what it handed out until the connection goes; while no consumer
+    /// of the subscription reads the topic, the subscription's next consumer takes it.
+    ///
+    /// Reports `None` when the broker shut down, which leaves nothing to hand the delivery back
+    /// to; otherwise whether a consumer took it, where a dead-lettered or kept message reports
+    /// `false`, because the produce counted its own enqueues and a kept message is in nobody's
+    /// hands.
     // significant_drop_tightening misfires: the guard is used up to the last statement.
     #[allow(clippy::significant_drop_tightening)]
     pub(crate) fn requeue(
@@ -429,13 +569,12 @@ impl AddressRouter {
         id: ConsumerId,
         mut delivery: Delivery,
         coordinator: Option<&Coordinator>,
-    ) -> bool {
+    ) -> Option<bool> {
         let mut state = self.lock();
-        let Some(consumer) = state.consumers.get(&id) else {
-            return false;
+        let (membership, dead_letter) = match state.consumers.get(&id) {
+            Some(consumer) => (consumer.membership.clone(), consumer.dead_letter.clone()),
+            None => state.departed.get(&id).cloned()?,
         };
-        let membership = consumer.membership.clone();
-        let dead_letter = consumer.dead_letter.clone();
         delivery.redeliveries = delivery.redeliveries.saturating_add(1);
         if let Some(policy) = dead_letter
             && delivery.redeliveries >= policy.max_deliveries
@@ -444,14 +583,25 @@ impl AddressRouter {
             let topic = PulsarTopic::parse(&policy.topic)
                 .map_or(policy.topic, |topic| topic.as_str().to_owned());
             state.deliver(&topic, delivery.payload, delivery.headers, coordinator);
-            return false;
+            return Some(false);
         }
         let members = state.members_of(&delivery.topic, &membership.name, Instant::now());
         if members.is_empty() {
-            return false;
+            state
+                .parked
+                .entry(membership.name)
+                .or_default()
+                .push(delivery);
+            return Some(false);
         }
         let target = state.choose(&membership.name, membership.sharing, &members, &delivery);
-        state.enqueue(target, delivery)
+        Some(state.enqueue(target, delivery))
+    }
+
+    /// Whether the consumer `id` can still settle: attached, or closed while the broker runs.
+    pub(crate) fn settles(&self, id: ConsumerId) -> bool {
+        let state = self.lock();
+        state.consumers.contains_key(&id) || state.departed.contains_key(&id)
     }
 
     /// Appends `payload` to the topic's log and hands it to every subscription reading the topic,
@@ -488,6 +638,8 @@ impl AddressRouter {
     /// Both halves run in one critical section, so a concurrent publish lands wholly before or
     /// wholly after the swap. The harness accounting is finished here too, so a caller that
     /// awaits this seek can then wait for quiescence and see the replay.
+    ///
+    /// Reports whether the consumer was still attached; a detached one moves nothing.
     // significant_drop_tightening misfires: the guard is used up to the last statement.
     #[allow(clippy::significant_drop_tightening)]
     pub(crate) fn seek(
@@ -495,11 +647,11 @@ impl AddressRouter {
         id: ConsumerId,
         position: &PulsarPosition,
         coordinator: Option<&Coordinator>,
-    ) {
+    ) -> bool {
         let mut state = self.lock();
         let now = Instant::now();
         let Some(seeker) = state.consumers.get(&id) else {
-            return;
+            return false;
         };
         let subscription = seeker.membership.clone();
         let route = seeker.route.clone();
@@ -589,6 +741,7 @@ impl AddressRouter {
                 consumer.waker.wake();
             }
         }
+        true
     }
 
     /// Detaches every consumer and clears the retained log. Used by broker shutdown.
@@ -601,6 +754,8 @@ impl AddressRouter {
         state.log.clear();
         state.created.clear();
         state.rotation.clear();
+        state.parked.clear();
+        state.departed.clear();
     }
 }
 
