@@ -15,6 +15,9 @@ use ruststream::{
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::PulsarError;
+#[cfg(feature = "testing")]
+use crate::in_process::{Delivery, Settlement};
+use crate::subscriber::PulsarSeeker;
 
 /// Header carrying the partition key, mapped onto the message's `partition_key` (which
 /// `KeyShared` subscriptions order by).
@@ -131,6 +134,22 @@ pub(crate) enum DriverCmd {
 
 pub(crate) type SettleSender = mpsc::UnboundedSender<DriverCmd>;
 
+/// How a delivery settles: through its subscription's driver task, or, under the `testing`
+/// feature, on the in-process transport it came from.
+///
+/// Without the feature there is one variant, so the type is the driver channel itself.
+#[derive(Debug)]
+enum Settle {
+    Driver(SettleSender),
+    #[cfg(feature = "testing")]
+    InProcess(Box<Settlement>),
+}
+
+// The zero-cost promise of the in-process mode, held by the compiler: a build without it gives
+// a delivery's settlement exactly the size of the driver channel it wraps.
+#[cfg(not(feature = "testing"))]
+const _: () = assert!(size_of::<Settle>() == size_of::<SettleSender>());
+
 /// Refuses a delay the consumer's own timer would cut short.
 ///
 /// A delayed retry is held in this process, so the delivery stays unacknowledged for the whole
@@ -167,7 +186,7 @@ pub struct PulsarMessage {
     headers: HeaderMap,
     topic: String,
     id: MessageIdData,
-    settle: SettleSender,
+    settle: Settle,
     /// The subscription's acknowledgement timeout, which bounds how long a delayed retry may
     /// hold the delivery before the consumer redelivers it anyway.
     ack_timeout: Option<Duration>,
@@ -203,7 +222,32 @@ impl PulsarMessage {
             headers,
             topic: message.topic.clone(),
             id: message.message_id().clone(),
-            settle,
+            settle: Settle::Driver(settle),
+            ack_timeout,
+        }
+    }
+
+    /// A delivery of the in-process transport, reporting what a live one reports: its topic's
+    /// full name, and a message id whose entry id is its place in the topic's log.
+    #[cfg(feature = "testing")]
+    pub(crate) fn in_process(
+        delivery: Delivery,
+        settlement: Settlement,
+        ack_timeout: Option<Duration>,
+    ) -> Self {
+        let entry_id = u64::try_from(settlement.seq()).unwrap_or(u64::MAX);
+        Self {
+            payload: delivery.payload,
+            headers: delivery.headers,
+            topic: delivery.topic,
+            id: MessageIdData {
+                ledger_id: 0,
+                entry_id,
+                // The sentinel addresses the topic as a whole, as the end-of-log marks do.
+                partition: Some(-1),
+                ..MessageIdData::default()
+            },
+            settle: Settle::InProcess(Box::new(settlement)),
             ack_timeout,
         }
     }
@@ -215,15 +259,16 @@ impl PulsarMessage {
         &self.topic
     }
 
-    /// The channel back to the subscription's driver task, which owns both settlement and
-    /// seeking. The per-delivery context mints its seeker off this, so a delivery carries the
-    /// reposition handle without the subscriber having to stamp one onto every message.
-    pub(crate) fn driver(&self) -> &SettleSender {
-        &self.settle
-    }
-
-    async fn send_settle(self, kind: SettleKind) -> Result<(), AckError> {
-        send_settle(self.settle, self.topic, self.id, kind).await
+    /// The handle that repositions this delivery's subscription. A live one is minted off the
+    /// channel to the subscription's driver task, which owns both settlement and seeking, so a
+    /// delivery carries the reposition handle without the subscriber stamping one onto every
+    /// message.
+    pub(crate) fn seeker(&self) -> PulsarSeeker {
+        match &self.settle {
+            Settle::Driver(driver) => PulsarSeeker::new(driver.clone()),
+            #[cfg(feature = "testing")]
+            Settle::InProcess(settlement) => settlement.seeker(),
+        }
     }
 }
 
@@ -272,16 +317,37 @@ impl IncomingMessage for PulsarMessage {
     }
 
     async fn ack(self) -> Result<(), AckError> {
-        self.send_settle(SettleKind::Ack).await
+        match self.settle {
+            Settle::Driver(driver) => {
+                send_settle(driver, self.topic, self.id, SettleKind::Ack).await
+            }
+            #[cfg(feature = "testing")]
+            Settle::InProcess(settlement) => {
+                settlement.settle();
+                Ok(())
+            }
+        }
     }
 
     async fn nack(self, requeue: bool) -> Result<(), AckError> {
-        if requeue {
-            self.send_settle(SettleKind::Nack).await
+        // Acknowledging IS the drop: Pulsar has no terminal reject, and the dead-letter policy
+        // owns poison-message routing via repeated redelivery.
+        let kind = if requeue {
+            SettleKind::Nack
         } else {
-            // Acknowledging IS the drop: Pulsar has no terminal reject, and the dead-letter
-            // policy owns poison-message routing via repeated redelivery.
-            self.send_settle(SettleKind::Ack).await
+            SettleKind::Ack
+        };
+        match self.settle {
+            Settle::Driver(driver) => send_settle(driver, self.topic, self.id, kind).await,
+            #[cfg(feature = "testing")]
+            Settle::InProcess(settlement) => {
+                if requeue {
+                    (*settlement).requeue(self.payload, self.headers, self.topic)
+                } else {
+                    settlement.settle();
+                    Ok(())
+                }
+            }
         }
     }
 
@@ -306,7 +372,7 @@ impl IncomingMessage for PulsarMessage {
     ///
     /// Returns [`AckError::Broker`] when the delay is not shorter than the subscription's
     /// `ack_timeout`, which would redeliver the message before the delay was over, or when the
-    /// subscription's driver task has shut down.
+    /// subscription is gone (its driver task has shut down, or in process the broker did).
     ///
     /// # Cancel safety
     ///
@@ -317,16 +383,29 @@ impl IncomingMessage for PulsarMessage {
         if let Err(err) = within_ack_timeout(delay, self.ack_timeout, &self.topic) {
             return ready(Err(err));
         }
-        let cmd = DriverCmd::NackAfter(NackAfterCmd {
-            topic: self.topic,
-            id: self.id,
-            delay,
-            back: self.settle.clone(),
-        });
-        if self.settle.send(cmd).is_err() {
-            return ready(Err(AckError::Broker(Box::from(
-                "the subscription's driver task has shut down",
-            ))));
+        match self.settle {
+            Settle::Driver(driver) => {
+                let cmd = DriverCmd::NackAfter(NackAfterCmd {
+                    topic: self.topic,
+                    id: self.id,
+                    delay,
+                    back: driver.clone(),
+                });
+                if driver.send(cmd).is_err() {
+                    return ready(Err(AckError::Broker(Box::from(
+                        "the subscription's driver task has shut down",
+                    ))));
+                }
+            }
+            #[cfg(feature = "testing")]
+            Settle::InProcess(settlement) => {
+                return ready((*settlement).nack_after(
+                    delay,
+                    self.payload,
+                    self.headers,
+                    self.topic,
+                ));
+            }
         }
         ready(Ok(()))
     }
@@ -343,29 +422,42 @@ impl IncomingMessage for PulsarMessage {
 /// [`PARTITION_KEY_HEADER`] header the call site wrote itself, and with neither the message
 /// leaves unkeyed. Either way the key becomes the message's own `partition_key` rather than a
 /// property, which is how it comes back on delivery.
+///
+/// # Errors
+///
+/// Returns [`PulsarError::Publish`] for a header value that is not UTF-8. Pulsar carries
+/// properties as text, so such a value cannot arrive as it was written, and a rewritten header
+/// is a silent loss.
 pub(crate) fn to_pulsar_message(
     msg: OutgoingMessage<'_, BytesMut>,
     key: Option<&str>,
-) -> pulsar::producer::Message {
-    let (_topic, payload, headers) = msg.into_parts();
+) -> Result<pulsar::producer::Message, PulsarError> {
+    let (topic, payload, headers) = msg.into_parts();
     let mut properties = HashMap::with_capacity(headers.len());
     let mut partition_key = key.map(ToOwned::to_owned);
     for (name, value) in headers.iter() {
-        let text = String::from_utf8_lossy(value).into_owned();
+        let text = std::str::from_utf8(value)
+            .map_err(|err| PulsarError::Publish {
+                topic: topic.to_owned(),
+                source: Box::from(format!(
+                    "header '{name}' is not UTF-8 ({err}); Pulsar carries properties as text"
+                )),
+            })?
+            .to_owned();
         if name == PARTITION_KEY_HEADER {
             partition_key.get_or_insert(text);
         } else {
             properties.insert(name.to_owned(), text);
         }
     }
-    pulsar::producer::Message {
+    Ok(pulsar::producer::Message {
         // The client owns the payload, and the buffer the framework wrote is the vector it
         // wants: taking it costs nothing where a copy costs the whole body.
         payload: Vec::from(payload),
         properties,
         partition_key,
         ..Default::default()
-    }
+    })
 }
 
 #[cfg(test)]
@@ -379,7 +471,7 @@ mod tests {
         headers.insert("x-tenant", "acme");
         let outgoing = OutgoingMessage::new("orders", b"{}".as_slice()).with_headers(headers);
 
-        let message = to_pulsar_message(outgoing, None);
+        let message = to_pulsar_message(outgoing, None).expect("text headers are carried");
         assert_eq!(message.partition_key.as_deref(), Some("user-42"));
         assert_eq!(
             message.properties.get("x-tenant").map(String::as_str),
@@ -394,7 +486,8 @@ mod tests {
         headers.insert(PARTITION_KEY_HEADER, "user-7");
         let outgoing = OutgoingMessage::new("orders", b"{}".as_slice()).with_headers(headers);
 
-        let message = to_pulsar_message(outgoing, Some("user-42"));
+        let message =
+            to_pulsar_message(outgoing, Some("user-42")).expect("text headers are carried");
         assert_eq!(message.partition_key.as_deref(), Some("user-42"));
         assert!(!message.properties.contains_key(PARTITION_KEY_HEADER));
     }
@@ -421,7 +514,7 @@ mod tests {
         let at = buffer.as_ptr();
         let outgoing = OutgoingMessage::produced("orders", buffer);
 
-        let message = to_pulsar_message(outgoing, None);
+        let message = to_pulsar_message(outgoing, None).expect("text headers are carried");
 
         assert_eq!(
             message.payload.as_ptr(),
@@ -434,7 +527,22 @@ mod tests {
     fn a_publish_that_names_no_key_leaves_unkeyed() {
         let outgoing = OutgoingMessage::new("orders", b"{}".as_slice());
 
-        let message = to_pulsar_message(outgoing, None);
+        let message = to_pulsar_message(outgoing, None).expect("text headers are carried");
         assert_eq!(message.partition_key, None);
+    }
+
+    /// Pulsar carries properties as text, so a header value that is not UTF-8 is refused rather
+    /// than rewritten on the way out.
+    #[test]
+    fn a_header_that_is_not_text_is_refused() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-raw", vec![0xff, b'a']);
+        let outgoing = OutgoingMessage::new("orders", b"{}".as_slice()).with_headers(headers);
+
+        let refused = to_pulsar_message(outgoing, None).expect_err("a binary header is refused");
+        assert!(
+            matches!(&refused, PulsarError::Publish { topic, .. } if topic == "orders"),
+            "{refused:?}",
+        );
     }
 }

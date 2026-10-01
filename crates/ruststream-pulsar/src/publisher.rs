@@ -1,11 +1,18 @@
 //! [`PulsarPublisher`], its [`PulsarPublish`] policy, and the per-message settings a call site
 //! adjusts ([`PulsarPublishOptions`], [`PulsarPublishSteps`]).
 
+// Without the `testing` feature a transport has one variant, so a `match` on it has a single
+// arm; the matches stay so that the in-process arm has its place when the feature is on.
+#![cfg_attr(
+    not(feature = "testing"),
+    allow(clippy::infallible_destructuring_match)
+)]
+
 use std::future::{Future, ready};
 use std::sync::Arc;
 
 use pulsar::routing_policy::RoutingPolicy;
-use pulsar::{ProducerOptions, TokioExecutor};
+use pulsar::{ProducerOptions, Pulsar, TokioExecutor};
 #[cfg(feature = "asyncapi")]
 use ruststream::asyncapi::Bindings;
 use ruststream::runtime::{PublishBuilder, PublishSink};
@@ -14,7 +21,7 @@ use tokio::sync::Mutex;
 
 #[cfg(feature = "asyncapi")]
 use crate::bindings::topic_channel;
-use crate::broker::{ConnectedPulsarBroker, Core, CoreCell};
+use crate::broker::{ConnectedPulsarBroker, Core, CoreCell, Transport};
 use crate::error::{PulsarError, box_err};
 use crate::message::to_pulsar_message;
 use crate::topic::PulsarTopic;
@@ -69,8 +76,10 @@ pub struct PulsarPublishOptions {
 /// The partition key travels per message: [`PulsarPublishSteps::partition_key`] names it at the
 /// call site, and a `partition-key` header names the same key for a caller that writes its
 /// headers itself. Awaits the broker's send receipt, so `Ok` means the
-/// broker stored the message. Buildable before `connect` and usable until `shutdown`;
-/// afterwards every publish reports [`PulsarError::NotConnected`].
+/// broker stored the message. A payload over the broker's
+/// [`max_message_size`](crate::PulsarBroker::max_message_size) fails with
+/// [`PulsarError::Publish`] without being sent. Buildable before `connect` and usable until
+/// `shutdown`; afterwards every publish reports [`PulsarError::NotConnected`].
 #[derive(Clone)]
 pub struct PulsarPublisher {
     cell: CoreCell,
@@ -100,6 +109,7 @@ impl PulsarPublisher {
     async fn producer_for(
         &self,
         core: &Core,
+        client: &Pulsar<TokioExecutor>,
         topic: &str,
     ) -> Result<Arc<Mutex<PulsarProducer>>, PulsarError> {
         let full = PulsarTopic::parse(topic)?.as_str().to_owned();
@@ -107,18 +117,31 @@ impl PulsarPublisher {
         if let Some(producer) = producers.get(&full) {
             return Ok(Arc::clone(producer));
         }
-        let producer = Box::pin(
-            core.client
-                .producer()
-                .with_topic(&full)
-                .with_options(keyed_routing())
-                .build(),
-        )
-        .await
-        .map_err(|e| PulsarError::Publish {
-            topic: topic.to_owned(),
-            source: box_err(e),
-        })?;
+        // Built on the runtime the broker connected on: the client starts the connection a
+        // producer needs on the runtime that asks, and the first publish may come from a runtime
+        // that stops right after (a handler on a dedicated thread).
+        let (client, named) = (client.clone(), full.clone());
+        let producer = core
+            .runtime
+            .spawn(async move {
+                Box::pin(
+                    client
+                        .producer()
+                        .with_topic(named)
+                        .with_options(keyed_routing())
+                        .build(),
+                )
+                .await
+            })
+            .await
+            .map_err(|e| PulsarError::Publish {
+                topic: topic.to_owned(),
+                source: box_err(e),
+            })?
+            .map_err(|e| PulsarError::Publish {
+                topic: topic.to_owned(),
+                source: box_err(e),
+            })?;
         let producer = Arc::new(Mutex::new(producer));
         producers.insert(full, Arc::clone(&producer));
         Ok(producer)
@@ -140,11 +163,27 @@ impl Publisher for PulsarPublisher {
         options: Option<&Self::Options>,
     ) -> Result<(), Self::Error> {
         let core = self.core()?;
+        let size = msg.payload().len();
+        if size > core.max_message_size {
+            return Err(PulsarError::Publish {
+                topic: msg.name().to_owned(),
+                source: Box::from(format!(
+                    "the payload is {size} bytes, over the {} the broker's max_message_size \
+                     allows",
+                    core.max_message_size
+                )),
+            });
+        }
+        let key = options.and_then(|options| options.partition_key.as_deref());
+        let client = match &core.transport {
+            Transport::Client(client) => client,
+            #[cfg(feature = "testing")]
+            Transport::InProcess(bus) => return bus.publish(msg, key),
+        };
         // The destination outlives the message, so the client's message can consume it.
         let topic = msg.name();
-        let producer = Box::pin(self.producer_for(core, topic)).await?;
-        let key = options.and_then(|options| options.partition_key.as_deref());
-        let message = to_pulsar_message(msg, key);
+        let producer = Box::pin(self.producer_for(core, client, topic)).await?;
+        let message = to_pulsar_message(msg, key)?;
         let receipt = {
             let mut producer = producer.lock().await;
             Box::pin(producer.send_non_blocking(message))
@@ -175,12 +214,10 @@ impl Publisher for PulsarPublisher {
 /// # Examples
 ///
 /// ```
-/// # #[cfg(feature = "testing")]
 /// # async fn demo() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-/// use ruststream::Outgoing;
 /// use ruststream::runtime::PublishExt;
-/// use ruststream_pulsar::PulsarPublishSteps;
-/// use ruststream_pulsar::testing::PulsarTestBroker;
+/// use ruststream::{Broker, Outgoing};
+/// use ruststream_pulsar::{PulsarBroker, PulsarPublishSteps};
 ///
 /// #[derive(Outgoing, serde::Serialize)]
 /// #[outgoing(name = "orders")]
@@ -188,7 +225,8 @@ impl Publisher for PulsarPublisher {
 ///     id: u64,
 /// }
 ///
-/// PulsarTestBroker::new()
+/// let connected = PulsarBroker::new("pulsar://localhost:6650").connect().await?;
+/// connected
 ///     .publisher()
 ///     .message(&Order { id: 1 })
 ///     .partition_key("user-42")
@@ -207,19 +245,18 @@ pub trait PulsarPublishSteps {
     /// # Examples
     ///
     /// ```
-    /// # #[cfg(feature = "testing")]
     /// # async fn demo() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    /// use ruststream::{Outgoing, Serialized};
     /// use ruststream::runtime::PublishExt;
-    /// use ruststream_pulsar::PulsarPublishSteps;
-    /// use ruststream_pulsar::testing::PulsarTestBroker;
+    /// use ruststream::{Broker, Outgoing, Serialized};
+    /// use ruststream_pulsar::{PulsarBroker, PulsarPublishSteps};
     ///
     /// // An already-encoded record: the newtype says the bytes are the wire form, so no
     /// // codec runs on them.
     /// #[derive(Outgoing, Serialized)]
     /// struct Record(Vec<u8>);
     ///
-    /// PulsarTestBroker::new()
+    /// let connected = PulsarBroker::new("pulsar://localhost:6650").connect().await?;
+    /// connected
     ///     .publisher()
     ///     .message(&Record(b"{}".to_vec()))
     ///     .to("orders")
@@ -247,9 +284,6 @@ where
 
 /// The publish policy for [`PulsarPublisher`]: pure declaration, constructible anywhere,
 /// paired with the connected broker by the runtime after `connect`.
-///
-/// It pairs against the in-process stand-in too, so a routes file writes `out_reply(Publish)`
-/// once and mounts it on either broker.
 ///
 /// In the generated `AsyncAPI` document it describes the channel it publishes to: the
 /// specification's `pulsar` channel binding is a namespace and a persistence, and both live in
@@ -300,39 +334,15 @@ impl PublishPolicy<ConnectedPulsarBroker> for PulsarPublish {
     }
 }
 
-/// The policy fixes no defaults - a partition key belongs to one message, not to a mount site -
-/// so there is nothing here for the stand-in to honour or to drop quietly; what differs between
-/// the two impls is only the live form the policy pairs into, which is the publisher that broker
-/// sends with.
-#[cfg(feature = "testing")]
-impl PublishPolicy<crate::testing::ConnectedPulsarTestBroker> for PulsarPublish {
-    type Live = crate::testing::PulsarTestPublisher;
-
-    fn pair(
-        self,
-        connected: &crate::testing::ConnectedPulsarTestBroker,
-    ) -> impl Future<Output = Result<Self::Live, PairError>> {
-        ready(Ok(connected.publisher()))
-    }
-
-    /// The same channel the real broker describes, so a document built against the stand-in is
-    /// the document the service publishes.
-    #[cfg(feature = "asyncapi")]
-    fn channel_bindings(&self, channel: &str) -> Bindings {
-        Self::describe_channel(channel)
-    }
-}
-
 #[cfg(all(test, feature = "testing"))]
 mod tests {
     use ruststream::runtime::PublishExt;
-    use ruststream::testing::TestableBroker;
-    use ruststream::{Broker, HeaderMap, Outgoing, Serialized};
+    use ruststream::testing::{InProcess, TestableBroker};
+    use ruststream::{HeaderMap, Outgoing, Serialized};
     use serde::Serialize;
 
     use super::PulsarPublishSteps;
-    use crate::PARTITION_KEY_HEADER;
-    use crate::testing::{ConnectedPulsarTestBroker, PulsarTestBroker};
+    use crate::{ConnectedPulsarBroker, PARTITION_KEY_HEADER, PulsarBroker};
 
     /// The payload these tests carry: what they assert on is the key the publish carried, so the
     /// body is deliberately opaque bytes rather than a model.
@@ -350,11 +360,11 @@ mod tests {
         id: u64,
     }
 
-    async fn connected() -> ConnectedPulsarTestBroker {
-        PulsarTestBroker::new()
-            .connect()
+    async fn connected() -> ConnectedPulsarBroker {
+        PulsarBroker::new("pulsar://localhost:6650")
+            .connect_in_process()
             .await
-            .expect("the in-process broker connects")
+            .expect("the broker connects in process")
     }
 
     /// The step wins over the portable spelling of the same value, so a call site that sets both

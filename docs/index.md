@@ -3,7 +3,8 @@
 **`ruststream-pulsar`** runs a [RustStream](https://powersemmi.github.io/ruststream/) service on
 Apache Pulsar. A topic is a retained log, so a subscription rewinds over it. You pick one of the
 four subscription types, subscribe to a list of topics or to a pattern, and cap a message's
-retries at a dead-letter topic. The `testing` feature ships an in-process broker.
+retries at a dead-letter topic. With the `testing` feature, tests run the production app with the
+broker in process.
 
 The transport is implemented over the [`pulsar`](https://docs.rs/pulsar) client maintained by
 StreamNative.
@@ -38,7 +39,8 @@ setting a publish adjusts per message. The crate's reference documents each of t
   [per-message settings](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#per-message-settings).
 - [The generated document](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#the-generated-document)
   and [Testing](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#testing):
-  what AsyncAPI reports, and the in-process broker.
+  what AsyncAPI reports, and the production app under `TestApp`, in process or against a live
+  broker.
 - [Operations](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#operations):
   the service URL, authentication, and the client's limits.
 

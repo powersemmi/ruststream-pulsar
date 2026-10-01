@@ -2,42 +2,49 @@
 //!
 //! A message reaches every subscription over its topic; within one subscription, the type
 //! decides which consumer takes it. That is the rule a service writes tests about - two workers
-//! on one subscription share the stream, they do not each run it - so the stand-in has to apply
-//! it rather than fan out to everyone and let the test pass for the wrong reason.
+//! on one subscription share the stream, they do not each run it - so the in-process transport
+//! has to apply it rather than fan out to everyone and let the test pass for the wrong reason.
 //!
-//! The subject here is the transport's own selection, so these drive `PulsarTestBroker` through
-//! the broker traits; the last case is the service-level statement of the same thing, under
-//! `TestApp`.
+//! The subject here is the transport's own selection, so these drive the production broker,
+//! connected in process, through the broker traits; the last case is the service-level statement
+//! of the same thing, under `TestApp`. Which consumer of a shared subscription a server picks is
+//! the server's; the rotation asserted here is the in-process model of it, and one delivery per
+//! subscription is what both share.
 #![cfg(feature = "testing")]
 
 use std::time::Duration;
 
 use futures::StreamExt;
-use ruststream::testing::TestApp;
-use ruststream::{Broker, HeaderMap, IncomingMessage, OutgoingMessage, Publisher, Subscriber};
-use ruststream_pulsar::prelude::*;
-use ruststream_pulsar::testing::{
-    ConnectedPulsarTestBroker, PulsarTestBroker, PulsarTestSubscriber,
+use ruststream::testing::{InProcess, TestApp};
+use ruststream::{
+    HeaderMap, IncomingMessage, OutgoingMessage, Publisher, Seekable, Seeker, Subscriber,
 };
-use ruststream_pulsar::{PARTITION_KEY_HEADER, PulsarError};
+use ruststream_pulsar::prelude::*;
+use ruststream_pulsar::{
+    ConnectedPulsarBroker, PARTITION_KEY_HEADER, PulsarError, PulsarSubscriber,
+};
 use serde::{Deserialize, Serialize};
 
 /// How long a drain waits for a delivery that is not there. Every publish below lands in the
 /// router before the drain starts, so this bounds the empty read rather than a race.
 const QUIET: Duration = Duration::from_millis(100);
 
-async fn connected() -> ConnectedPulsarTestBroker {
-    PulsarTestBroker::new()
-        .connect()
+/// The address the service's broker is built with; the in-process mode dials nothing.
+const URL: &str = "pulsar://localhost:6650";
+
+/// The production broker, connected the way the test harness connects it.
+async fn connected() -> ConnectedPulsarBroker {
+    PulsarBroker::new(URL)
+        .connect_in_process()
         .await
-        .expect("the stand-in connects")
+        .expect("the broker connects in process")
 }
 
 fn subscription(topic: &str, name: &str, sharing: SubscriptionType) -> PulsarSubscription {
     PulsarSubscription::new(topic, name).subscription_type(sharing)
 }
 
-async fn publish(broker: &ConnectedPulsarTestBroker, topic: &str, payload: &str) {
+async fn publish(broker: &ConnectedPulsarBroker, topic: &str, payload: &str) {
     broker
         .publisher()
         .publish(OutgoingMessage::new(topic, payload.as_bytes()), None)
@@ -45,7 +52,7 @@ async fn publish(broker: &ConnectedPulsarTestBroker, topic: &str, payload: &str)
         .expect("publish");
 }
 
-async fn publish_keyed(broker: &ConnectedPulsarTestBroker, topic: &str, key: &str, payload: &str) {
+async fn publish_keyed(broker: &ConnectedPulsarBroker, topic: &str, key: &str, payload: &str) {
     let mut headers = HeaderMap::new();
     headers.insert(PARTITION_KEY_HEADER, key.to_owned());
     broker
@@ -59,7 +66,7 @@ async fn publish_keyed(broker: &ConnectedPulsarTestBroker, topic: &str, key: &st
 }
 
 /// Everything queued for one consumer, acked on the way out.
-async fn drain(subscriber: &mut PulsarTestSubscriber) -> Vec<String> {
+async fn drain(subscriber: &mut PulsarSubscriber) -> Vec<String> {
     let mut stream = Box::pin(subscriber.stream());
     let mut seen = Vec::new();
     while let Ok(Some(delivery)) = tokio::time::timeout(QUIET, stream.next()).await {
@@ -112,10 +119,9 @@ async fn distinct_subscriptions_each_receive_the_whole_stream() {
     assert_eq!(drain(&mut audit).await, ["o1", "o2"]);
 }
 
-/// The stand-in's own answer, and the one place it is not the server's: a server answers a second
-/// attach with "consumer busy" and the client waits for the holder to leave, which the live suite
-/// drives. The refusal here is what keeps a test from hanging on a mistake that costs a
-/// deployment its startup.
+/// A server answers a second attach with "consumer busy" and the client waits for the holder to
+/// leave, which the live suite drives. In process the attach is refused instead, which keeps a
+/// test from hanging on a mistake that costs a deployment its startup.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_exclusive_subscription_refuses_a_second_consumer() {
     let broker = connected().await;
@@ -196,7 +202,7 @@ async fn a_key_shared_subscription_keeps_a_key_on_one_consumer() {
     let two = drain(&mut second).await;
     assert_eq!(one.len() + two.len(), 4, "every message reached a consumer");
 
-    // Which consumer a key lands on is the stand-in's own hash and not a server's, so the claim
+    // Which consumer a key lands on is the in-process hash and not a server's, so the claim
     // is the one a test can rest on either way: a key does not move between consumers.
     let together = |left: &str, right: &str| {
         one.iter().any(|seen| seen == left) == one.iter().any(|seen| seen == right)
@@ -254,22 +260,23 @@ async fn worker_two(task: &Task) -> HandlerOutcome {
     HandlerOutcome::ack()
 }
 
+/// The service these workers run in: two handlers mounted on one shared subscription.
+fn app() -> RustStream {
+    RustStream::new(AppInfo::new("workers", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
+        b.include(worker_one);
+        b.include(worker_two);
+    })
+}
+
 /// The same rule where a service meets it: two handlers mounted on one shared subscription are
 /// competing consumers, so a run of four messages is four handler calls between them - not four
-/// each, which is what a stand-in that fans out to every consumer would report.
+/// each, which is what a transport that fans out to every consumer would report.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn competing_handlers_split_the_stream_under_the_harness() {
-    let app = RustStream::new(AppInfo::new("workers", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
-        |b| {
-            b.include(worker_one);
-            b.include(worker_two);
-        },
-    );
-    let tb = TestApp::start(app).await.expect("start harness");
+    let tb = TestApp::start(app()).await.expect("start harness");
 
     for id in 1..=4 {
-        tb.broker::<PulsarTestBroker>()
+        tb.broker::<PulsarBroker>()
             .message(&Task { id })
             .to("tasks")
             .publish()
@@ -277,8 +284,141 @@ async fn competing_handlers_split_the_stream_under_the_harness() {
             .expect("publish");
     }
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .subscriber("tasks")
         .assert_called(4)
         .settled(HandlerOutcome::ack());
+}
+
+/// The cursor belongs to the subscription, so a seek from one consumer moves its siblings too:
+/// what was queued for either of them is dropped, and the replay is shared out among both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_seek_moves_the_whole_subscription() {
+    let broker = connected().await;
+    let shared = || subscription("orders", "workers", SubscriptionType::Shared);
+    let mut first = broker
+        .subscribe_descriptor(shared())
+        .await
+        .expect("subscribe");
+    let mut second = broker
+        .subscribe_descriptor(shared())
+        .await
+        .expect("subscribe");
+
+    for id in 1..=4 {
+        publish(&broker, "orders", &format!("o{id}")).await;
+    }
+    first
+        .seeker()
+        .seek(PulsarPosition::latest())
+        .await
+        .expect("the seek is accepted");
+
+    assert!(
+        drain(&mut first).await.is_empty() && drain(&mut second).await.is_empty(),
+        "a seek to the tip drops what either consumer of the subscription had queued",
+    );
+
+    first
+        .seeker()
+        .seek(PulsarPosition::earliest())
+        .await
+        .expect("the seek is accepted");
+    let mut replayed = drain(&mut first).await;
+    replayed.extend(drain(&mut second).await);
+    replayed.sort();
+    assert_eq!(replayed, ["o1", "o2", "o3", "o4"]);
+}
+
+/// A seek replays the seeker's topics, so a sibling of the subscription keeps what it queued from
+/// a topic the seeker does not read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_seek_keeps_what_a_sibling_queued_from_another_topic() {
+    let broker = connected().await;
+    let mut returns = broker
+        .subscribe_descriptor(
+            PulsarSubscription::topics(["orders", "returns"], "workers")
+                .subscription_type(SubscriptionType::Shared),
+        )
+        .await
+        .expect("subscribe");
+    let mut refunds = broker
+        .subscribe_descriptor(
+            PulsarSubscription::topics(["orders", "refunds"], "workers")
+                .subscription_type(SubscriptionType::Shared),
+        )
+        .await
+        .expect("subscribe");
+    publish(&broker, "refunds", "r1").await;
+
+    returns
+        .seeker()
+        .seek(PulsarPosition::latest())
+        .await
+        .expect("the seek is accepted");
+
+    assert_eq!(drain(&mut refunds).await, ["r1"]);
+    assert!(drain(&mut returns).await.is_empty());
+}
+
+/// A non-persistent topic keeps no log, so a seek over one is accepted and replays nothing, as
+/// the live suite drives against a server.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_seek_over_a_non_persistent_topic_replays_nothing() {
+    let broker = connected().await;
+    let topic = "non-persistent://public/default/pings";
+    let mut subscriber = broker
+        .subscribe_descriptor(PulsarSubscription::new(topic, "workers"))
+        .await
+        .expect("subscribe");
+    publish(&broker, topic, "p1").await;
+    assert_eq!(drain(&mut subscriber).await, ["p1"]);
+
+    subscriber
+        .seeker()
+        .seek(PulsarPosition::earliest())
+        .await
+        .expect("the seek is accepted");
+
+    assert!(
+        drain(&mut subscriber).await.is_empty(),
+        "a non-persistent topic has no log to replay",
+    );
+}
+
+/// A subscription over several topics reads a log per topic, and a seek applies to each of them:
+/// a subscription that opened at the tip replays the backlog of every topic it lists.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_multi_topic_seek_replays_every_topic() {
+    let broker = connected().await;
+    for (topic, payload) in [
+        ("orders-eu", "o1"),
+        ("orders-us", "o2"),
+        ("orders-eu", "o3"),
+    ] {
+        publish(&broker, topic, payload).await;
+    }
+    let mut regional = broker
+        .subscribe_descriptor(PulsarSubscription::topics(
+            ["orders-eu", "orders-us"],
+            "regional",
+        ))
+        .await
+        .expect("subscribe");
+    assert!(
+        drain(&mut regional).await.is_empty(),
+        "a new subscription starts at the tip",
+    );
+
+    regional
+        .seeker()
+        .seek(PulsarPosition::earliest())
+        .await
+        .expect("the seek is accepted");
+
+    // Entries written within one millisecond share a publish time, so the merge across the two
+    // logs may interleave them; which topic came first is not the claim.
+    let mut replayed = drain(&mut regional).await;
+    replayed.sort();
+    assert_eq!(replayed, ["o1", "o2", "o3"]);
 }

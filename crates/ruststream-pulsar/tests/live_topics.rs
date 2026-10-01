@@ -17,8 +17,10 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use ruststream::runtime::PublishExt;
-use ruststream::{ConnectedBroker, IncomingMessage, Outgoing, Serialized, Subscriber};
-use ruststream_pulsar::{PulsarPublishSteps, PulsarSubscriber, PulsarSubscription};
+use ruststream::{
+    ConnectedBroker, IncomingMessage, Outgoing, Seekable, Seeker, Serialized, Subscriber,
+};
+use ruststream_pulsar::{PulsarPosition, PulsarPublishSteps, PulsarSubscriber, PulsarSubscription};
 
 use crate::live::{RECV_TIMEOUT, admin, connect, test_url, unique};
 
@@ -221,5 +223,41 @@ async fn a_pattern_subscription_reads_the_topics_it_matches() {
         "the pattern read a topic it does not match",
     );
 
+    connected.shutdown().await.expect("shutdown succeeds");
+}
+
+/// A non-persistent topic keeps no log: the server accepts a seek over one, and there is nothing
+/// for it to replay. The in-process mode answers the same.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_seek_over_a_non_persistent_topic_replays_nothing() {
+    let Some(url) = test_url() else { return };
+    let connected = connect(&url).await;
+    let topic = format!("non-persistent://public/default/{}", unique("pings"));
+
+    let mut subscriber = connected
+        .subscribe_descriptor(PulsarSubscription::new(&topic, unique("pings-sub")))
+        .await
+        .expect("subscription opens");
+    connected
+        .publisher()
+        .message(&Record(b"p1".to_vec()))
+        .to(topic.as_str())
+        .publish()
+        .await
+        .expect("publish succeeds");
+    let read = collect(&mut subscriber, 1).await;
+    assert_eq!(read[0].1, b"p1");
+
+    subscriber
+        .seeker()
+        .seek(PulsarPosition::earliest())
+        .await
+        .expect("the server accepts the seek");
+
+    let mut stream = pin!(subscriber.stream());
+    assert!(
+        tokio::time::timeout(QUIET, stream.next()).await.is_err(),
+        "a non-persistent topic has no log to replay",
+    );
     connected.shutdown().await.expect("shutdown succeeds");
 }

@@ -2,7 +2,8 @@
 
 **`ruststream-pulsar`** 在 Apache Pulsar 上运行 [RustStream](https://powersemmi.github.io/ruststream/)
 服务。主题是一份保留下来的日志，订阅可以在它上面回放。你从四种订阅类型里挑一种，订阅一组主题或者
-一个主题模式，并用一个死信主题给消息的重试次数封顶。`testing` feature 提供一个进程内 Broker。
+一个主题模式，并用一个死信主题给消息的重试次数封顶。开启 `testing` feature 后，测试直接运行生产应用，
+Broker 在进程内运行。
 
 传输建立在 StreamNative 维护的 [`pulsar`](https://docs.rs/pulsar) 客户端之上。
 
@@ -33,7 +34,7 @@ crate 的参考文档逐个讲了它们：
   [逐条消息的设置](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#per-message-settings)。
 - [生成的文档](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#the-generated-document)
   和[测试](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#testing)：AsyncAPI 会报告什么，
-  以及进程内 Broker 能做什么。
+  以及生产应用如何在 `TestApp` 下测试：在进程内运行，或对着运行中的 Broker。
 - [运维](https://docs.rs/ruststream-pulsar/latest/ruststream_pulsar/index.html#operations)：服务地址、认证和客户端的限制。
 
 ## 接下来读什么 { #where-to-go-next }
