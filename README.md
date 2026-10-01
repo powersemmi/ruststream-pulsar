@@ -63,7 +63,7 @@ use std::time::Duration;
 use ruststream_pulsar::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Outgoing, Serialize)]
 struct Order {
     id: u64,
 }
@@ -101,27 +101,25 @@ fn app() -> impl App {
 
 ## Test it
 
-`TestApp` runs the handlers against an in-process Pulsar, with no server.
+`TestApp` runs the service's own app with `PulsarBroker` in process, with no server.
 
 ```rust
 use ruststream::testing::TestApp;
-use ruststream_pulsar::testing::PulsarTestBroker;
 
-let app = RustStream::new(AppInfo::new("orders", "0.1.0"))
-    .with_broker(PulsarTestBroker::new(), |b| {
-        b.include(confirm).out_reply(Publish);
-    });
-let tb = TestApp::start(app).await?;
+let tb = TestApp::start(app()).await?;
 
-tb.broker::<PulsarTestBroker>()
-    .publish("orders", &Order { id: 42 })
+tb.broker::<PulsarBroker>()
+    .message(&Order { id: 42 })
+    .to("orders")
+    .publish()
     .await?;
 
-tb.broker::<PulsarTestBroker>()
+tb.broker::<PulsarBroker>()
     .subscriber("orders")
     .assert_called_once()
     .settled(HandlerOutcome::ack());
-tb.broker::<PulsarTestBroker>()
+
+tb.broker::<PulsarBroker>()
     .published::<Confirmation>("confirmations")
     .assert_called_once()
     .with(&Confirmation { id: 42 });
