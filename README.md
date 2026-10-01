@@ -21,24 +21,25 @@
 
 ---
 
-`ruststream-pulsar` implements the RustStream broker contract over the [`pulsar`](https://crates.io/crates/pulsar) client maintained by StreamNative. Handlers, routers, codecs, and middleware come from the framework; this crate supplies the transport - and nothing broker-specific leaks back into the framework.
+`ruststream-pulsar` connects a RustStream service to Apache Pulsar over the
+[`pulsar`](https://crates.io/crates/pulsar) client maintained by StreamNative. Handlers, routing,
+codecs and middleware come from the framework; this crate is the transport.
 
 ## Features
 
-- **Lazy startup contract.** `PulsarBroker::new(url)` is synchronous and does no I/O (JWT auth and `pulsar+ssl://` as options); the runtime connects once at startup, so the broker composes with `#[ruststream::app]`. The client reconnects consumers and producers transparently after broker restarts.
-- **Subscription types as an enum.** Exclusive, shared, failover, and key-shared - with per-variant meaning, so combinations that do not exist are unrepresentable.
-- **The retry declaration becomes Pulsar's own policy.** `b.include(handle).max_attempts(nonzero!(5)).dead_letter("orders-dlq")` is the framework's spelling on every broker; here it becomes the consumer's dead-letter policy, so the client counts a message's redeliveries and produces the spent one to that topic. A `HandlerOutcome::retry()` is the negative acknowledgement that advances the count, and the ack timeout advances it without one. Nothing is republished by the service, so `out_retry(..)` over a Pulsar subscription is a compile error. A `retry_after(delay)` outcome is honoured by holding the delivery unacknowledged for the delay and negatively acknowledging it then, because Pulsar's negative acknowledgement carries no delay of its own; the wait is the process's, so it must be shorter than the subscription's `ack_timeout` and a process that exits mid-wait loses the wait rather than the message.
-- **Validated addressing.** `PulsarTopic` parses and validates the four meanings a topic name carries (persistence, tenant, namespace, topic) on construction, not at first use.
-- **Multi-topic and pattern subscriptions.** `PulsarSubscription::topics(["orders", "returns"], "workers")` subscribes to a fixed list; `::pattern("orders-.*", "audit")` follows every topic in the namespace whose name matches, including topics created after the consumer attached.
-- **Start position on the framework's own surface.** `PulsarPosition` (`earliest()`, `latest()`, `timestamp(ms)`, or a captured message id) is the `Seekable` capability's position type, so a subscription's start position is the `start_at(..)` clause; the descriptor itself carries no separate start options. A `start_at` seek runs on every startup, unlike Pulsar's server-side initial position, which applies only when a subscription is first created.
-- **Repositioning from a handler, by key.** A delivery's context carries where it sits and the handle that moves the subscription, read as `Ctx<Position>` and `Ctx<SeekHandle>` parameters (or `ctx.context(..)`); a batch body reads the handle off the subscription-scoped `PulsarBatchContext`. Nothing is attached at the include site, and asking for a key the broker does not carry is a compile error rather than a runtime miss.
-- **Batches, assembled on the client.** The Pulsar client has no consumer-side batch receive, so a `&[T]` batch handler is served from single deliveries: the mount site names the batch size with `.batch(nonzero!(n))`, the descriptor's `batch_wait` names how long a partial batch waits for the rest, and a batch never carries more than the size that was asked for. Nothing at the mount site or in the body says which side the batch was built on.
-- **Key sharing as the partition key.** The partition key is the one per-message setting (`PulsarPublishOptions`), named at the call site by the `partition_key` step of the publish builder: `ledger.message(&receipt).to("receipts").partition_key("user-42").publish()`. The step keeps the publish on the slot the mount site wired, so the message leaves in that slot's codec and the test harness reads the key back off the slot. Keyed routing places the message by it, `KeyShared` subscriptions order by it, and a delivery reports it. The `partition-key` header carries the same key in the spelling every broker reads, for a body that writes its own headers.
-- **The document describes the topology** (feature `asyncapi`). A subscription fills the specification's `pulsar` channel binding with its topic's namespace and persistence, and carries the consumer itself - the subscription name, the subscription type, the ack timeout - under `x-ruststream-pulsar`, because the specification's Pulsar operation object is empty. Every value is read off the descriptor before anything connects, so a subscription whose topics span two namespaces reports neither, and the credentials a service URL carries never reach a published document.
-- **Properties carry headers directly.** Headers map onto Pulsar message properties with no extra envelope, so non-Rust peers see plain Pulsar messages.
-- **In-process test broker** (feature `testing`). `PulsarTestBroker` reproduces core routing with no server, implements `ruststream::testing::TestableBroker`, and passes every framework suite this crate's capabilities justify - routing, lifecycle, seeking, batches - in process as well as against a real broker. It takes the crate's own routes file: `PulsarSubscription` is a source for it - single-topic, multi-topic and pattern alike - and `PulsarPublish` pairs against it, so a service is tested through the declaration it ships rather than a test-only rewrite of it. The subscription type is honoured as well, so competing consumers on one `Shared` subscription split the stream in process instead of each replaying all of it.
-
-Transactions and the schema registry are out of scope: the client does not implement them, and the capability traits they would back are optional.
+- **Subscription types as an enum:** exclusive, shared, failover and key-shared.
+- **Retry caps as Pulsar's own dead-letter policy,** so the client counts redeliveries and moves a
+  spent message itself.
+- **Validated topic names,** checked when the descriptor is built.
+- **Multi-topic and pattern subscriptions,** including topics created later.
+- **Start positions and repositioning:** `start_at(..)` on every startup, and a handler moves its
+  subscription by message id or timestamp.
+- **Batches** assembled on the client.
+- **Key sharing:** the partition key is a per-message setting that keyed routing and `KeyShared`
+  subscriptions order by.
+- **Plain Pulsar messages:** headers ride message properties.
+- **AsyncAPI** with the specification's `pulsar` binding, behind the `asyncapi` feature.
+- **Tests without a server:** handlers run against an in-process Pulsar.
 
 ## Install
 
@@ -52,7 +53,7 @@ serde = { version = "1", features = ["derive"] }
 ruststream-pulsar = { version = "0.7", features = ["testing"] }
 ```
 
-Building requires `protoc` on the path (the client compiles the Pulsar protocol definitions).
+Building requires `protoc` on the path.
 
 ## Write a service
 
@@ -96,13 +97,11 @@ fn app() -> impl App {
 }
 ```
 
-`out_reply(policy)` binds the slot a handler's return value goes out on; `.out(marker, policy)` fills a slot the handler publishes through itself, marker first.
-
-The one glob `ruststream_pulsar::prelude::*` carries the framework's prelude along with this crate's descriptors, contexts, seek keys and policy. The policy arrives under the uniform name `Publish`, so the include line reads the same whichever broker a service mounts, and the absence of a `TransactionalPublish` name is the statement that Pulsar's client has no transactions. A handler body imports `ruststream::prelude::*` instead and names framework things only, bounding an injected slot as `Out<impl Publisher>`.
+`#[ruststream::app]` generates `main`, so the binary understands `run` and `asyncapi gen`.
 
 ## Test it
 
-The `testing` feature runs handlers against an in-process Pulsar stand-in - no server, same routing, same ladder - and the `TestApp` harness drives a whole service against it. `PulsarSubscription` is a subscription source for it as well as for the real broker, and `PulsarPublish` pairs against both, so the service above is tested through the declaration it ships: swap the broker, keep the handlers and the include sites - `out_reply(Publish)` included.
+`TestApp` runs the handlers against an in-process Pulsar, with no server.
 
 ```rust
 use ruststream::testing::TestApp;
@@ -114,7 +113,6 @@ let app = RustStream::new(AppInfo::new("orders", "0.1.0"))
     });
 let tb = TestApp::start(app).await?;
 
-// The publish drives the handler to a standstill before returning.
 tb.broker::<PulsarTestBroker>()
     .publish("orders", &Order { id: 42 })
     .await?;
@@ -123,34 +121,24 @@ tb.broker::<PulsarTestBroker>()
     .subscriber("orders")
     .assert_called_once()
     .settled(HandlerOutcome::ack());
-
 tb.broker::<PulsarTestBroker>()
     .published::<Confirmation>("confirmations")
     .assert_called_once()
     .with(&Confirmation { id: 42 });
 ```
 
-Pulsar's own behaviour (subscription types, dead-lettering, ack timeouts, redelivery, seeking) is covered by the env-gated live suite instead: `just test-brokers` starts Pulsar standalone and runs the integration tests plus the framework conformance lifecycle against it.
+## Documentation
 
-## Layout
+- This crate: <https://docs.rs/ruststream-pulsar>
+- The framework: <https://powersemmi.github.io/ruststream/latest>
 
-```
-ruststream-pulsar/
-├── crates/
-│   └── ruststream-pulsar/      the published crate
-│       └── examples/           runnable pulsar_* examples
-├── docs/                       the documentation site
-├── docker-compose.test.yml     Pulsar standalone for the live suite
-└── Cargo.toml                  workspace
-```
+## Minimum supported Rust version
+
+The MSRV is **1.88**, edition 2024.
 
 ## Contributing
 
-```bash
-just check          # fmt, clippy, feature checks
-just test           # the suite that needs no server (the live tests skip themselves)
-just test-brokers   # live integration + conformance against Pulsar standalone
-```
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
