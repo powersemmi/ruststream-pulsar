@@ -54,22 +54,22 @@ impl Bus {
     /// Stores a publish and delivers it, framed the way the live publisher frames it.
     ///
     /// The destination is qualified as the server qualifies it, and the message goes through the
-    /// same conversion a producer sends: header values become the text properties Pulsar carries
-    /// (a value that is not UTF-8 arrives with replacement characters, as it does from a
-    /// server), and the partition key becomes the message's own key, which a delivery reports as
-    /// the `partition-key` header.
+    /// same conversion a producer sends: header values become the text properties Pulsar carries,
+    /// and the partition key becomes the message's own key, which a delivery reports as the
+    /// `partition-key` header.
     ///
     /// # Errors
     ///
     /// Returns [`PulsarError::Invalid`] for a destination that is no topic name, which the live
-    /// publisher refuses before it opens a producer.
+    /// publisher refuses before it opens a producer, and [`PulsarError::Publish`] for a header
+    /// value that is not UTF-8, which the live publisher refuses too.
     pub(crate) fn publish(
         &self,
         msg: OutgoingMessage<'_, BytesMut>,
         key: Option<&str>,
     ) -> Result<(), PulsarError> {
         let topic = PulsarTopic::parse(msg.name())?;
-        let message = to_pulsar_message(msg, key);
+        let message = to_pulsar_message(msg, key)?;
         let headers = delivered_headers(message.properties, message.partition_key);
         self.router.publish(
             topic.as_str(),
@@ -150,23 +150,21 @@ mod tests {
         assert!(matches!(refused, PulsarError::Invalid(_)), "{refused}");
     }
 
-    /// Pulsar carries properties as text, so a header value that is not UTF-8 arrives the way a
-    /// server delivers it, not as the bytes the publish wrote.
+    /// Pulsar carries properties as text, so a header value that is not UTF-8 is refused, as the
+    /// live publisher refuses it, and nothing reaches the log.
     #[tokio::test]
-    async fn a_header_arrives_as_the_text_pulsar_carries() {
+    async fn a_header_that_is_not_text_is_refused() {
         let bus = Bus::new(Handle::current());
         let mut headers = HeaderMap::new();
         headers.insert("x-raw", vec![0xff, b'a']);
-        bus.publish(
-            OutgoingMessage::produced("orders", BytesMut::from(&b"{}"[..])).with_headers(headers),
-            None,
-        )
-        .expect("a topic name is accepted");
-
-        let logged = bus.published("persistent://public/default/orders");
-        assert_eq!(
-            logged[0].headers().get("x-raw"),
-            Some("\u{fffd}a".as_bytes()),
-        );
+        let refused = bus
+            .publish(
+                OutgoingMessage::produced("orders", BytesMut::from(&b"{}"[..]))
+                    .with_headers(headers),
+                None,
+            )
+            .expect_err("a binary header is refused");
+        assert!(matches!(refused, PulsarError::Publish { .. }), "{refused}");
+        assert!(bus.published("orders").is_empty());
     }
 }

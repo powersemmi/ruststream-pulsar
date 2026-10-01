@@ -321,9 +321,11 @@ impl IncomingMessage for PulsarMessage {
             Settle::Driver(driver) => {
                 send_settle(driver, self.topic, self.id, SettleKind::Ack).await
             }
-            // The settlement is released as it drops, which is all an acknowledgement is here.
             #[cfg(feature = "testing")]
-            Settle::InProcess(_) => Ok(()),
+            Settle::InProcess(settlement) => {
+                settlement.settle();
+                Ok(())
+            }
         }
     }
 
@@ -340,9 +342,11 @@ impl IncomingMessage for PulsarMessage {
             #[cfg(feature = "testing")]
             Settle::InProcess(settlement) => {
                 if requeue {
-                    (*settlement).requeue(self.payload, self.headers, self.topic);
+                    (*settlement).requeue(self.payload, self.headers, self.topic)
+                } else {
+                    settlement.settle();
+                    Ok(())
                 }
-                Ok(())
             }
         }
     }
@@ -368,7 +372,7 @@ impl IncomingMessage for PulsarMessage {
     ///
     /// Returns [`AckError::Broker`] when the delay is not shorter than the subscription's
     /// `ack_timeout`, which would redeliver the message before the delay was over, or when the
-    /// subscription's driver task has shut down.
+    /// subscription is gone (its driver task has shut down, or in process the broker did).
     ///
     /// # Cancel safety
     ///
@@ -395,7 +399,12 @@ impl IncomingMessage for PulsarMessage {
             }
             #[cfg(feature = "testing")]
             Settle::InProcess(settlement) => {
-                (*settlement).nack_after(delay, self.payload, self.headers, self.topic);
+                return ready((*settlement).nack_after(
+                    delay,
+                    self.payload,
+                    self.headers,
+                    self.topic,
+                ));
             }
         }
         ready(Ok(()))
@@ -413,29 +422,42 @@ impl IncomingMessage for PulsarMessage {
 /// [`PARTITION_KEY_HEADER`] header the call site wrote itself, and with neither the message
 /// leaves unkeyed. Either way the key becomes the message's own `partition_key` rather than a
 /// property, which is how it comes back on delivery.
+///
+/// # Errors
+///
+/// Returns [`PulsarError::Publish`] for a header value that is not UTF-8. Pulsar carries
+/// properties as text, so such a value cannot arrive as it was written, and a rewritten header
+/// is a silent loss.
 pub(crate) fn to_pulsar_message(
     msg: OutgoingMessage<'_, BytesMut>,
     key: Option<&str>,
-) -> pulsar::producer::Message {
-    let (_topic, payload, headers) = msg.into_parts();
+) -> Result<pulsar::producer::Message, PulsarError> {
+    let (topic, payload, headers) = msg.into_parts();
     let mut properties = HashMap::with_capacity(headers.len());
     let mut partition_key = key.map(ToOwned::to_owned);
     for (name, value) in headers.iter() {
-        let text = String::from_utf8_lossy(value).into_owned();
+        let text = std::str::from_utf8(value)
+            .map_err(|err| PulsarError::Publish {
+                topic: topic.to_owned(),
+                source: Box::from(format!(
+                    "header '{name}' is not UTF-8 ({err}); Pulsar carries properties as text"
+                )),
+            })?
+            .to_owned();
         if name == PARTITION_KEY_HEADER {
             partition_key.get_or_insert(text);
         } else {
             properties.insert(name.to_owned(), text);
         }
     }
-    pulsar::producer::Message {
+    Ok(pulsar::producer::Message {
         // The client owns the payload, and the buffer the framework wrote is the vector it
         // wants: taking it costs nothing where a copy costs the whole body.
         payload: Vec::from(payload),
         properties,
         partition_key,
         ..Default::default()
-    }
+    })
 }
 
 #[cfg(test)]
@@ -449,7 +471,7 @@ mod tests {
         headers.insert("x-tenant", "acme");
         let outgoing = OutgoingMessage::new("orders", b"{}".as_slice()).with_headers(headers);
 
-        let message = to_pulsar_message(outgoing, None);
+        let message = to_pulsar_message(outgoing, None).expect("text headers are carried");
         assert_eq!(message.partition_key.as_deref(), Some("user-42"));
         assert_eq!(
             message.properties.get("x-tenant").map(String::as_str),
@@ -464,7 +486,8 @@ mod tests {
         headers.insert(PARTITION_KEY_HEADER, "user-7");
         let outgoing = OutgoingMessage::new("orders", b"{}".as_slice()).with_headers(headers);
 
-        let message = to_pulsar_message(outgoing, Some("user-42"));
+        let message =
+            to_pulsar_message(outgoing, Some("user-42")).expect("text headers are carried");
         assert_eq!(message.partition_key.as_deref(), Some("user-42"));
         assert!(!message.properties.contains_key(PARTITION_KEY_HEADER));
     }
@@ -491,7 +514,7 @@ mod tests {
         let at = buffer.as_ptr();
         let outgoing = OutgoingMessage::produced("orders", buffer);
 
-        let message = to_pulsar_message(outgoing, None);
+        let message = to_pulsar_message(outgoing, None).expect("text headers are carried");
 
         assert_eq!(
             message.payload.as_ptr(),
@@ -504,7 +527,22 @@ mod tests {
     fn a_publish_that_names_no_key_leaves_unkeyed() {
         let outgoing = OutgoingMessage::new("orders", b"{}".as_slice());
 
-        let message = to_pulsar_message(outgoing, None);
+        let message = to_pulsar_message(outgoing, None).expect("text headers are carried");
         assert_eq!(message.partition_key, None);
+    }
+
+    /// Pulsar carries properties as text, so a header value that is not UTF-8 is refused rather
+    /// than rewritten on the way out.
+    #[test]
+    fn a_header_that_is_not_text_is_refused() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-raw", vec![0xff, b'a']);
+        let outgoing = OutgoingMessage::new("orders", b"{}".as_slice()).with_headers(headers);
+
+        let refused = to_pulsar_message(outgoing, None).expect_err("a binary header is refused");
+        assert!(
+            matches!(&refused, PulsarError::Publish { topic, .. } if topic == "orders"),
+            "{refused:?}",
+        );
     }
 }
