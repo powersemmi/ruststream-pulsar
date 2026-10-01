@@ -7,8 +7,8 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use bytes::Bytes;
-use ruststream::HeaderMap;
 use ruststream::testing::Coordinator;
+use ruststream::{AckError, HeaderMap};
 use tokio::time::sleep;
 
 use crate::error::PulsarError;
@@ -55,6 +55,7 @@ impl Queued {
                     seq: delivery.seq,
                     redeliveries: delivery.redeliveries,
                     coordinator: self.coordinator.clone(),
+                    unsettled: Some(delivery.clone()),
                 };
                 Ok(PulsarMessage::in_process(
                     delivery,
@@ -79,7 +80,9 @@ impl Queued {
 /// finishes, and a `Failover` standby takes over.
 impl Drop for Queued {
     fn drop(&mut self) {
-        self.bus.router().unsubscribe(self.id);
+        self.bus
+            .router()
+            .unsubscribe(self.id, self.coordinator.as_ref());
     }
 }
 
@@ -96,10 +99,18 @@ pub(crate) struct Settlement {
     seq: usize,
     redeliveries: u32,
     coordinator: Option<Coordinator>,
+    /// The delivery until it is settled: one dropped without a settlement stays unacknowledged
+    /// on its consumer, and comes back once that consumer closes.
+    unsettled: Option<Delivery>,
 }
 
 impl Drop for Settlement {
     fn drop(&mut self) {
+        if let Some(delivery) = self.unsettled.take() {
+            self.bus
+                .router()
+                .hold(self.id, delivery, self.coordinator.as_ref());
+        }
         if let Some(coordinator) = &self.coordinator {
             coordinator.consumed();
         }
@@ -107,6 +118,12 @@ impl Drop for Settlement {
 }
 
 impl Settlement {
+    /// Settles the delivery for good: acknowledged, or rejected, which Pulsar performs as an
+    /// acknowledgement.
+    pub(crate) fn settle(mut self) {
+        self.unsettled = None;
+    }
+
     /// The log index of the delivery, which is its message id's entry id.
     pub(crate) const fn seq(&self) -> usize {
         self.seq
@@ -133,31 +150,53 @@ impl Settlement {
 
     /// Hands the delivery back to its subscription, which is what a negative acknowledgement
     /// asks the broker for.
-    pub(crate) fn requeue(self, payload: Bytes, headers: HeaderMap, topic: String) {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AckError::Broker`] once the broker shut down: nothing is left to hand the
+    /// delivery back to, and an `Ok` would promise a redelivery that never comes.
+    pub(crate) fn requeue(
+        mut self,
+        payload: Bytes,
+        headers: HeaderMap,
+        topic: String,
+    ) -> Result<(), AckError> {
+        self.unsettled = None;
         let delivery = self.delivery(payload, headers, topic);
         let queued = self
             .bus
             .router()
-            .requeue(self.id, delivery, self.coordinator.as_ref());
+            .requeue(self.id, delivery, self.coordinator.as_ref())
+            .ok_or_else(consumer_gone)?;
         // The requeue bypasses fanout, so the re-enqueue is counted here to balance this
         // delivery's release on drop. A delivery that reached the dead-letter limit reports no
         // requeue and counts its own produce.
         if queued && let Some(coordinator) = &self.coordinator {
             coordinator.enqueued();
         }
+        Ok(())
     }
 
     /// Holds the delivery for `delay`, then hands it back to its subscription.
     ///
     /// Under the harness the wait is registered with the coordinator rather than slept on, so a
     /// test drives it with `TestApp::advance` and sees nothing come back before the delay is over.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AckError::Broker`] once the broker shut down, as [`requeue`](Self::requeue)
+    /// does.
     pub(crate) fn nack_after(
-        self,
+        mut self,
         delay: Duration,
         payload: Bytes,
         headers: HeaderMap,
         topic: String,
-    ) {
+    ) -> Result<(), AckError> {
+        if !self.bus.router().settles(self.id) {
+            return Err(consumer_gone());
+        }
+        self.unsettled = None;
         let delivery = self.delivery(payload, headers, topic);
         let bus = Arc::clone(&self.bus);
         let id = self.id;
@@ -166,11 +205,11 @@ impl Settlement {
             coordinator.schedule_redelivery(delay, move || {
                 // The same accounting a requeue does: a delivery that reached the dead-letter
                 // limit is produced there instead and counts its own enqueues.
-                if bus.router().requeue(id, delivery, Some(&counter)) {
+                if bus.router().requeue(id, delivery, Some(&counter)) == Some(true) {
                     counter.enqueued();
                 }
             });
-            return;
+            return Ok(());
         }
         // On the runtime the broker connected on, not the settling caller's: a handler on a
         // dedicated thread settles from a runtime that may stop before the delay is out.
@@ -178,5 +217,13 @@ impl Settlement {
             sleep(delay).await;
             bus.router().requeue(id, delivery, None);
         });
+        Ok(())
     }
+}
+
+/// The answer a settlement gets once its consumer is gone.
+fn consumer_gone() -> AckError {
+    AckError::Broker(Box::from(
+        "the broker shut down, so the delivery cannot be handed back",
+    ))
 }
