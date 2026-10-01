@@ -76,8 +76,10 @@ pub struct PulsarPublishOptions {
 /// The partition key travels per message: [`PulsarPublishSteps::partition_key`] names it at the
 /// call site, and a `partition-key` header names the same key for a caller that writes its
 /// headers itself. Awaits the broker's send receipt, so `Ok` means the
-/// broker stored the message. Buildable before `connect` and usable until `shutdown`;
-/// afterwards every publish reports [`PulsarError::NotConnected`].
+/// broker stored the message. A payload over the broker's
+/// [`max_message_size`](crate::PulsarBroker::max_message_size) fails with
+/// [`PulsarError::Publish`] without being sent. Buildable before `connect` and usable until
+/// `shutdown`; afterwards every publish reports [`PulsarError::NotConnected`].
 #[derive(Clone)]
 pub struct PulsarPublisher {
     cell: CoreCell,
@@ -115,18 +117,31 @@ impl PulsarPublisher {
         if let Some(producer) = producers.get(&full) {
             return Ok(Arc::clone(producer));
         }
-        let producer = Box::pin(
-            client
-                .producer()
-                .with_topic(&full)
-                .with_options(keyed_routing())
-                .build(),
-        )
-        .await
-        .map_err(|e| PulsarError::Publish {
-            topic: topic.to_owned(),
-            source: box_err(e),
-        })?;
+        // Built on the runtime the broker connected on: the client starts the connection a
+        // producer needs on the runtime that asks, and the first publish may come from a runtime
+        // that stops right after (a handler on a dedicated thread).
+        let (client, named) = (client.clone(), full.clone());
+        let producer = core
+            .runtime
+            .spawn(async move {
+                Box::pin(
+                    client
+                        .producer()
+                        .with_topic(named)
+                        .with_options(keyed_routing())
+                        .build(),
+                )
+                .await
+            })
+            .await
+            .map_err(|e| PulsarError::Publish {
+                topic: topic.to_owned(),
+                source: box_err(e),
+            })?
+            .map_err(|e| PulsarError::Publish {
+                topic: topic.to_owned(),
+                source: box_err(e),
+            })?;
         let producer = Arc::new(Mutex::new(producer));
         producers.insert(full, Arc::clone(&producer));
         Ok(producer)
@@ -148,6 +163,17 @@ impl Publisher for PulsarPublisher {
         options: Option<&Self::Options>,
     ) -> Result<(), Self::Error> {
         let core = self.core()?;
+        let size = msg.payload().len();
+        if size > core.max_message_size {
+            return Err(PulsarError::Publish {
+                topic: msg.name().to_owned(),
+                source: Box::from(format!(
+                    "the payload is {size} bytes, over the {} the broker's max_message_size \
+                     allows",
+                    core.max_message_size
+                )),
+            });
+        }
         let key = options.and_then(|options| options.partition_key.as_deref());
         let client = match &core.transport {
             Transport::Client(client) => client,
@@ -157,7 +183,7 @@ impl Publisher for PulsarPublisher {
         // The destination outlives the message, so the client's message can consume it.
         let topic = msg.name();
         let producer = Box::pin(self.producer_for(core, client, topic)).await?;
-        let message = to_pulsar_message(msg, key);
+        let message = to_pulsar_message(msg, key)?;
         let receipt = {
             let mut producer = producer.lock().await;
             Box::pin(producer.send_non_blocking(message))
