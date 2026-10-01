@@ -7,6 +7,8 @@ mod live;
 
 use std::collections::BTreeSet;
 use std::pin::pin;
+use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -20,6 +22,8 @@ use ruststream_pulsar::{
     ConnectedPulsarBroker, PARTITION_KEY_HEADER, PulsarBroker, PulsarError, PulsarMessage,
     PulsarPosition, PulsarPublishSteps, PulsarSubscriber, PulsarSubscription, SubscriptionType,
 };
+use tokio::runtime;
+use tokio::sync::oneshot;
 
 use crate::live::{RECV_TIMEOUT, admin, connect, test_url, unique};
 
@@ -268,6 +272,128 @@ async fn a_delayed_nack_is_redelivered_after_the_delay() {
     again.ack().await.expect("ack succeeds");
 
     connected.shutdown().await.expect("shutdown succeeds");
+}
+
+/// A handler on a dedicated thread settles from that thread's own runtime, which may stop before
+/// the delay is out. The wait runs on the runtime the broker connected on, so the negative
+/// acknowledgement still goes out and the delivery comes back after the delay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delayed_nack_from_a_stopped_runtime_is_still_redelivered() {
+    let Some(url) = test_url() else { return };
+    let connected = connect(&url).await;
+
+    let topic = unique("deferred-foreign");
+    let mut subscriber = connected
+        .subscribe_descriptor(PulsarSubscription::new(&topic, unique("sub")))
+        .await
+        .expect("subscription opens");
+
+    connected
+        .publisher()
+        .publish(OutgoingMessage::new(&topic, b"defer".as_slice()), None)
+        .await
+        .expect("publish succeeds");
+
+    let mut stream = pin!(subscriber.stream());
+    let first = tokio::time::timeout(RECV_TIMEOUT, stream.next())
+        .await
+        .expect("the first delivery arrives")
+        .expect("the subscription is open")
+        .expect("the delivery is ok");
+    on_foreign_runtime(async move || {
+        first
+            .nack_after(NACK_DELAY)
+            .await
+            .expect("a delay shorter than any consumer timer is accepted");
+    })
+    .await;
+
+    assert!(
+        tokio::time::timeout(NACK_DELAY / 2, stream.next())
+            .await
+            .is_err(),
+        "the delivery came back before the delay was over",
+    );
+    let again = tokio::time::timeout(RECV_TIMEOUT, stream.next())
+        .await
+        .expect("a delayed redelivery settled from a stopped runtime arrives")
+        .expect("the subscription is open")
+        .expect("the delivery is ok");
+    assert_eq!(again.payload(), b"defer");
+    again.ack().await.expect("ack succeeds");
+
+    connected.shutdown().await.expect("shutdown succeeds");
+}
+
+/// A subscription opened, and a publisher first used, from a runtime that stops right after (a
+/// handler on a dedicated thread) keep working: the consumer and the producer are built on the
+/// runtime the broker connected on, so the connection they need outlives the one that asked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_subscription_and_a_producer_opened_from_a_stopped_runtime_keep_working() {
+    let Some(url) = test_url() else { return };
+    let connected = Arc::new(connect(&url).await);
+    let topic = unique("foreign-open");
+
+    let (opening, source) = (
+        Arc::clone(&connected),
+        PulsarSubscription::new(&topic, unique("sub")),
+    );
+    let mut subscriber =
+        on_foreign_runtime(async move || opening.subscribe_descriptor(source).await)
+            .await
+            .expect("the subscription opens from a runtime of its own");
+    let publisher = connected.publisher();
+    let (first_use, name) = (publisher.clone(), topic.clone());
+    on_foreign_runtime(async move || {
+        first_use
+            .publish(OutgoingMessage::new(&name, b"first".as_slice()), None)
+            .await
+    })
+    .await
+    .expect("the first publish goes out from a runtime of its own");
+    publisher
+        .publish(OutgoingMessage::new(&topic, b"second".as_slice()), None)
+        .await
+        .expect("the producer outlives the runtime that asked for it");
+
+    {
+        let mut stream = pin!(subscriber.stream());
+        for expected in [b"first".as_slice(), b"second".as_slice()] {
+            let msg = tokio::time::timeout(RECV_TIMEOUT, stream.next())
+                .await
+                .expect("the subscription keeps receiving")
+                .expect("the subscription is open")
+                .expect("the delivery is ok");
+            assert_eq!(msg.payload(), expected);
+            msg.ack().await.expect("ack succeeds");
+        }
+    }
+    drop(subscriber);
+    Arc::into_inner(connected)
+        .expect("the foreign runtimes let go of the connection")
+        .shutdown()
+        .await
+        .expect("shutdown succeeds");
+}
+
+/// Runs `work` on a single-threaded runtime of its own thread, stopped as soon as `work` returns,
+/// the way a handler on a dedicated thread settles a delivery.
+async fn on_foreign_runtime<Output: Send + 'static>(
+    work: impl AsyncFnOnce() -> Output + Send + 'static,
+) -> Output {
+    let (done, finished) = oneshot::channel();
+    thread::spawn(move || {
+        let runtime = runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a current-thread runtime builds");
+        let output = runtime.block_on(work());
+        drop(runtime);
+        let _ = done.send(output);
+    });
+    finished
+        .await
+        .expect("the foreign runtime's work completes")
 }
 
 /// A delay the consumer's own timer would cut short is refused before anything waits, so a

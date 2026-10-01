@@ -19,8 +19,10 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "testing")]
 use ruststream::testing::TestApp;
+
+/// The address the service's broker is built with; the in-process mode dials nothing.
 #[cfg(feature = "testing")]
-use ruststream_pulsar::testing::PulsarTestBroker;
+const URL: &str = "pulsar://localhost:6650";
 
 /// A slot is bounded by the broker capability trait, and the glob keeps it reachable.
 fn _slots_are_bounded_by_the_capability_trait<T: Publisher>() {}
@@ -98,24 +100,24 @@ fn the_policy_binds_the_reply_position() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_reply_lands_on_the_topic_its_type_declares() {
     let app = RustStream::new(AppInfo::new("declared", "0.1.0")).with_broker(
-        PulsarTestBroker::new().default_subscription("workers"),
+        PulsarBroker::new(URL).default_subscription("workers"),
         |b| {
             b.include(issue_receipt);
         },
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .message(&Order { id: 7 })
         .to("receipt-requests")
         .publish()
         .await
         .expect("publish");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .subscriber("receipt-requests")
         .assert_called_once();
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .published::<Receipt>("receipts")
         .assert_called_once()
         .with(&Receipt {
@@ -129,24 +131,24 @@ async fn a_reply_lands_on_the_topic_its_type_declares() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_reply_lands_on_the_topic_the_mount_site_names() {
     let app = RustStream::new(AppInfo::new("mounted", "0.1.0")).with_broker(
-        PulsarTestBroker::new().default_subscription("workers"),
+        PulsarBroker::new(URL).default_subscription("workers"),
         |b| {
             b.include(confirm);
         },
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .message(&Order { id: 7 })
         .to("orders")
         .publish()
         .await
         .expect("publish");
 
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .subscriber("orders")
         .assert_called_once();
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .published::<Confirmation>("confirmations")
         .assert_called_once()
         .with(&Confirmation {

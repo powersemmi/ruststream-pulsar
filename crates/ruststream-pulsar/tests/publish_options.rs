@@ -12,11 +12,13 @@ use std::pin::pin;
 use futures::StreamExt;
 use ruststream::Subscriber;
 use ruststream::codec::CborCodec;
-use ruststream::testing::TestApp;
+use ruststream::testing::{InProcess, TestApp};
 use ruststream_pulsar::PARTITION_KEY_HEADER;
 use ruststream_pulsar::prelude::*;
-use ruststream_pulsar::testing::PulsarTestBroker;
 use serde::{Deserialize, Serialize};
+
+/// The address the service's broker is built with; the in-process mode dials nothing.
+const URL: &str = "pulsar://localhost:6650";
 
 #[derive(Debug, Deserialize, Eq, Outgoing, PartialEq, Serialize)]
 struct Order {
@@ -101,12 +103,9 @@ async fn tag(
 
 /// Starts `app` on the harness and delivers one order to `topic`, the shape every test here
 /// shares.
-async fn delivered<Layers, Pipeline, Phase>(
-    app: RustStream<Layers, (), Pipeline, Phase>,
-    topic: &str,
-) -> TestApp<()> {
+async fn delivered(app: impl App<State = ()>, topic: &str) -> TestApp<()> {
     let tb = TestApp::start(app).await.expect("start harness");
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .message(&Order { id: 7 })
         .to(topic)
         .publish()
@@ -119,7 +118,7 @@ async fn delivered<Layers, Pipeline, Phase>(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_step_keys_the_message_the_slot_sends() {
     let app =
-        RustStream::new(AppInfo::new("keyed", "0.1.0")).with_broker(PulsarTestBroker::new(), |b| {
+        RustStream::new(AppInfo::new("keyed", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
             b.include(record).out(Ledger, Publish).build();
         });
     let tb = delivered(app, "orders").await;
@@ -129,7 +128,7 @@ async fn the_step_keys_the_message_the_slot_sends() {
         .with_options(&PulsarPublishOptions {
             partition_key: Some("user-7".to_owned()),
         });
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .published::<Receipt>("receipts")
         .assert_called_once()
         .with(&Receipt { id: 7 })
@@ -141,7 +140,7 @@ async fn the_step_keys_the_message_the_slot_sends() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_publish_with_no_step_leaves_the_message_unkeyed() {
     let app =
-        RustStream::new(AppInfo::new("plain", "0.1.0")).with_broker(PulsarTestBroker::new(), |b| {
+        RustStream::new(AppInfo::new("plain", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
             b.include(note).out(Notes, Publish).build();
         });
     let tb = delivered(app, "orders.plain").await;
@@ -150,7 +149,7 @@ async fn a_publish_with_no_step_leaves_the_message_unkeyed() {
         .assert_called_once()
         .assert_options_default();
     let receipts = tb
-        .broker::<PulsarTestBroker>()
+        .broker::<PulsarBroker>()
         .published::<Receipt>("receipts.plain")
         .assert_called_once();
     assert_eq!(
@@ -164,18 +163,16 @@ async fn a_publish_with_no_step_leaves_the_message_unkeyed() {
 /// the portable way keeps working.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_call_site_header_keys_the_message_too() {
-    let app = RustStream::new(AppInfo::new("tagged", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
-        |b| {
+    let app =
+        RustStream::new(AppInfo::new("tagged", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
             b.include(tag).out(Notes, Publish).build();
-        },
-    );
+        });
     let tb = delivered(app, "orders.tagged").await;
 
     tb.out::<Notes>()
         .assert_called_once()
         .assert_options_default();
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .published::<Receipt>("receipts.tagged")
         .assert_called_once()
         .with_header(PARTITION_KEY_HEADER, "user-7");
@@ -187,7 +184,7 @@ async fn a_call_site_header_keys_the_message_too() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_keyed_publish_keeps_the_codec_the_mount_site_named() {
     let app = RustStream::new(AppInfo::new("keyed-codec", "0.1.0")).with_broker(
-        PulsarTestBroker::new(),
+        PulsarBroker::new(URL),
         |b| {
             b.include(record)
                 .out(Ledger, Publish)
@@ -204,7 +201,7 @@ async fn a_keyed_publish_keeps_the_codec_the_mount_site_named() {
         })
         .decoded_as::<Receipt>()
         .with_codec(&CborCodec, &Receipt { id: 7 });
-    tb.broker::<PulsarTestBroker>()
+    tb.broker::<PulsarBroker>()
         .published::<Receipt>("receipts")
         .assert_called_once()
         .with_codec(&CborCodec, &Receipt { id: 7 })
@@ -216,10 +213,10 @@ async fn a_keyed_publish_keeps_the_codec_the_mount_site_named() {
 /// that, so this one reads the subscriber rather than the publish log.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_delivery_reports_the_key_the_step_named() {
-    let connected = PulsarTestBroker::new()
-        .connect()
+    let connected = PulsarBroker::new(URL)
+        .connect_in_process()
         .await
-        .expect("the in-process broker connects");
+        .expect("the broker connects in process");
     let mut subscriber = connected
         .subscribe_descriptor(PulsarSubscription::new("orders.keyed", "workers"))
         .await
