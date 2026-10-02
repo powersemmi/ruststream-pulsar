@@ -519,7 +519,7 @@ mod tests {
     fn a_delay_is_bounded_by_the_ack_timeout() {
         let timeout = Duration::from_secs(30);
         assert!(within_ack_timeout(Duration::from_secs(29), Some(timeout), "orders").is_ok());
-        assert!(within_ack_timeout(Duration::from_secs(300), None, "orders").is_ok());
+        assert!(within_ack_timeout(Duration::from_mins(5), None, "orders").is_ok());
 
         let refused = within_ack_timeout(timeout, Some(timeout), "orders")
             .expect_err("a delay equal to the timeout must be refused");

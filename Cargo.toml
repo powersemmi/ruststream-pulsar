@@ -6,7 +6,7 @@ members = ["crates/ruststream-pulsar", "crates/ruststream-pulsar-bench"]
 version = "0.7.0"
 edition = "2024"
 # The floor the core crate declares on the 0.7 line; a lower one cannot resolve it.
-rust-version = "1.88"
+rust-version = "1.95"
 license = "Apache-2.0"
 repository = "https://github.com/powersemmi/ruststream-pulsar"
 authors = ["RustStream contributors"]
