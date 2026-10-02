@@ -1,0 +1,1257 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The Apache Pulsar broker for RustStream - subscription types, pattern subscriptions, dead-lettering, seeking, and an in-process test broker.">
+      
+      
+      
+        <link rel="canonical" href="https://powersemmi.github.io/ruststream-pulsar/0.6/pulsar/">
+      
+      
+        <link rel="prev" href="..">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Apache Pulsar - ruststream-pulsar</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="deep-orange">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#apache-pulsar" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="ruststream-pulsar" class="md-header__button md-logo" aria-label="ruststream-pulsar" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            ruststream-pulsar
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Apache Pulsar
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="deep-orange"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="deep-orange"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/powersemmi/ruststream-pulsar" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    powersemmi/ruststream-pulsar
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="ruststream-pulsar" class="md-nav__button md-logo" aria-label="ruststream-pulsar" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    ruststream-pulsar
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/powersemmi/ruststream-pulsar" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    powersemmi/ruststream-pulsar
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Apache Pulsar
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Apache Pulsar
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capabilities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#topic-addressing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Topic addressing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#subscription-descriptors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subscription descriptors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Subscription descriptors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pattern-subscriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern subscriptions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dead-lettering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dead-lettering
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#acknowledgement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Acknowledgement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#seeking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Seeking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#publishing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publishing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#payloads-and-headers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Payloads and headers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local development
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://powersemmi.github.io/ruststream/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RustStream docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://docs.rs/ruststream-pulsar" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capabilities
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#topic-addressing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Topic addressing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#subscription-descriptors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subscription descriptors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Subscription descriptors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pattern-subscriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pattern subscriptions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dead-lettering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dead-lettering
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#acknowledgement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Acknowledgement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#seeking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Seeking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#publishing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publishing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#payloads-and-headers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Payloads and headers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#local-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local development
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/powersemmi/ruststream-pulsar/edit/main/docs/pulsar.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="apache-pulsar">Apache Pulsar<a class="headerlink" href="#apache-pulsar" title="Permanent link">&para;</a></h1>
+<p><code>ruststream-pulsar</code> is the Apache Pulsar broker. It covers the four subscription types,
+multi-topic and pattern subscriptions, the consumer-side dead-letter policy, seeking over the
+retained log, and ships an in-process test broker under its <code>testing</code> feature. For framework
+concepts (writing subscribers, routing, codecs, middleware), see the
+<a href="https://powersemmi.github.io/ruststream/">RustStream documentation</a>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">ruststream</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;0.6&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;macros&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">ruststream-pulsar</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.6&quot;</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">serde</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">version</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;1&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">features</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;derive&quot;</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<p>Building requires <code>protoc</code> on the path: the client compiles the Pulsar protocol definitions.</p>
+<p>Transactions, consumer-side batch receive, and the schema registry are out of scope: the client
+does not implement them, and the capability traits they would back are optional by design.</p>
+<h2 id="capabilities">Capabilities<a class="headerlink" href="#capabilities" title="Permanent link">&para;</a></h2>
+<p>Which of the framework's optional capability traits this broker implements natively. A capability
+that is not implemented does not compile at the mount site, rather than failing at runtime.</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Native</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Subscribe</code></td>
+<td>yes</td>
+<td>the connected broker subscribes by topic name, opening a <code>Shared</code> subscription named <code>ruststream</code></td>
+</tr>
+<tr>
+<td><code>BatchSubscriber</code></td>
+<td>no</td>
+<td>the client exposes no consumer-side batch receive</td>
+</tr>
+<tr>
+<td><code>TransactionalPublisher</code></td>
+<td>no</td>
+<td>the client does not implement Pulsar transactions</td>
+</tr>
+<tr>
+<td><code>OwnedTransactions</code></td>
+<td>no</td>
+<td>the client does not implement Pulsar transactions</td>
+</tr>
+<tr>
+<td><code>RequestReply</code></td>
+<td>no</td>
+<td>Pulsar has no reply inbox; a reply is an ordinary publish to another topic</td>
+</tr>
+<tr>
+<td><code>Partitioned</code></td>
+<td>yes</td>
+<td>the <code>partition-key</code> header is the message's partition key, which <code>KeyShared</code> subscriptions order by (see <a href="#payloads-and-headers">Payloads and headers</a>)</td>
+</tr>
+<tr>
+<td><code>Seekable</code> / <code>Positioned</code></td>
+<td>yes</td>
+<td>topics are a retained log: the subscriber seeks over <code>PulsarPosition</code>, and a delivery carries its own message id back as one (see <a href="#seeking">Seeking</a>)</td>
+</tr>
+<tr>
+<td><code>DescribeServer</code></td>
+<td>yes</td>
+<td><code>PulsarBroker</code> reports its service host and the <code>pulsar</code> protocol, which the framework's AsyncAPI generation consumes</td>
+</tr>
+</tbody>
+</table>
+<h2 id="the-lifecycle">The lifecycle<a class="headerlink" href="#the-lifecycle" title="Permanent link">&para;</a></h2>
+<p>The broker is a ladder of consuming transitions, so each state is a distinct type:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>PulsarBroker::new(url)     configuration only, synchronous, no I/O
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  .connect()   -&gt;  ConnectedPulsarBroker    the live client; subscriptions and publishers
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  .shutdown()  -&gt;  ()                       the terminal transition
+</code></pre></div>
+<p><code>new</code> performs no I/O, so a Pulsar service is assembled with the same <code>#[ruststream::app]</code> macro
+as any other broker: the runtime dials once at startup, before opening subscriptions. The URL is
+<code>pulsar://</code> or <code>pulsar+ssl://</code>, and <code>token(jwt)</code> attaches JWT authentication - both are recorded
+on the synchronous builder. Below the crate, the client reconnects consumers and producers on its
+own after a broker restart.</p>
+<p>Because <code>shutdown</code> consumes the connected broker, publishing or subscribing after it does not
+compile. Shutdown marks the shared client state closed and closes the producers the crate opened,
+which are the handles holding broker-side state worth a clean goodbye; the client itself has no
+close, so the transition carries no diagnostics. A publisher handed out earlier still aliases the
+connection and reports <code>PulsarError::NotConnected</code> afterwards rather than reconnecting behind the
+application's back.</p>
+<h2 id="topic-addressing">Topic addressing<a class="headerlink" href="#topic-addressing" title="Permanent link">&para;</a></h2>
+<p>A Pulsar topic name carries four independent meanings - persistence, tenant, namespace, topic -
+and the client treats it as a plain string, deferring errors to the broker. <code>PulsarTopic</code>
+validates on construction instead:</p>
+<ul>
+<li><code>PulsarTopic::persistent(tenant, namespace, topic)</code> and <code>PulsarTopic::non_persistent(..)</code> build
+  a name from its parts. They panic on a component that is empty or carries characters Pulsar
+  rejects, so they are for literals in code.</li>
+<li><code>PulsarTopic::parse(name)</code> is the fallible form for untrusted input. It accepts a fully
+  qualified name (<code>persistent://acme/orders/created</code>), a <code>tenant/namespace/topic</code> triple
+  (defaulting to persistent), or a bare topic name (defaulting to <code>persistent://public/default/</code>).</li>
+</ul>
+<p>Every topic named in a subscription descriptor goes through the same parse before any I/O, and
+publishing resolves the destination name the same way, so a malformed name fails in one place with
+one message.</p>
+<h2 id="subscription-descriptors">Subscription descriptors<a class="headerlink" href="#subscription-descriptors" title="Permanent link">&para;</a></h2>
+<p><code>PulsarSubscription</code> is the subscription descriptor. It names the topics and the Pulsar
+subscription they share, and carries the consumer settings the product owns:</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Meaning</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PulsarSubscription::new(topic, subscription)</code></td>
+<td>one topic</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>PulsarSubscription::topics([..], subscription)</code></td>
+<td>a fixed list of topics</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>PulsarSubscription::pattern(regex, subscription)</code></td>
+<td>every matching topic in the lookup namespace</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>subscription_type(SubscriptionType)</code></td>
+<td>how competing consumers share the subscription</td>
+<td><code>Shared</code></td>
+</tr>
+<tr>
+<td><code>dead_letter(DeadLetter)</code></td>
+<td>the consumer-side dead-letter policy</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>ack_timeout(Duration)</code></td>
+<td>redeliver messages left unacknowledged for longer than this</td>
+<td>none</td>
+</tr>
+</tbody>
+</table>
+<p>The subscription type is an enum with per-variant meaning, so combinations that do not exist are
+unrepresentable:</p>
+<table>
+<thead>
+<tr>
+<th>Variant</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Exclusive</code></td>
+<td>one consumer holds the subscription; a second attach is rejected</td>
+</tr>
+<tr>
+<td><code>Shared</code></td>
+<td>competing consumers, round-robin</td>
+</tr>
+<tr>
+<td><code>Failover</code></td>
+<td>one active consumer with hot standbys</td>
+</tr>
+<tr>
+<td><code>KeyShared</code></td>
+<td>competing consumers with per-key ordering</td>
+</tr>
+</tbody>
+</table>
+<p>A descriptor is validated before any I/O: an empty subscription name, an empty topic list, a
+malformed topic name, or a pattern that is not a valid regular expression fails with
+<code>PulsarError::Invalid</code> at subscribe time, without a call to the broker.</p>
+<p><code>PulsarSubscription</code> implements <code>SubscriptionSource</code>, so it sits inline in the <code>#[subscriber(..)]</code>
+decorator:</p>
+<div class="highlight"><span class="filename"><a href="https://github.com/powersemmi/ruststream-pulsar/blob/main/crates/ruststream-pulsar/examples/pulsar_service.rs">crates/ruststream-pulsar/examples/pulsar_service.rs</a></span><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">use</span><span class="w"> </span><span class="n">std</span><span class="p">::</span><span class="n">time</span><span class="p">::</span><span class="n">Duration</span><span class="p">;</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">use</span><span class="w"> </span><span class="n">ruststream</span><span class="p">::</span><span class="n">runtime</span><span class="p">::{</span><span class="n">App</span><span class="p">,</span><span class="w"> </span><span class="n">AppInfo</span><span class="p">,</span><span class="w"> </span><span class="n">HandlerResult</span><span class="p">,</span><span class="w"> </span><span class="n">RustStream</span><span class="p">};</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="k">use</span><span class="w"> </span><span class="n">ruststream</span><span class="p">::</span><span class="n">subscriber</span><span class="p">;</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="k">use</span><span class="w"> </span><span class="n">ruststream_pulsar</span><span class="p">::{</span><span class="n">DeadLetter</span><span class="p">,</span><span class="w"> </span><span class="n">PulsarBroker</span><span class="p">,</span><span class="w"> </span><span class="n">PulsarSubscription</span><span class="p">,</span><span class="w"> </span><span class="n">SubscriptionType</span><span class="p">};</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="k">use</span><span class="w"> </span><span class="n">serde</span><span class="p">::</span><span class="n">Deserialize</span><span class="p">;</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="cp">#[derive(Debug, Deserialize)]</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="k">struct</span><span class="w"> </span><span class="nc">Order</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="n">id</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">,</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="p">}</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="cp">#[subscriber(</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="cp">    PulsarSubscription::new(</span><span class="s">&quot;orders&quot;</span><span class="cp">, </span><span class="s">&quot;workers&quot;</span><span class="cp">)</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="cp">        .subscription_type(SubscriptionType::Shared)</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="cp">        .dead_letter(DeadLetter::new(</span><span class="s">&quot;orders-dlq&quot;</span><span class="cp">).max_deliveries(5))</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="cp">        .ack_timeout(Duration::from_secs(30))</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="cp">)]</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">handle</span><span class="p">(</span><span class="n">order</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Order</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">HandlerResult</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;got order {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">order</span><span class="p">.</span><span class="n">id</span><span class="p">);</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">    </span><span class="n">HandlerResult</span><span class="p">::</span><span class="n">Ack</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="p">}</span>
+</code></pre></div>
+<p>Wire it onto the broker; the <code>with_broker</code> / <code>include</code> part is identical to the in-memory broker.</p>
+<div class="highlight"><span class="filename"><a href="https://github.com/powersemmi/ruststream-pulsar/blob/main/crates/ruststream-pulsar/examples/pulsar_service.rs">crates/ruststream-pulsar/examples/pulsar_service.rs</a></span><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="cp">#[ruststream::app]</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">fn</span><span class="w"> </span><span class="nf">app</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="n">App</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="n">RustStream</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="n">AppInfo</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="s">&quot;orders&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;0.1.0&quot;</span><span class="p">)).</span><span class="n">with_broker</span><span class="p">(</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">        </span><span class="n">PulsarBroker</span><span class="p">::</span><span class="n">new</span><span class="p">(</span><span class="s">&quot;pulsar://localhost:6650&quot;</span><span class="p">),</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">        </span><span class="o">|</span><span class="n">b</span><span class="o">|</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">            </span><span class="n">b</span><span class="p">.</span><span class="n">include</span><span class="p">(</span><span class="n">handle</span><span class="p">);</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">        </span><span class="p">},</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="p">)</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="p">}</span>
+</code></pre></div>
+<p>The plain string form <code>#[subscriber("orders")]</code> also works: it opens a <code>Shared</code> subscription named
+<code>ruststream</code> on that topic, which is the competing-consumer default.</p>
+<h3 id="pattern-subscriptions">Pattern subscriptions<a class="headerlink" href="#pattern-subscriptions" title="Permanent link">&para;</a></h3>
+<p><code>PulsarSubscription::pattern</code> follows every topic in the lookup namespace whose name matches the
+regular expression, including topics created after the consumer attached. A topic list built with
+<code>::topics([..])</code> is the fixed-membership alternative: it spans exactly the named topics, and a
+seek or a settlement covers all of them.</p>
+<div class="highlight"><span class="filename"><a href="https://github.com/powersemmi/ruststream-pulsar/blob/main/crates/ruststream-pulsar/examples/pulsar_pattern.rs">crates/ruststream-pulsar/examples/pulsar_pattern.rs</a></span><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="cp">#[subscriber(</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="cp">    PulsarSubscription::pattern(</span><span class="s">&quot;orders-.*&quot;</span><span class="cp">, </span><span class="s">&quot;audit&quot;</span><span class="cp">),</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="cp">    start_at(PulsarPosition::earliest()),</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="cp">    raw</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="cp">)]</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">audit</span><span class="p">(</span><span class="n">payload</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="kt">u8</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">HandlerResult</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="fm">println!</span><span class="p">(</span><span class="s">&quot;audit: {}&quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">String</span><span class="p">::</span><span class="n">from_utf8_lossy</span><span class="p">(</span><span class="n">payload</span><span class="p">));</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="n">HandlerResult</span><span class="p">::</span><span class="n">Ack</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="p">}</span>
+</code></pre></div>
+<p>Because a pattern spans topics written by different producers, the payloads are not one schema;
+the example takes them raw with the framework's <code>raw</code> clause instead of naming a type.</p>
+<h3 id="dead-lettering">Dead-lettering<a class="headerlink" href="#dead-lettering" title="Permanent link">&para;</a></h3>
+<p><code>DeadLetter::new("orders-dlq").max_deliveries(5)</code> is the consumer-side dead-letter policy the
+broker enforces: after that many redeliveries of the same message it goes to the dead-letter
+topic. The delivery count advances on negative acknowledgement, and <code>ack_timeout</code> makes it advance
+without one as well, by redelivering anything left unacknowledged for longer than the timeout.
+Both are Pulsar product features configured on the consumer, not machinery this crate runs.</p>
+<h2 id="acknowledgement">Acknowledgement<a class="headerlink" href="#acknowledgement" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Handler outcome</th>
+<th>Pulsar operation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HandlerResult::Ack</code></td>
+<td>acknowledge the message</td>
+</tr>
+<tr>
+<td><code>HandlerResult::retry()</code></td>
+<td>negative acknowledgement, asking for redelivery</td>
+</tr>
+<tr>
+<td><code>HandlerResult::drop()</code></td>
+<td>acknowledge the message</td>
+</tr>
+</tbody>
+</table>
+<p>Dropping acknowledges because Pulsar has no terminal reject verb: poison-message routing belongs
+to the dead-letter policy, reached by the repeated redeliveries a negative acknowledgement drives.</p>
+<p>The client queues acknowledgements asynchronously, so a successful settle means the
+acknowledgement was queued on the consumer, not that the broker confirmed it. Delayed redelivery
+has no native form here either: a negative acknowledgement carries no delay, so a
+<code>HandlerResult::retry_after(delay)</code> outcome takes the framework's broker-agnostic deferred
+re-publish path instead.</p>
+<p>Settlement travels from the message handle to the subscription's driver task, which owns the
+client consumer, because the client's acknowledgement API needs <code>&amp;mut Consumer</code> while a settle
+token must be <code>Send + 'static</code>. Dropping the subscriber stops that task, which closes the
+consumer.</p>
+<h2 id="seeking">Seeking<a class="headerlink" href="#seeking" title="Permanent link">&para;</a></h2>
+<p>Pulsar topics are a retained log, so <code>PulsarSubscriber</code> implements the framework's <code>Seekable</code>
+capability, and <code>PulsarPosition</code> is the position type on both surfaces the framework offers:</p>
+<table>
+<thead>
+<tr>
+<th>Position</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PulsarPosition::earliest()</code></td>
+<td>the beginning of the log: every retained message is redelivered</td>
+</tr>
+<tr>
+<td><code>PulsarPosition::latest()</code></td>
+<td>the tip of the log: only messages published after the seek</td>
+</tr>
+<tr>
+<td><code>PulsarPosition::timestamp(millis)</code></td>
+<td>a publish time, in milliseconds since the Unix epoch</td>
+</tr>
+<tr>
+<td><code>PulsarPosition::MessageId(..)</code></td>
+<td>the position of a delivered message, captured through <code>Positioned</code></td>
+</tr>
+</tbody>
+</table>
+<p>A position captured from a delivered message carries the framework's pinned contract: seeking to
+it redelivers exactly that message, then the rest of the log in order. The timestamp form keeps
+Pulsar's own publish-time semantics.</p>
+<p>A subscription opens at a chosen position with the <code>start_at(..)</code> clause, as the pattern example
+above does. The clause is a seek, and it runs on every startup - which is not the same thing as
+Pulsar's server-side initial position, applied only when a subscription is first created. A
+subscription is durable broker-side state, so <code>start_at(PulsarPosition::earliest())</code> rewinds an
+existing subscription's cursor and replays the retained backlog each time the service starts.
+Where that is not wanted, leave the clause off and let the subscription resume from its stored
+cursor.</p>
+<p>A live subscription is repositioned from inside a handler through the framework's injected <code>Seek</code>
+parameter; nothing is attached at the include site. One seek covers every topic and every
+partition of the subscription's consumer, and the broker redelivers from the new position, so no
+per-message acknowledgement state needs resetting. Deliveries that were already buffered when the
+seek landed are discarded rather than handed to the handler, so the stream resumes at the target
+position. See
+<a href="https://powersemmi.github.io/ruststream/latest/guides/subscribers/#seeking">Seeking</a> in the
+framework docs for the handler surface, and the <code>capabilities::seeking</code> conformance suite, which
+this crate runs against a live broker.</p>
+<h2 id="publishing">Publishing<a class="headerlink" href="#publishing" title="Permanent link">&para;</a></h2>
+<p>A publisher is a policy plus the live connection. The policy holds no connection, so it is
+constructed anywhere - in a router, in configuration, at a mount site - and the runtime pairs it
+with the broker at startup. <code>PulsarPublish</code> pairs into <code>PulsarPublisher</code>, and it is the connected
+broker's default publish policy, so a <code>#[subscriber(.., publish("dest"))]</code> handler mounted without
+an explicit publisher replies through it.</p>
+<p>The publisher keeps one producer per topic, created on first publish and shared through the broker
+core so <code>shutdown</code> closes them. Each publish awaits the broker's send receipt, so success means
+the broker stored the message. A publisher can also be taken from the broker before the
+application starts, with <code>PulsarBroker::publisher()</code>, or from the connected form with
+<code>ConnectedPulsarBroker::publisher()</code>.</p>
+<h2 id="payloads-and-headers">Payloads and headers<a class="headerlink" href="#payloads-and-headers" title="Permanent link">&para;</a></h2>
+<p>Message properties carry headers directly, one property per header, so no envelope format is
+invented and non-Rust peers see plain Pulsar messages.</p>
+<p>The <code>partition-key</code> header is the exception: it becomes the message's own partition key on
+publish, which keyed routing uses to place the message and which <code>KeyShared</code> subscriptions order
+by, and it comes back as the same header on delivery. <code>PulsarMessage</code> also implements the
+framework's <code>Partitioned</code> capability over it. The convention matches the in-memory broker's, so
+switching brokers does not change a service's headers.</p>
+<h2 id="local-development">Local development<a class="headerlink" href="#local-development" title="Permanent link">&para;</a></h2>
+<p>The repository ships a compose file running Pulsar standalone, and the just recipes around it:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>just<span class="w"> </span>brokers-up<span class="w">                  </span><span class="c1"># Pulsar standalone on 127.0.0.1:6650 (admin on 8080)</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>pulsar_service<span class="w"> </span>--<span class="w"> </span>run
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>cargo<span class="w"> </span>run<span class="w"> </span>--example<span class="w"> </span>pulsar_pattern<span class="w"> </span>--<span class="w"> </span>run
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>just<span class="w"> </span>brokers-down
+</code></pre></div>
+<p>The live test suite is gated on <code>PULSAR_TEST_URL</code>, and skips when it is unset:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>just<span class="w"> </span>test-brokers<span class="w">                </span><span class="c1"># broker up, integration + conformance, broker down</span>
+</code></pre></div>
+<p>or, against an already running broker:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nv">PULSAR_TEST_URL</span><span class="o">=</span>pulsar://127.0.0.1:6650<span class="w"> </span>cargo<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--workspace<span class="w"> </span>--all-features<span class="w"> </span>--<span class="w"> </span>--test-threads<span class="o">=</span><span class="m">1</span>
+</code></pre></div>
+<p>The same suite runs in CI: the integration tests, the framework's conformance lifecycle check
+(<code>new</code> -&gt; <code>connect</code> -&gt; subscribe -&gt; publish -&gt; receive -&gt; ack -&gt; <code>shutdown</code>, with a publisher
+created before shutdown asserted to error afterwards), and the seeking capability suite.</p>
+<h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
+<p>The <code>testing</code> feature ships <code>PulsarTestBroker</code>: an in-process broker that reproduces the crate's
+core routing with no server and no network. It follows the same ladder as the real broker, and its
+connected form implements <code>ruststream::testing::TestableBroker</code>, so the same broker drives the
+<code>TestApp</code> harness and the framework's conformance suite in process; inject traffic with
+<code>broker.inject(OutgoingMessage::new(..))</code> and assert on published output with the free
+<code>ruststream::testing::expect_published</code>. See
+<a href="https://powersemmi.github.io/ruststream/latest/guides/testing/#unit-testing-a-service-with-testapp">Unit-testing a service with TestApp</a>.</p>
+<p>It routes by exact address match and does not simulate Pulsar product behaviour: subscription
+types, dead-lettering, ack timeouts, redelivery timing, and seeking over a retained log are
+covered by the live suite against a real broker instead.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Apache-2.0
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/powersemmi/ruststream-pulsar" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "navigation.tracking", "navigation.indexes", "content.code.copy", "content.code.annotate", "content.action.edit", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+  
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  
+  <script src="https://context7.com/widget.js" data-library="/powersemmi/ruststream-pulsar"></script>
+
+  </body>
+</html>
