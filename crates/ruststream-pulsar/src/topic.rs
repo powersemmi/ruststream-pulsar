@@ -11,14 +11,44 @@ use crate::error::PulsarError;
 /// # Examples
 ///
 /// ```
-/// use ruststream_pulsar::PulsarTopic;
+/// # mod demo {
+/// use ruststream_pulsar::prelude::*;
+/// use serde::{Deserialize, Serialize};
 ///
-/// let topic = PulsarTopic::persistent("acme", "orders", "created");
-/// assert_eq!(topic.as_str(), "persistent://acme/orders/created");
+/// #[derive(Deserialize, Outgoing, Serialize)]
+/// struct Order {
+///     tenant: String,
+///     id: u64,
+/// }
 ///
-/// let parsed = PulsarTopic::parse("persistent://acme/orders/created")?;
-/// assert_eq!(parsed, topic);
-/// # Ok::<(), ruststream_pulsar::PulsarError>(())
+/// #[derive(OutSlot)]
+/// #[publishes(Order)]
+/// struct TenantOrders;
+///
+/// /// Fans orders out to their tenant's own topic. The tenant comes off the wire, so its topic
+/// /// is parsed, and an order naming a tenant Pulsar would refuse is dropped here.
+/// #[subscriber(PulsarSubscription::new("orders", "router"))]
+/// async fn route(order: &Order, Out(tenants): Out<impl Publisher, TenantOrders>) -> HandlerOutcome {
+///     let Ok(topic) = PulsarTopic::parse(&format!("{}/orders/created", order.tenant)) else {
+///         return HandlerOutcome::drop();
+///     };
+///     match tenants.message(order).to(topic.as_str()).publish().await {
+///         Ok(()) => HandlerOutcome::ack(),
+///         Err(_) => HandlerOutcome::retry(),
+///     }
+/// }
+/// #
+/// # #[ruststream::app]
+/// # fn app() -> impl App {
+/// #     RustStream::new(AppInfo::new("router", "0.1.0")).with_broker(
+/// #         PulsarBroker::new("pulsar://localhost:6650"),
+/// #         |b| {
+/// #             b.include(route).out(TenantOrders, Publish).build();
+/// #         },
+/// #     )
+/// # }
+/// # }
+/// # fn main() {}
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[must_use]
@@ -108,10 +138,41 @@ impl PulsarTopic {
     /// # Examples
     ///
     /// ```
-    /// use ruststream_pulsar::PulsarTopic;
-    ///
-    /// let ticks = PulsarTopic::non_persistent("acme", "telemetry", "ticks");
-    /// assert_eq!(ticks.persistence(), "non-persistent");
+    /// # mod demo {
+    /// # use ruststream_pulsar::prelude::*;
+    /// # use serde::Deserialize;
+    /// # #[derive(Deserialize)]
+    /// # struct Order {
+    /// #     id: u64,
+    /// # }
+    /// # fn orders() -> PulsarTopic {
+    /// #     PulsarTopic::persistent("acme", "orders", "created")
+    /// # }
+    /// # #[subscriber(PulsarSubscription::new(orders().as_str(), "workers"))]
+    /// # async fn handle(order: &Order) -> HandlerOutcome {
+    /// #     println!("order {}", order.id);
+    /// #     HandlerOutcome::retry()
+    /// # }
+    /// #[ruststream::app]
+    /// fn app() -> impl App {
+    ///     let orders = orders();
+    ///     // Spent orders land beside the topic they came from, as durable as it is.
+    ///     let dead_letters = format!(
+    ///         "{}://{}/{}/{}-dlq",
+    ///         orders.persistence(),
+    ///         orders.tenant(),
+    ///         orders.namespace(),
+    ///         orders.name(),
+    ///     );
+    ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+    ///         PulsarBroker::new("pulsar://localhost:6650"),
+    ///         |b| {
+    ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter(dead_letters);
+    ///         },
+    ///     )
+    /// }
+    /// # }
+    /// # fn main() {}
     /// ```
     #[must_use]
     pub fn persistence(&self) -> &str {
@@ -123,10 +184,37 @@ impl PulsarTopic {
     /// # Examples
     ///
     /// ```
-    /// use ruststream_pulsar::PulsarTopic;
-    ///
-    /// assert_eq!(PulsarTopic::parse("orders")?.tenant(), "public");
-    /// # Ok::<(), ruststream_pulsar::PulsarError>(())
+    /// # mod demo {
+    /// # use ruststream_pulsar::prelude::*;
+    /// # use serde::Deserialize;
+    /// # #[derive(Deserialize)]
+    /// # struct Order {
+    /// #     id: u64,
+    /// # }
+    /// # fn orders() -> PulsarTopic {
+    /// #     PulsarTopic::persistent("acme", "orders", "created")
+    /// # }
+    /// # #[subscriber(PulsarSubscription::new(orders().as_str(), "workers"))]
+    /// # async fn handle(order: &Order) -> HandlerOutcome {
+    /// #     println!("order {}", order.id);
+    /// #     HandlerOutcome::retry()
+    /// # }
+    /// #[ruststream::app]
+    /// fn app() -> impl App {
+    ///     let orders = orders();
+    ///     // Every service of the tenant parks its spent messages in one namespace.
+    ///     let dead_letters = PulsarTopic::persistent(orders.tenant(), "dead-letters", orders.name())
+    ///         .as_str()
+    ///         .to_owned();
+    ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+    ///         PulsarBroker::new("pulsar://localhost:6650"),
+    ///         |b| {
+    ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter(dead_letters);
+    ///         },
+    ///     )
+    /// }
+    /// # }
+    /// # fn main() {}
     /// ```
     #[must_use]
     pub fn tenant(&self) -> &str {
@@ -138,10 +226,37 @@ impl PulsarTopic {
     /// # Examples
     ///
     /// ```
-    /// use ruststream_pulsar::PulsarTopic;
-    ///
-    /// assert_eq!(PulsarTopic::parse("acme/orders/created")?.namespace(), "orders");
-    /// # Ok::<(), ruststream_pulsar::PulsarError>(())
+    /// # mod demo {
+    /// # use ruststream_pulsar::prelude::*;
+    /// # use serde::Deserialize;
+    /// # #[derive(Deserialize)]
+    /// # struct Order {
+    /// #     id: u64,
+    /// # }
+    /// # fn orders() -> PulsarTopic {
+    /// #     PulsarTopic::persistent("acme", "orders", "created")
+    /// # }
+    /// # #[subscriber(PulsarSubscription::new(orders().as_str(), "workers"))]
+    /// # async fn handle(order: &Order) -> HandlerOutcome {
+    /// #     println!("order {}", order.id);
+    /// #     HandlerOutcome::retry()
+    /// # }
+    /// #[ruststream::app]
+    /// fn app() -> impl App {
+    ///     let orders = orders();
+    ///     // The namespace keeps one dead-letter topic for all of its topics.
+    ///     let dead_letters = PulsarTopic::persistent(orders.tenant(), orders.namespace(), "dlq")
+    ///         .as_str()
+    ///         .to_owned();
+    ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+    ///         PulsarBroker::new("pulsar://localhost:6650"),
+    ///         |b| {
+    ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter(dead_letters);
+    ///         },
+    ///     )
+    /// }
+    /// # }
+    /// # fn main() {}
     /// ```
     #[must_use]
     pub fn namespace(&self) -> &str {
@@ -153,10 +268,35 @@ impl PulsarTopic {
     /// # Examples
     ///
     /// ```
-    /// use ruststream_pulsar::PulsarTopic;
-    ///
-    /// assert_eq!(PulsarTopic::parse("acme/orders/created")?.name(), "created");
-    /// # Ok::<(), ruststream_pulsar::PulsarError>(())
+    /// # mod demo {
+    /// # use ruststream_pulsar::prelude::*;
+    /// # use serde::Deserialize;
+    /// # #[derive(Deserialize)]
+    /// # struct Order {
+    /// #     id: u64,
+    /// # }
+    /// # fn orders() -> PulsarTopic {
+    /// #     PulsarTopic::persistent("acme", "orders", "created")
+    /// # }
+    /// # #[subscriber(PulsarSubscription::new(orders().as_str(), "workers"))]
+    /// # async fn handle(order: &Order) -> HandlerOutcome {
+    /// #     println!("order {}", order.id);
+    /// #     HandlerOutcome::retry()
+    /// # }
+    /// #[ruststream::app]
+    /// fn app() -> impl App {
+    ///     let orders = orders();
+    ///     // Spent orders go to a topic named after the one they came from.
+    ///     let dead_letters = format!("{}-dlq", orders.name());
+    ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+    ///         PulsarBroker::new("pulsar://localhost:6650"),
+    ///         |b| {
+    ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter(dead_letters);
+    ///         },
+    ///     )
+    /// }
+    /// # }
+    /// # fn main() {}
     /// ```
     #[must_use]
     pub fn name(&self) -> &str {

@@ -52,13 +52,79 @@ fn keyed_routing() -> ProducerOptions {
 ///
 /// # Examples
 ///
-/// ```
-/// use ruststream_pulsar::PulsarPublishOptions;
+/// A test reads them back off the slot the handler published through:
 ///
-/// let keyed = PulsarPublishOptions {
-///     partition_key: Some("user-42".to_owned()),
-/// };
-/// # let _ = keyed;
+/// ```
+/// # #[cfg(feature = "testing")]
+/// # mod demo {
+/// use std::error::Error;
+///
+/// use ruststream::testing::TestApp;
+/// use ruststream_pulsar::prelude::*;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Deserialize, Outgoing, Serialize)]
+/// struct Order {
+///     id: u64,
+/// }
+///
+/// #[derive(Outgoing, Serialize)]
+/// struct Receipt {
+///     id: u64,
+/// }
+///
+/// #[derive(OutSlot)]
+/// #[publishes(Receipt)]
+/// struct Ledger;
+///
+/// #[subscriber(PulsarSubscription::new("orders", "workers"))]
+/// async fn record(
+///     order: &Order,
+///     Out(ledger): Out<impl Publisher<Options = PulsarPublishOptions>, Ledger>,
+/// ) -> HandlerOutcome {
+///     let sent = ledger
+///         .message(&Receipt { id: order.id })
+///         .to("receipts")
+///         .partition_key(format!("user-{}", order.id))
+///         .publish()
+///         .await;
+///     if sent.is_err() {
+///         return HandlerOutcome::retry();
+///     }
+///     HandlerOutcome::ack()
+/// }
+///
+/// pub fn app() -> RustStream {
+///     RustStream::new(AppInfo::new("orders", "0.1.0"))
+///         .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
+///             b.include(record).out(Ledger, Publish).build();
+///         })
+/// }
+///
+/// pub async fn a_receipt_is_keyed_by_its_user() -> Result<(), Box<dyn Error>> {
+///     let tb = TestApp::start(app()).await?;
+///     tb.broker::<PulsarBroker>()
+///         .message(&Order { id: 7 })
+///         .to("orders")
+///         .publish()
+///         .await?;
+///
+///     tb.out::<Ledger>()
+///         .assert_called_once()
+///         .with_options(&PulsarPublishOptions {
+///             partition_key: Some("user-7".to_owned()),
+///         });
+///     tb.shutdown().await?;
+///     Ok(())
+/// }
+/// # }
+/// # #[cfg(feature = "testing")]
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     demo::a_receipt_is_keyed_by_its_user().await
+/// # }
+/// # #[cfg(not(feature = "testing"))]
+/// # fn main() {}
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PulsarPublishOptions {
@@ -214,26 +280,55 @@ impl Publisher for PulsarPublisher {
 /// # Examples
 ///
 /// ```
-/// # async fn demo() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-/// use ruststream::runtime::PublishExt;
-/// use ruststream::{Broker, Outgoing};
-/// use ruststream_pulsar::{PulsarBroker, PulsarPublishSteps};
+/// # mod demo {
+/// use ruststream_pulsar::prelude::*;
+/// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Outgoing, serde::Serialize)]
-/// #[outgoing(name = "orders")]
-/// struct Order {
-///     id: u64,
+/// #[derive(Deserialize)]
+/// struct Payment {
+///     account: String,
+///     cents: u64,
 /// }
 ///
-/// let connected = PulsarBroker::new("pulsar://localhost:6650").connect().await?;
-/// connected
-///     .publisher()
-///     .message(&Order { id: 1 })
-///     .partition_key("user-42")
-///     .publish()
-///     .await?;
-/// # Ok(())
+/// #[derive(Outgoing, Serialize)]
+/// #[outgoing(name = "ledger")]
+/// struct Entry {
+///     account: String,
+///     cents: u64,
+/// }
+///
+/// #[derive(OutSlot)]
+/// #[publishes(Entry)]
+/// struct Ledger;
+///
+/// /// Keys every entry by its account, so a `KeyShared` reader of the ledger sees one account's
+/// /// entries in order.
+/// #[subscriber(PulsarSubscription::new("payments", "bookkeeping"))]
+/// async fn book(
+///     payment: &Payment,
+///     Out(ledger): Out<impl Publisher<Options = PulsarPublishOptions>, Ledger>,
+/// ) -> HandlerOutcome {
+///     let entry = Entry {
+///         account: payment.account.clone(),
+///         cents: payment.cents,
+///     };
+///     match ledger.message(&entry).partition_key(&payment.account).publish().await {
+///         Ok(()) => HandlerOutcome::ack(),
+///         Err(_) => HandlerOutcome::retry(),
+///     }
+/// }
+/// #
+/// # #[ruststream::app]
+/// # fn app() -> impl App {
+/// #     RustStream::new(AppInfo::new("bookkeeping", "0.1.0")).with_broker(
+/// #         PulsarBroker::new("pulsar://localhost:6650"),
+/// #         |b| {
+/// #             b.include(book).out(Ledger, Publish).build();
+/// #         },
+/// #     )
 /// # }
+/// # }
+/// # fn main() {}
 /// ```
 pub trait PulsarPublishSteps {
     /// Sends this one message under `key` as its partition key, which keyed routing places the
@@ -245,26 +340,49 @@ pub trait PulsarPublishSteps {
     /// # Examples
     ///
     /// ```
-    /// # async fn demo() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    /// use ruststream::runtime::PublishExt;
-    /// use ruststream::{Broker, Outgoing, Serialized};
-    /// use ruststream_pulsar::{PulsarBroker, PulsarPublishSteps};
+    /// # mod demo {
+    /// use ruststream_pulsar::prelude::*;
+    /// use serde::{Deserialize, Serialize};
     ///
-    /// // An already-encoded record: the newtype says the bytes are the wire form, so no
-    /// // codec runs on them.
-    /// #[derive(Outgoing, Serialized)]
-    /// struct Record(Vec<u8>);
+    /// #[derive(Deserialize, Outgoing, Serialize)]
+    /// struct Click {
+    ///     session: String,
+    ///     page: String,
+    /// }
     ///
-    /// let connected = PulsarBroker::new("pulsar://localhost:6650").connect().await?;
-    /// connected
-    ///     .publisher()
-    ///     .message(&Record(b"{}".to_vec()))
-    ///     .to("orders")
-    ///     .partition_key("user-42")
-    ///     .publish()
-    ///     .await?;
-    /// # Ok(())
+    /// #[derive(OutSlot)]
+    /// #[publishes(Click)]
+    /// struct Sessions;
+    ///
+    /// /// Re-keys raw clicks by session, so one session's clicks land on one partition.
+    /// #[subscriber(PulsarSubscription::new("clicks", "sessionizer"))]
+    /// async fn sessionize(
+    ///     click: &Click,
+    ///     Out(sessions): Out<impl Publisher<Options = PulsarPublishOptions>, Sessions>,
+    /// ) -> HandlerOutcome {
+    ///     let sent = sessions
+    ///         .message(click)
+    ///         .to("clicks-by-session")
+    ///         .partition_key(&click.session)
+    ///         .publish()
+    ///         .await;
+    ///     if sent.is_err() {
+    ///         return HandlerOutcome::retry();
+    ///     }
+    ///     HandlerOutcome::ack()
+    /// }
+    /// #
+    /// # #[ruststream::app]
+    /// # fn app() -> impl App {
+    /// #     RustStream::new(AppInfo::new("sessions", "0.1.0")).with_broker(
+    /// #         PulsarBroker::new("pulsar://localhost:6650"),
+    /// #         |b| {
+    /// #             b.include(sessionize).out(Sessions, Publish).build();
+    /// #         },
+    /// #     )
     /// # }
+    /// # }
+    /// # fn main() {}
     /// ```
     #[must_use]
     fn partition_key(self, key: impl Into<String>) -> Self;
@@ -294,11 +412,41 @@ where
 ///
 /// # Examples
 ///
-/// ```
-/// use ruststream_pulsar::PulsarPublish;
+/// A routes file that does not import this crate's prelude names the policy by this name:
 ///
-/// let policy = PulsarPublish::default();
-/// # let _ = policy;
+/// ```
+/// # mod demo {
+/// use ruststream::prelude::*;
+/// use ruststream_pulsar::{PulsarBroker, PulsarPublish, PulsarSubscription};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Deserialize)]
+/// struct Order {
+///     id: u64,
+/// }
+///
+/// #[derive(Outgoing, Serialize)]
+/// #[outgoing(name = "receipts")]
+/// struct Receipt {
+///     id: u64,
+/// }
+///
+/// #[subscriber(PulsarSubscription::new("orders", "workers"), publish)]
+/// async fn confirm(order: &Order) -> Receipt {
+///     Receipt { id: order.id }
+/// }
+///
+/// #[ruststream::app]
+/// fn app() -> impl App {
+///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+///         PulsarBroker::new("pulsar://localhost:6650"),
+///         |b| {
+///             b.include(confirm).out_reply(PulsarPublish);
+///         },
+///     )
+/// }
+/// # }
+/// # fn main() {}
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
 #[must_use]

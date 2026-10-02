@@ -49,12 +49,33 @@ pub(crate) enum SettleKind {
 /// # Examples
 ///
 /// ```
-/// use ruststream_pulsar::PulsarPosition;
+/// # mod demo {
+/// use ruststream_pulsar::prelude::*;
+/// use serde::Deserialize;
 ///
-/// let from_the_top = PulsarPosition::earliest();
-/// let from_now_on = PulsarPosition::latest();
-/// let from_a_point_in_time = PulsarPosition::timestamp(1_700_000_000_000);
-/// # let _ = (from_the_top, from_now_on, from_a_point_in_time);
+/// #[derive(Deserialize)]
+/// struct Tick {
+///     price: f64,
+///     replay_from: Option<u64>,
+/// }
+///
+/// /// A price board: the backlog is stale on startup, so the subscription opens at the tip, and
+/// /// a tick that asks for a replay rewinds it to a point in time.
+/// #[subscriber(
+///     PulsarSubscription::new("ticks", "board"),
+///     start_at(PulsarPosition::latest())
+/// )]
+/// async fn show(tick: &Tick, Ctx(seeker): Ctx<SeekHandle>) -> HandlerOutcome {
+///     println!("price {}", tick.price);
+///     if let Some(millis) = tick.replay_from
+///         && seeker.seek(PulsarPosition::timestamp(millis)).await.is_err()
+///     {
+///         return HandlerOutcome::retry();
+///     }
+///     HandlerOutcome::ack()
+/// }
+/// # }
+/// # fn main() {}
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PulsarPosition {

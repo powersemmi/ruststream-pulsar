@@ -134,13 +134,38 @@ pub(crate) const DEFAULT_BATCH_WAIT: Duration = Duration::from_millis(10);
 /// `#[subscriber(..)]` decorator:
 ///
 /// ```
+/// # mod demo {
 /// use std::time::Duration;
-/// use ruststream_pulsar::{PulsarSubscription, SubscriptionType};
 ///
-/// let source = PulsarSubscription::new("orders", "workers")
-///     .subscription_type(SubscriptionType::Shared)
-///     .ack_timeout(Duration::from_secs(30));
-/// # let _ = source;
+/// use ruststream_pulsar::prelude::*;
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct Order {
+///     id: u64,
+/// }
+///
+/// #[subscriber(
+///     PulsarSubscription::new("orders", "workers")
+///         .subscription_type(SubscriptionType::Shared)
+///         .ack_timeout(Duration::from_secs(30))
+/// )]
+/// async fn handle(order: &Order) -> HandlerOutcome {
+///     println!("order {}", order.id);
+///     HandlerOutcome::ack()
+/// }
+///
+/// #[ruststream::app]
+/// fn app() -> impl App {
+///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+///         PulsarBroker::new("pulsar://localhost:6650"),
+///         |b| {
+///             b.include(handle).max_attempts(nonzero!(5)).dead_letter("orders-dlq");
+///         },
+///     )
+/// }
+/// # }
+/// # fn main() {}
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]

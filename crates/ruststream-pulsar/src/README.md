@@ -96,14 +96,45 @@ its tests run.
 use std::time::Duration;
 
 use ruststream_pulsar::prelude::*;
+use serde::Deserialize;
 
-pub fn sources() -> (PulsarSubscription, PulsarSubscription, PulsarSubscription) {
-    let one = PulsarSubscription::new("persistent://acme/orders/created", "workers");
-    let several = PulsarSubscription::topics(["orders-eu", "orders-us"], "regional");
-    let matching = PulsarSubscription::pattern("orders-.*", "audit")
+#[derive(Deserialize)]
+struct Order {
+    id: u64,
+}
+
+#[subscriber(PulsarSubscription::new("persistent://acme/orders/created", "workers"))]
+async fn fulfil(order: &Order) -> HandlerOutcome {
+    println!("fulfilling order {}", order.id);
+    HandlerOutcome::ack()
+}
+
+#[subscriber(PulsarSubscription::topics(["orders-eu", "orders-us"], "regional"))]
+async fn tally(order: &Order) -> HandlerOutcome {
+    println!("counted order {}", order.id);
+    HandlerOutcome::ack()
+}
+
+#[subscriber(
+    PulsarSubscription::pattern("orders-.*", "audit")
         .subscription_type(SubscriptionType::KeyShared)
-        .ack_timeout(Duration::from_secs(30));
-    (one, several, matching)
+        .ack_timeout(Duration::from_secs(30))
+)]
+async fn audit(order: &Order) -> HandlerOutcome {
+    println!("audited order {}", order.id);
+    HandlerOutcome::ack()
+}
+
+#[ruststream::app]
+fn app() -> impl App {
+    RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+        PulsarBroker::new("pulsar://localhost:6650"),
+        |b| {
+            b.include(fulfil);
+            b.include(tally);
+            b.include(audit);
+        },
+    )
 }
 # }
 # fn main() {}
@@ -114,10 +145,32 @@ topic, under the name the broker sets with
 [`default_subscription`](PulsarBroker::default_subscription):
 
 ```
-use ruststream_pulsar::PulsarBroker;
+# mod demo {
+use ruststream_pulsar::prelude::*;
+use serde::Deserialize;
 
-let broker = PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-worker");
-# let _ = broker;
+#[derive(Deserialize)]
+struct Order {
+    id: u64,
+}
+
+#[subscriber("orders")]
+async fn fulfil(order: &Order) -> HandlerOutcome {
+    println!("fulfilling order {}", order.id);
+    HandlerOutcome::ack()
+}
+
+#[ruststream::app]
+fn app() -> impl App {
+    RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+        PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-worker"),
+        |b| {
+            b.include(fulfil);
+        },
+    )
+}
+# }
+# fn main() {}
 ```
 
 A handler mounted by name joins the durable cursor that name has on its topic: each topic keeps
@@ -513,6 +566,8 @@ ruststream-pulsar = { version = "0.7", features = ["testing"] }
 ```
 # #[cfg(feature = "testing")]
 # mod demo {
+use std::error::Error;
+
 use ruststream::testing::TestApp;
 use ruststream_pulsar::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -520,11 +575,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Eq, Outgoing, PartialEq, Serialize)]
 struct Order {
     id: u64,
+    quantity: u32,
 }
 
 #[subscriber(PulsarSubscription::new("orders", "workers"))]
 async fn handle(order: &Order) -> HandlerOutcome {
-    let _ = order;
+    if order.quantity == 0 {
+        return HandlerOutcome::drop();
+    }
     HandlerOutcome::ack()
 }
 
@@ -536,11 +594,11 @@ pub fn app() -> RustStream {
         })
 }
 
-pub async fn an_order_reaches_its_handler() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn an_empty_order_is_dropped() -> Result<(), Box<dyn Error>> {
     let tb = TestApp::start(app()).await?;
 
     tb.broker::<PulsarBroker>()
-        .message(&Order { id: 1 })
+        .message(&Order { id: 1, quantity: 0 })
         .to("orders")
         .publish()
         .await?;
@@ -548,20 +606,16 @@ pub async fn an_order_reaches_its_handler() -> Result<(), Box<dyn std::error::Er
     tb.broker::<PulsarBroker>()
         .subscriber("orders")
         .assert_called_once()
-        .with(&Order { id: 1 })
-        .settled(HandlerOutcome::ack());
+        .with(&Order { id: 1, quantity: 0 })
+        .settled(HandlerOutcome::drop());
     tb.shutdown().await?;
     Ok(())
 }
 # }
 # #[cfg(feature = "testing")]
-# fn main() {
-#     tokio::runtime::Builder::new_multi_thread()
-#         .enable_all()
-#         .build()
-#         .unwrap()
-#         .block_on(demo::an_order_reaches_its_handler())
-#         .unwrap();
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
+#     demo::an_empty_order_is_dropped().await
 # }
 # #[cfg(not(feature = "testing"))]
 # fn main() {}
