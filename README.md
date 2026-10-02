@@ -78,7 +78,7 @@ struct Confirmation {
     PulsarSubscription::new("orders", "workers")
         .subscription_type(SubscriptionType::Shared)
         .ack_timeout(Duration::from_secs(30)),
-    publish("confirmations")
+    reply("confirmations")
 )]
 async fn confirm(order: &Order) -> Confirmation {
     Confirmation { id: order.id }

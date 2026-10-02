@@ -371,8 +371,8 @@ implements neither Pulsar transactions nor a reply inbox, so there is no `Transa
 and no `Request`, and a request/reply exchange here is an ordinary publish to another topic.
 
 A reply needs a destination, and it comes from the reply type: `#[outgoing(name = "receipts")]`
-fixes it and the subscriber writes the bare `publish` clause, while a type that names none takes
-`publish("receipts")` at the mount site.
+fixes it and the subscriber writes the bare `reply` clause, while a type that names none takes
+`reply("receipts")` at the mount site.
 
 ```
 # mod demo {
@@ -390,7 +390,7 @@ struct Receipt {
     id: u64,
 }
 
-#[subscriber(PulsarSubscription::new("orders", "workers"), publish)]
+#[subscriber(PulsarSubscription::new("orders", "workers"), reply)]
 async fn confirm(order: &Order) -> Receipt {
     Receipt { id: order.id }
 }
@@ -503,7 +503,7 @@ builds out of a service's registrations. A subscription over one topic reports t
 namespace and persistence in the specification's `pulsar` channel binding. The specification
 leaves the Pulsar operation object empty, so the consumer travels under the extension key
 `x-ruststream-pulsar`. A publish reports the same channel binding for the topic it goes to: the
-reply type's own name, the `publish("dest")` clause of a mount site, or a slot entry's name.
+reply type's own name, the `reply("dest")` clause of a mount site, or a slot entry's name.
 
 ```json
 {

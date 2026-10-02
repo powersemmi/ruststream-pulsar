@@ -40,7 +40,7 @@
 //!
 //! #[subscriber(
 //!     PulsarSubscription::new("orders", "workers").subscription_type(SubscriptionType::Shared),
-//!     publish
+//!     reply
 //! )]
 //! async fn confirm(order: &Order) -> Receipt {
 //!     Receipt { id: order.id }

@@ -253,7 +253,7 @@ struct Receipt {
     id: u64,
 }
 
-#[subscriber(PulsarSubscription::new("payments", "workers"), publish("receipts"))]
+#[subscriber(PulsarSubscription::new("payments", "workers"), reply("receipts"))]
 async fn confirm(order: &Order) -> Receipt {
     Receipt { id: order.id }
 }
