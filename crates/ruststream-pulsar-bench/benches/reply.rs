@@ -28,10 +28,7 @@ struct Confirmation {
     id: u64,
 }
 
-#[subscriber(
-    PulsarSubscription::new(common::topic(), common::SUBSCRIPTION),
-    publish
-)]
+#[subscriber(PulsarSubscription::new(common::topic(), common::SUBSCRIPTION), reply)]
 async fn confirm(order: &Order, ctx: &mut Context<'_, (), Latch>) -> Confirmation {
     ctx.state().arrived();
     Confirmation {

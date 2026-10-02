@@ -26,9 +26,9 @@ git clone https://github.com/powersemmi/ruststream-pulsar.git
 ## Environment
 
 - **Rust** through rustup. `rust-toolchain.toml` selects stable with rustfmt and clippy. The
-  minimum supported version is 1.88, the `rust-version` in `Cargo.toml`:
-  `rustup toolchain install 1.88` builds against it with
-  `cargo +1.88 check --workspace --all-features`.
+  minimum supported version is 1.95, the `rust-version` in `Cargo.toml`:
+  `rustup toolchain install 1.95` builds against it with
+  `cargo +1.95 check --workspace --all-features`.
 - **just**, which runs every recipe below.
 - **protoc** on the path: the `pulsar` client compiles the Pulsar protocol definitions at build time (`protobuf-compiler` on Debian and Ubuntu).
 - **Docker** with Compose, for the Pulsar standalone stand the live suite and the benchmarks run against.

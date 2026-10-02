@@ -141,7 +141,7 @@ const CHECK_EVERY: usize = 256;
 /// microseconds this many in flight is already far more than either consumer can take.
 const SEND_WINDOW: usize = 64;
 /// How long a run may go without a delivery before it is called stuck.
-const STALL: Duration = Duration::from_secs(60);
+const STALL: Duration = Duration::from_mins(1);
 
 /// The body size every loop publishes and decodes, to the byte: the scenario is published under
 /// this number, so the bytes on the wire have to be it.

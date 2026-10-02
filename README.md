@@ -9,7 +9,7 @@
   <a href="https://crates.io/crates/ruststream-pulsar"><img src="https://img.shields.io/crates/v/ruststream-pulsar.svg" alt="crates.io"></a>
   <a href="https://crates.io/crates/ruststream-pulsar"><img src="https://img.shields.io/crates/dr/ruststream-pulsar" alt="Recent downloads"></a>
   <a href="https://docs.rs/ruststream-pulsar"><img src="https://img.shields.io/docsrs/ruststream-pulsar" alt="docs.rs"></a>
-  <img src="https://img.shields.io/badge/MSRV-1.88-blue.svg" alt="MSRV 1.88">
+  <img src="https://img.shields.io/badge/MSRV-1.95-blue.svg" alt="MSRV 1.95">
   <img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License">
   <a href="https://t.me/ruststream_community"><img src="https://img.shields.io/badge/-Telegram-blue?logo=telegram&label=News" alt="Telegram news channel"></a>
   <a href="https://t.me/ruststream_communuty_ru_chat"><img src="https://img.shields.io/badge/-Telegram-blue?logo=telegram&label=RU" alt="Telegram RU chat"></a>
@@ -78,7 +78,7 @@ struct Confirmation {
     PulsarSubscription::new("orders", "workers")
         .subscription_type(SubscriptionType::Shared)
         .ack_timeout(Duration::from_secs(30)),
-    publish("confirmations")
+    reply("confirmations")
 )]
 async fn confirm(order: &Order) -> Confirmation {
     Confirmation { id: order.id }
@@ -134,7 +134,7 @@ tb.broker::<PulsarBroker>()
 
 ## Minimum supported Rust version
 
-The MSRV is **1.88**, edition 2024.
+The MSRV is **1.95**, edition 2024.
 
 ## Contributing
 

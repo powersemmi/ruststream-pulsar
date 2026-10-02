@@ -72,7 +72,7 @@ struct Tick {
     id: u64,
 }
 
-#[subscriber("telemetry", publish)]
+#[subscriber("telemetry", reply)]
 async fn telemetry(order: &Order) -> Tick {
     Tick { id: order.id }
 }
@@ -84,7 +84,7 @@ struct Half {
     id: u64,
 }
 
-#[subscriber("halves", publish)]
+#[subscriber("halves", reply)]
 async fn halves(order: &Order) -> Half {
     Half { id: order.id }
 }

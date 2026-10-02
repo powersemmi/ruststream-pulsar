@@ -69,7 +69,7 @@ struct Receipt {
 // --8<-- [start:reply]
 /// A replying handler on the production descriptor. Its reply leaves through the policy named at
 /// the mount site below, in the spelling a routes file uses against a real broker.
-#[subscriber(PulsarSubscription::new("payments", "workers"), publish("receipts"))]
+#[subscriber(PulsarSubscription::new("payments", "workers"), reply("receipts"))]
 async fn confirm(order: &Order) -> Receipt {
     Receipt { id: order.id }
 }
@@ -79,7 +79,7 @@ async fn confirm(order: &Order) -> Receipt {
 /// publish policy, which is that same `PulsarPublish`.
 #[subscriber(
     PulsarSubscription::new("payments-default", "workers"),
-    publish("receipts-default")
+    reply("receipts-default")
 )]
 async fn confirm_by_default(order: &Order) -> Receipt {
     Receipt { id: order.id }

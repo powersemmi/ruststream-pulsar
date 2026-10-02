@@ -61,7 +61,7 @@ struct Receipt {
     issued: bool,
 }
 
-#[subscriber("orders", publish("confirmations"))]
+#[subscriber("orders", reply("confirmations"))]
 async fn confirm(order: &Order) -> Confirmation {
     Confirmation {
         order: order.id,
@@ -69,7 +69,7 @@ async fn confirm(order: &Order) -> Confirmation {
     }
 }
 
-#[subscriber("receipt-requests", publish)]
+#[subscriber("receipt-requests", reply)]
 async fn issue_receipt(order: &Order) -> Receipt {
     Receipt {
         order: order.id,

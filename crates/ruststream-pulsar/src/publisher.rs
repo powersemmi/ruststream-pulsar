@@ -431,7 +431,7 @@ where
 ///     id: u64,
 /// }
 ///
-/// #[subscriber(PulsarSubscription::new("orders", "workers"), publish)]
+/// #[subscriber(PulsarSubscription::new("orders", "workers"), reply)]
 /// async fn confirm(order: &Order) -> Receipt {
 ///     Receipt { id: order.id }
 /// }
@@ -455,7 +455,7 @@ pub struct PulsarPublish;
 #[cfg(feature = "asyncapi")]
 impl PulsarPublish {
     /// The `pulsar` channel binding of the destination the runtime resolved for this position:
-    /// the reply type's own name or the `publish("dest")` clause, a slot entry's name, the
+    /// the reply type's own name or the `reply("dest")` clause, a slot entry's name, the
     /// `dead_letter("dlq")` declaration.
     ///
     /// A destination Pulsar would refuse as a topic name reports nothing rather than a guess,
