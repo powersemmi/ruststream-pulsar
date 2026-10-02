@@ -23,17 +23,43 @@
 //! # Examples
 //!
 //! ```
+//! # mod demo {
 //! use ruststream_pulsar::prelude::*;
+//! use serde::{Deserialize, Serialize};
 //!
-//! let broker = PulsarBroker::new("pulsar://localhost:6650");
-//! let orders = PulsarSubscription::new("orders", "workers")
-//!     .subscription_type(SubscriptionType::Shared);
+//! #[derive(Deserialize)]
+//! struct Order {
+//!     id: u64,
+//! }
 //!
-//! // The policy is a unit struct: `Publish` is both the type and the value a mount site passes
-//! // to `out_reply(..)` or to a slot marker's `.out(..)`. Pulsar has no retry position: the
-//! // client moves a spent delivery to the dead-letter topic itself.
-//! let policy: Publish = Publish;
-//! # let _ = (broker, orders, policy);
+//! #[derive(Outgoing, Serialize)]
+//! #[outgoing(name = "receipts")]
+//! struct Receipt {
+//!     id: u64,
+//! }
+//!
+//! #[subscriber(
+//!     PulsarSubscription::new("orders", "workers").subscription_type(SubscriptionType::Shared),
+//!     publish
+//! )]
+//! async fn confirm(order: &Order) -> Receipt {
+//!     Receipt { id: order.id }
+//! }
+//!
+//! #[ruststream::app]
+//! fn app() -> impl App {
+//!     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+//!         PulsarBroker::new("pulsar://localhost:6650"),
+//!         |b| {
+//!             b.include(confirm)
+//!                 .out_reply(Publish)
+//!                 .max_attempts(nonzero!(5))
+//!                 .dead_letter("orders-dlq");
+//!         },
+//!     )
+//! }
+//! # }
+//! # fn main() {}
 //! ```
 
 pub use ruststream::prelude::*;

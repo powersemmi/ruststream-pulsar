@@ -24,27 +24,33 @@ use crate::subscriber::PulsarSeeker;
 /// # Examples
 ///
 /// ```
+/// # mod demo {
 /// use ruststream_pulsar::prelude::*;
-/// use ruststream_pulsar::{Position, PulsarContext, SeekHandle};
-/// # #[derive(serde::Deserialize)]
-/// # struct Job { id: u64 }
+/// use serde::Deserialize;
 ///
-/// struct Replayer;
-///
-/// impl Handle<Job, (), (), PulsarContext> for Replayer {
-///     async fn handle(
-///         &self,
-///         job: &Job,
-///         _outs: &(),
-///         ctx: &mut Context<'_, PulsarContext>,
-///     ) -> Result<(), HandlerOutcome> {
-///         let here = ctx.context(Position).clone();
-///         if job.id == u64::MAX && ctx.context(SeekHandle).seek(here).await.is_err() {
-///             return Err(HandlerOutcome::retry());
-///         }
-///         Ok(())
-///     }
+/// #[derive(Deserialize)]
+/// struct Job {
+///     id: u64,
+///     rewind: bool,
 /// }
+///
+/// /// Logs where each job sits, and replays the retained backlog when a job asks for it.
+/// #[subscriber("jobs")]
+/// async fn work(job: &Job, ctx: &mut Context<'_, PulsarContext>) -> HandlerOutcome {
+///     println!("job {} at {:?}", job.id, ctx.context(Position));
+///     if job.rewind
+///         && ctx
+///             .context(SeekHandle)
+///             .seek(PulsarPosition::earliest())
+///             .await
+///             .is_err()
+///     {
+///         return HandlerOutcome::retry();
+///     }
+///     HandlerOutcome::ack()
+/// }
+/// # }
+/// # fn main() {}
 /// ```
 #[derive(Debug)]
 pub struct PulsarContext {
@@ -78,34 +84,44 @@ impl BuildContext<PulsarMessage> for PulsarContext {
 /// # Examples
 ///
 /// ```
+/// # mod demo {
 /// use ruststream_pulsar::prelude::*;
-/// use ruststream_pulsar::{PulsarBatchContext, SeekHandle};
-/// # #[derive(serde::Deserialize)]
-/// # struct Job { id: u64 }
+/// use serde::Deserialize;
 ///
-/// struct Replayer;
-///
-/// impl Handle<[Job], (), (), PulsarBatchContext> for Replayer {
-///     async fn handle(
-///         &self,
-///         batch: &[Job],
-///         _outs: &(),
-///         ctx: &mut Context<'_, PulsarBatchContext>,
-///     ) -> Result<(), Vec<HandlerOutcome>> {
-///         // A batch that saw the rewind marker replays the retained backlog once it is
-///         // settled; the next batch opens at the beginning of the log.
-///         if batch.iter().any(|job| job.id == u64::MAX)
-///             && ctx
-///                 .context(SeekHandle)
-///                 .seek(PulsarPosition::earliest())
-///                 .await
-///                 .is_err()
-///         {
-///             return Err(batch.iter().map(|_| HandlerOutcome::retry()).collect());
-///         }
-///         Ok(())
-///     }
+/// #[derive(Deserialize)]
+/// struct Job {
+///     id: u64,
+///     rewind: bool,
 /// }
+///
+/// /// A batch that carries the rewind marker replays the retained backlog once it is settled:
+/// /// the next batch opens at the beginning of the log.
+/// #[subscriber("jobs.bulk")]
+/// async fn work(jobs: &[Job], ctx: &mut Context<'_, PulsarBatchContext>) -> HandlerOutcome {
+///     println!("{} jobs, first {:?}", jobs.len(), jobs.first().map(|job| job.id));
+///     if jobs.iter().any(|job| job.rewind)
+///         && ctx
+///             .context(SeekHandle)
+///             .seek(PulsarPosition::earliest())
+///             .await
+///             .is_err()
+///     {
+///         return HandlerOutcome::retry();
+///     }
+///     HandlerOutcome::ack()
+/// }
+///
+/// #[ruststream::app]
+/// fn app() -> impl App {
+///     RustStream::new(AppInfo::new("jobs", "0.1.0")).with_broker(
+///         PulsarBroker::new("pulsar://localhost:6650"),
+///         |b| {
+///             b.include(work.batch(nonzero!(100)));
+///         },
+///     )
+/// }
+/// # }
+/// # fn main() {}
 /// ```
 #[derive(Debug)]
 pub struct PulsarBatchContext {

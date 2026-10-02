@@ -48,15 +48,35 @@ pub(crate) const DEFAULT_MAX_MESSAGE_SIZE: usize = 5 * 1024 * 1024;
 /// # Examples
 ///
 /// ```
+/// # mod demo {
 /// use std::time::Duration;
-/// use ruststream::nonzero;
-/// use ruststream_pulsar::{OperationRetries, PulsarBroker};
 ///
-/// // Three tries a second apart, then the call reports what the server said.
-/// let broker = PulsarBroker::new("pulsar://localhost:6650").operation_retries(
-///     OperationRetries::attempts(nonzero!(3u32)).delay(Duration::from_secs(1)),
-/// );
-/// # let _ = broker;
+/// use ruststream_pulsar::prelude::*;
+/// # use serde::Deserialize;
+/// # #[derive(Deserialize)]
+/// # struct Order {
+/// #     id: u64,
+/// # }
+/// # #[subscriber(PulsarSubscription::new("orders", "workers").subscription_type(SubscriptionType::Exclusive))]
+/// # async fn handle(order: &Order) -> HandlerOutcome {
+/// #     println!("order {}", order.id);
+/// #     HandlerOutcome::ack()
+/// # }
+///
+/// #[ruststream::app]
+/// fn app() -> impl App {
+///     // Three tries a second apart, then startup reports what the server said instead of
+///     // waiting for the holder of the exclusive subscription to leave.
+///     let retries = OperationRetries::attempts(nonzero!(3u32)).delay(Duration::from_secs(1));
+///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+///         PulsarBroker::new("pulsar://localhost:6650").operation_retries(retries),
+///         |b| {
+///             b.include(handle);
+///         },
+///     )
+/// }
+/// # }
+/// # fn main() {}
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
@@ -205,11 +225,33 @@ pub(crate) type CoreCell = Arc<OnceCell<Arc<Core>>>;
 /// # Examples
 ///
 /// ```
-/// use ruststream_pulsar::PulsarBroker;
+/// # mod demo {
+/// use std::env;
 ///
-/// let broker = PulsarBroker::new("pulsar://localhost:6650");
-/// let secured = PulsarBroker::new("pulsar+ssl://broker:6651").token("jwt...");
-/// # let _ = (broker, secured);
+/// use ruststream_pulsar::prelude::*;
+/// # use serde::Deserialize;
+/// # #[derive(Deserialize)]
+/// # struct Order {
+/// #     id: u64,
+/// # }
+/// # #[subscriber(PulsarSubscription::new("orders", "workers"))]
+/// # async fn handle(order: &Order) -> HandlerOutcome {
+/// #     println!("order {}", order.id);
+/// #     HandlerOutcome::ack()
+/// # }
+///
+/// #[ruststream::app]
+/// fn app() -> impl App {
+///     let mut broker = PulsarBroker::new("pulsar+ssl://pulsar.acme.internal:6651");
+///     if let Ok(token) = env::var("PULSAR_TOKEN") {
+///         broker = broker.token(token);
+///     }
+///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(broker, |b| {
+///         b.include(handle);
+///     })
+/// }
+/// # }
+/// # fn main() {}
 /// ```
 #[derive(Debug, Clone)]
 #[must_use]
@@ -256,11 +298,33 @@ impl PulsarBroker {
     /// # Examples
     ///
     /// ```
-    /// use ruststream_pulsar::PulsarBroker;
+    /// # mod demo {
+    /// use ruststream_pulsar::prelude::*;
+    /// # use serde::Deserialize;
+    /// # #[derive(Deserialize)]
+    /// # struct Order {
+    /// #     id: u64,
+    /// # }
     ///
-    /// let broker =
-    ///     PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-worker");
-    /// # let _ = broker;
+    /// /// Joins the `orders-worker` subscription on `orders`, with every other instance of the
+    /// /// service.
+    /// #[subscriber("orders")]
+    /// async fn handle(order: &Order) -> HandlerOutcome {
+    ///     println!("order {}", order.id);
+    ///     HandlerOutcome::ack()
+    /// }
+    ///
+    /// #[ruststream::app]
+    /// fn app() -> impl App {
+    ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+    ///         PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-worker"),
+    ///         |b| {
+    ///             b.include(handle);
+    ///         },
+    ///     )
+    /// }
+    /// # }
+    /// # fn main() {}
     /// ```
     pub fn default_subscription(mut self, subscription: impl Into<String>) -> Self {
         self.default_subscription = Some(subscription.into());
@@ -284,12 +348,31 @@ impl PulsarBroker {
     /// # Examples
     ///
     /// ```
-    /// use ruststream::nonzero;
-    /// use ruststream_pulsar::{OperationRetries, PulsarBroker};
+    /// # mod demo {
+    /// use ruststream_pulsar::prelude::*;
+    /// # use serde::Deserialize;
+    /// # #[derive(Deserialize)]
+    /// # struct Order {
+    /// #     id: u64,
+    /// # }
+    /// # #[subscriber(PulsarSubscription::new("orders", "workers").subscription_type(SubscriptionType::Exclusive))]
+    /// # async fn handle(order: &Order) -> HandlerOutcome {
+    /// #     println!("order {}", order.id);
+    /// #     HandlerOutcome::ack()
+    /// # }
     ///
-    /// let broker = PulsarBroker::new("pulsar://localhost:6650")
-    ///     .operation_retries(OperationRetries::attempts(nonzero!(3u32)));
-    /// # let _ = broker;
+    /// #[ruststream::app]
+    /// fn app() -> impl App {
+    ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+    ///         PulsarBroker::new("pulsar://localhost:6650")
+    ///             .operation_retries(OperationRetries::attempts(nonzero!(3u32))),
+    ///         |b| {
+    ///             b.include(handle);
+    ///         },
+    ///     )
+    /// }
+    /// # }
+    /// # fn main() {}
     /// ```
     pub fn operation_retries(mut self, retries: OperationRetries) -> Self {
         self.retries = Some(retries);
@@ -307,13 +390,32 @@ impl PulsarBroker {
     /// # Examples
     ///
     /// ```
-    /// use ruststream::nonzero;
-    /// use ruststream_pulsar::PulsarBroker;
+    /// # mod demo {
+    /// use ruststream_pulsar::prelude::*;
+    /// # use serde::Deserialize;
+    /// # #[derive(Deserialize)]
+    /// # struct Scan {
+    /// #     id: u64,
+    /// # }
+    /// # #[subscriber(PulsarSubscription::new("scans", "archive"))]
+    /// # async fn archive(scan: &Scan) -> HandlerOutcome {
+    /// #     println!("scan {}", scan.id);
+    /// #     HandlerOutcome::ack()
+    /// # }
     ///
-    /// // A cluster configured with `maxMessageSize=10485760`.
-    /// let broker =
-    ///     PulsarBroker::new("pulsar://localhost:6650").max_message_size(nonzero!(10_485_760usize));
-    /// # let _ = broker;
+    /// #[ruststream::app]
+    /// fn app() -> impl App {
+    ///     // The cluster runs with `maxMessageSize=10485760`.
+    ///     RustStream::new(AppInfo::new("archive", "0.1.0")).with_broker(
+    ///         PulsarBroker::new("pulsar://localhost:6650")
+    ///             .max_message_size(nonzero!(10_485_760usize)),
+    ///         |b| {
+    ///             b.include(archive);
+    ///         },
+    ///     )
+    /// }
+    /// # }
+    /// # fn main() {}
     /// ```
     pub fn max_message_size(mut self, bytes: NonZeroUsize) -> Self {
         self.max_message_size = bytes.get();
