@@ -161,8 +161,9 @@ async fn a_failover_subscription_delivers_to_the_active_consumer() {
     publish(&broker, "orders", "o2").await;
 
     assert_eq!(drain(&mut active).await, ["o1", "o2"]);
-    assert!(
-        drain(&mut standby).await.is_empty(),
+    assert_eq!(
+        drain(&mut standby).await,
+        Vec::<String>::new(),
         "a standby receives nothing while the active consumer holds the subscription",
     );
 
@@ -236,8 +237,9 @@ async fn a_requeue_returns_to_the_subscription_not_to_the_consumer() {
     msg.nack(true).await.expect("requeue");
     drop(stream);
 
-    assert!(
-        drain(&mut first).await.is_empty(),
+    assert_eq!(
+        drain(&mut first).await,
+        Vec::<String>::new(),
         "the retry goes back to the subscription, not to the consumer that gave up on it",
     );
     assert_eq!(drain(&mut second).await, ["o1"]);
@@ -314,8 +316,9 @@ async fn a_seek_moves_the_whole_subscription() {
         .await
         .expect("the seek is accepted");
 
-    assert!(
-        drain(&mut first).await.is_empty() && drain(&mut second).await.is_empty(),
+    assert_eq!(
+        (drain(&mut first).await, drain(&mut second).await),
+        (Vec::<String>::new(), Vec::<String>::new()),
         "a seek to the tip drops what either consumer of the subscription had queued",
     );
 
@@ -380,8 +383,9 @@ async fn a_seek_over_a_non_persistent_topic_replays_nothing() {
         .await
         .expect("the seek is accepted");
 
-    assert!(
-        drain(&mut subscriber).await.is_empty(),
+    assert_eq!(
+        drain(&mut subscriber).await,
+        Vec::<String>::new(),
         "a non-persistent topic has no log to replay",
     );
 }
@@ -405,8 +409,9 @@ async fn a_multi_topic_seek_replays_every_topic() {
         ))
         .await
         .expect("subscribe");
-    assert!(
-        drain(&mut regional).await.is_empty(),
+    assert_eq!(
+        drain(&mut regional).await,
+        Vec::<String>::new(),
         "a new subscription starts at the tip",
     );
 
