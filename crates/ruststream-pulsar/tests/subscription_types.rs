@@ -358,7 +358,7 @@ async fn a_seek_keeps_what_a_sibling_queued_from_another_topic() {
         .expect("the seek is accepted");
 
     assert_eq!(drain(&mut refunds).await, ["r1"]);
-    assert!(drain(&mut returns).await.is_empty());
+    assert_eq!(drain(&mut returns).await, Vec::<String>::new());
 }
 
 /// A non-persistent topic keeps no log, so a seek over one is accepted and replays nothing, as

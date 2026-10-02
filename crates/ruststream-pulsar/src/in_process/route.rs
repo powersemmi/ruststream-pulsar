@@ -266,10 +266,9 @@ mod tests {
             subscriptions.routes("persistent://public/default/orders", &["orders"], None),
             [0]
         );
-        assert!(
-            subscriptions
-                .routes("non-persistent://public/default/orders", &["orders"], None)
-                .is_empty()
+        assert_eq!(
+            subscriptions.routes("non-persistent://public/default/orders", &["orders"], None),
+            Vec::<usize>::new()
         );
     }
 
@@ -290,10 +289,9 @@ mod tests {
             subscriptions.routes("audit-eu", &["audit", "anchored"], None),
             [0]
         );
-        assert!(
-            subscriptions
-                .routes("acme/eu/audit-eu", &["audit", "anchored"], None)
-                .is_empty()
+        assert_eq!(
+            subscriptions.routes("acme/eu/audit-eu", &["audit", "anchored"], None),
+            Vec::<usize>::new()
         );
     }
 }

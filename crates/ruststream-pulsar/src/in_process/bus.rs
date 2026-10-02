@@ -165,6 +165,6 @@ mod tests {
             )
             .expect_err("a binary header is refused");
         assert!(matches!(refused, PulsarError::Publish { .. }), "{refused}");
-        assert!(bus.published("orders").is_empty());
+        assert_eq!(bus.published("orders"), Vec::<RawMessage>::new());
     }
 }
