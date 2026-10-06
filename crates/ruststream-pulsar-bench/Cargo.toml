@@ -26,8 +26,9 @@ testing = ["ruststream-pulsar/testing"]
 # it.
 [dev-dependencies]
 ruststream-pulsar.workspace = true
-# The code-cost benchmarks: callgrind and DHAT through the runner the core pins.
-gungraun = "=0.19.4"
+# The code-cost benchmarks: callgrind and DHAT through gungraun, at the release the core pins.
+# `just bench-code` installs the runner of the same release.
+gungraun = "=0.20.0"
 ruststream = { workspace = true, features = ["macros", "json"] }
 futures.workspace = true
 pulsar.workspace = true
