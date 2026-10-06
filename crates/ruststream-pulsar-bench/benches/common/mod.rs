@@ -56,7 +56,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures::StreamExt as _;
 use futures::stream::FuturesUnordered;
-use gungraun::{Callgrind, Dhat, DhatMetric, EntryPoint, EventKind, LibraryBenchmarkConfig};
+use gungraun::{Callgrind, Dhat, DhatMetric, EntryPoint, LibraryBenchmarkConfig};
 use ruststream::runtime::{AppInfo, BrokerScope, Identity, RunningApp, RustStream};
 use ruststream::{Broker, BytesMut, ConnectedBroker, OutgoingMessage, Publisher};
 use ruststream_pulsar::PulsarBroker;
@@ -90,10 +90,43 @@ pub struct Order {
     pub quantity: u32,
 }
 
-/// Deliveries per measured run: large enough that entering and leaving the region is lost in the
-/// per-message number, small enough that a scenario stays within a minute of valgrind time.
-/// `scripts/bench_results.py` divides by the same count.
-pub const MESSAGES: usize = 1_000;
+/// Deliveries per measured run.
+///
+/// The default is large enough that entering and leaving the region is lost in the per-message
+/// number and small enough that a scenario stays within a minute of valgrind time.
+/// `RUSTSTREAM_BENCH_MESSAGES` at build time overrides it (`just bench-code 5000`) for a steadier
+/// number at the price of a longer run; the published document is measured at the default, and
+/// the allocation limits scale with the count through [`config`]. `scripts/bench_results.py`
+/// divides by the same count.
+pub const MESSAGES: usize = messages(option_env!("RUSTSTREAM_BENCH_MESSAGES"));
+
+/// The count a run measures when nothing names one.
+const DEFAULT_MESSAGES: usize = 1_000;
+
+/// The configured count, or the default; a value that is not a positive number is a build error
+/// naming the variable, so a typo cannot silently measure the default.
+const fn messages(configured: Option<&str>) -> usize {
+    let Some(text) = configured else {
+        return DEFAULT_MESSAGES;
+    };
+    let bytes = text.as_bytes();
+    let mut count = 0usize;
+    let mut index = 0;
+    while index < bytes.len() {
+        let digit = bytes[index];
+        assert!(
+            digit.is_ascii_digit(),
+            "RUSTSTREAM_BENCH_MESSAGES must be a positive number of deliveries"
+        );
+        count = count * 10 + (digit - b'0') as usize;
+        index += 1;
+    }
+    assert!(
+        count > 0,
+        "RUSTSTREAM_BENCH_MESSAGES must be a positive number of deliveries"
+    );
+    count
+}
 
 /// Publishes the fill keeps in flight at once, so the stand is not waited on one receipt at a
 /// time. The ceiling is the client's own outbound queue, a hundred frames per connection, which
@@ -133,9 +166,10 @@ fn url() -> String {
 /// flows. Together they are the hard limit the longest run of the scenario (twice [`MESSAGES`]
 /// deliveries) is held to, so the run fails when the path allocates more than it does today.
 /// Both are floors the code is held to, taken as the highest count of three runs, so a number
-/// that goes down is lowered here in the same change. The instruction limit is relative:
-/// `just bench-code --save-baseline=main` records a baseline and
-/// `just bench-code --baseline=main` compares against it.
+/// that goes down is lowered here in the same change. The instruction limit is relative, and
+/// `just bench-code` sets it only for a run against a named baseline:
+/// `just bench-code --save-baseline=main` records one, and `just bench-code --baseline=main`
+/// fails on two percent more instructions than it.
 pub fn config(steady: u64, cold: u64) -> LibraryBenchmarkConfig {
     config_every(steady, 1, cold)
 }
@@ -148,7 +182,7 @@ pub fn config_every(steady: u64, per: u64, cold: u64) -> LibraryBenchmarkConfig 
     config
         // The runner clears the environment; the stand's address is the one variable a run needs.
         .pass_through_env(URL)
-        .tool(callgrind().soft_limits([(EventKind::Ir, 2f64)]))
+        .tool(callgrind())
         .tool(dhat().hard_limits([(DhatMetric::TotalBlocks, blocks(steady, per, cold))]));
     config
 }
