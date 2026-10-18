@@ -94,3 +94,47 @@ name = "manual_pulsar_positions_seek"
 path = "examples/manual/pulsar_positions_seek.rs"
 required-features = ["testing"]
 test = true
+
+[[example]]
+name = "pulsar_settlement_ack"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_settlement_ack"
+path = "examples/manual/pulsar_settlement_ack.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_settlement_ack_timeout"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_settlement_ack_timeout"
+path = "examples/manual/pulsar_settlement_ack_timeout.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_settlement_retry_after"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_settlement_retry_after"
+path = "examples/manual/pulsar_settlement_retry_after.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_settlement_dead_letters"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_settlement_dead_letters"
+path = "examples/manual/pulsar_settlement_dead_letters.rs"
+required-features = ["testing"]
+test = true
