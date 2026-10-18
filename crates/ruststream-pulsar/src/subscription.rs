@@ -18,6 +18,7 @@ use serde::Serialize;
 use crate::bindings::{extension, topic_channel};
 use crate::broker::ConnectedPulsarBroker;
 use crate::error::PulsarError;
+use crate::pattern::TopicPattern;
 use crate::subscriber::PulsarSubscriber;
 use crate::topic::PulsarTopic;
 
@@ -205,8 +206,16 @@ impl PulsarSubscription {
         }
     }
 
-    /// Subscribes to every topic in the lookup namespace whose name matches `pattern` (a
-    /// regular expression, validated on subscribe).
+    /// Subscribes to every topic of one namespace whose fully qualified name matches `pattern`,
+    /// a regular expression.
+    ///
+    /// The namespace is the one the pattern's prefix names: `persistent://acme/orders/.*` and
+    /// `acme/orders/.*` read `acme/orders`, and a pattern with no `tenant/namespace/` part, such
+    /// as `orders-.*`, reads `public/default`. The scheme is part of the regular expression, so
+    /// one pattern may select persistent and non-persistent topics alike. The pattern is checked
+    /// on subscribe: one that is no regular expression, or whose tenant or namespace is itself a
+    /// regular expression and so names no single namespace, refuses to start with
+    /// [`PulsarError::Invalid`].
     pub fn pattern(pattern: impl Into<String>, subscription: impl Into<String>) -> Self {
         Self {
             topics: Topics::Pattern(pattern.into()),
@@ -361,9 +370,7 @@ impl PulsarSubscription {
                 }
             }
             Topics::Pattern(pattern) => {
-                regex::Regex::new(pattern).map_err(|e| {
-                    PulsarError::Invalid(format!("invalid topic pattern '{pattern}': {e}"))
-                })?;
+                TopicPattern::parse(pattern)?;
             }
         }
         self.dead_letter_policy()?;

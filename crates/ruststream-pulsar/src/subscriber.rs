@@ -34,6 +34,7 @@ use crate::message::{
     DriverCmd, NackAfterCmd, PulsarMessage, PulsarPosition, SeekCmd, SettleKind, SettleSender,
     send_settle,
 };
+use crate::pattern::TopicPattern;
 use crate::subscription::{PulsarSubscription, SubscriptionType, Topics};
 
 /// How many undelivered messages may sit between the driver and the consumer. Real prefetch is
@@ -138,9 +139,10 @@ impl PulsarSubscriber {
                 builder = builder.with_topics(topics);
             }
             Topics::Pattern(pattern) => {
-                let regex = regex::Regex::new(pattern)
-                    .map_err(|e| PulsarError::Invalid(format!("invalid pattern: {e}")))?;
-                builder = builder.with_topic_regex(regex);
+                let pattern = TopicPattern::parse(pattern)?;
+                builder = builder
+                    .with_lookup_namespace(pattern.lookup_namespace())
+                    .with_topic_regex(pattern.regex().clone());
             }
         }
         if let Some(dead_letter) = descriptor.dead_letter_policy()? {
