@@ -83,7 +83,7 @@ its tests run.
 |---|---|
 | [`PulsarSubscription::new(topic, subscription)`](PulsarSubscription::new) | one topic |
 | [`PulsarSubscription::topics([..], subscription)`](PulsarSubscription::topics) | a fixed list of topics |
-| [`PulsarSubscription::pattern(regex, subscription)`](PulsarSubscription::pattern) | every matching topic in the lookup namespace, including topics created later |
+| [`PulsarSubscription::pattern(regex, subscription)`](PulsarSubscription::pattern) | every matching topic of the namespace the pattern names (`public/default` for a bare one), including topics created later |
 
 | Setting | Meaning | Default |
 |---|---|---|
@@ -543,8 +543,8 @@ reply type's own name, the `reply("dest")` clause of a mount site, or a slot ent
 
 Every value is read off the descriptor, before anything connects. What the document cannot say it
 leaves out: a subscription over several topics reports a namespace only when all of them agree on
-one, a pattern subscription reports none at all because it has no topic until it resolves against
-a server, and a subscription opened by a bare topic name has no descriptor to read and describes
+one, a pattern subscription reports none at all because the topics it reads are known only once
+it resolves against a server, and a subscription opened by a bare topic name has no descriptor to read and describes
 nothing. Neither does a name Pulsar would not take for a topic: the document says what the
 deployment is, or says nothing about it. The server carries the host and the port alone, since a
 service URL may hold a token and a published document is shared; the protocol version stays out
@@ -634,8 +634,9 @@ What the in-process mode models, and what it means for a test:
 
 * A topic is its fully qualified name, so `orders` and `persistent://public/default/orders` are
   one topic.
-* A pattern subscription matches the full names of the `public/default` namespace, the one the
-  client lists. It reads a topic that existed when it opened at once, and a topic created later
+* A pattern subscription matches the full names of the namespace its prefix names, the one the
+  client lists: `persistent://acme/orders/.*` reads `acme/orders`, and a bare pattern reads
+  `public/default`. It reads a topic that existed when it opened at once, and a topic created later
   from the client's next listing, thirty seconds on; what reached that topic before then is not
   delivered to it. A test of a new topic advances the paused clock by thirty seconds.
 * A message reaches every subscription over its topic once, and the subscription type picks the

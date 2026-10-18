@@ -9,6 +9,7 @@ mod error;
 #[cfg(feature = "testing")]
 mod in_process;
 mod message;
+mod pattern;
 pub mod prelude;
 mod publisher;
 mod subscriber;

@@ -56,7 +56,8 @@ pub struct PulsarTopic {
     full: String,
 }
 
-fn valid_part(part: &str) -> bool {
+/// Whether `part` is a tenant, namespace or topic name Pulsar accepts.
+pub(crate) fn valid_part(part: &str) -> bool {
     !part.is_empty()
         && part
             .chars()

@@ -3,32 +3,25 @@
 //!
 //! A topic is known by its fully qualified name here, as it is on a server: `orders` and
 //! `persistent://public/default/orders` are one topic. A pattern subscription resolves against
-//! the lookup namespace the client lists, `public/default`, and matches its regular expression
-//! against the fully qualified names in it, which is what the Pulsar client does.
+//! the namespace its own prefix names (`public/default` for a bare pattern) and matches its
+//! regular expression against the fully qualified names in it, which is what the Pulsar client
+//! does.
 
 use std::sync::{Mutex, MutexGuard};
 
-use regex::Regex;
-
 use crate::error::PulsarError;
 use crate::in_process::{AddressRouter, ConsumerId};
+use crate::pattern::TopicPattern;
 use crate::subscription::{PulsarSubscription, Topics};
 use crate::topic::PulsarTopic;
-
-/// The namespace a pattern subscription lists its topics in.
-///
-/// The client asks the server for the topics of one namespace and matches the pattern against
-/// those; this crate names no other, so the client's own default applies.
-const LOOKUP_TENANT: &str = "public";
-const LOOKUP_NAMESPACE: &str = "default";
 
 /// Which topics one subscription reads.
 #[derive(Debug, Clone)]
 pub(crate) enum Route {
     /// Exact topics, fully qualified: one for a single-topic subscription, several for a list.
     Topics(Vec<String>),
-    /// A regular expression over the fully qualified names of the lookup namespace.
-    Pattern(Regex),
+    /// A regular expression over the fully qualified names of the namespace it names.
+    Pattern(TopicPattern),
 }
 
 impl Route {
@@ -46,9 +39,7 @@ impl Route {
                 .map(|topic| PulsarTopic::parse(topic).map(|topic| topic.as_str().to_owned()))
                 .collect::<Result<_, _>>()
                 .map(Self::Topics),
-            Topics::Pattern(pattern) => Regex::new(pattern).map(Self::Pattern).map_err(|err| {
-                PulsarError::Invalid(format!("invalid topic pattern '{pattern}': {err}"))
-            }),
+            Topics::Pattern(pattern) => TopicPattern::parse(pattern).map(Self::Pattern),
         }
     }
 
@@ -58,11 +49,7 @@ impl Route {
     pub(crate) fn selects(&self, topic: &PulsarTopic) -> bool {
         match self {
             Self::Topics(topics) => topics.iter().any(|name| name == topic.as_str()),
-            Self::Pattern(pattern) => {
-                topic.tenant() == LOOKUP_TENANT
-                    && topic.namespace() == LOOKUP_NAMESPACE
-                    && pattern.is_match(topic.as_str())
-            }
+            Self::Pattern(pattern) => pattern.selects(topic),
         }
     }
 
@@ -272,7 +259,7 @@ mod tests {
         );
     }
 
-    /// A pattern is matched against the fully qualified name, in the lookup namespace only.
+    /// A bare pattern is matched against the fully qualified name, in `public/default` only.
     #[test]
     fn a_pattern_reads_the_lookup_namespace_by_full_name() {
         let subscriptions = Subscriptions::default();

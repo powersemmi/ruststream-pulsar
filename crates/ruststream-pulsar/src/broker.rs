@@ -679,7 +679,7 @@ impl TestableBroker for ConnectedPulsarBroker {
     /// the message once, by one of its consumers in `subscriptions`. In process that is the
     /// consumer the transport picks for the next message; against a server, which picks its
     /// consumer itself, it is the first of them. A topic reads the same under either spelling,
-    /// and a pattern matches the fully qualified names of the `public/default` namespace.
+    /// and a pattern matches the fully qualified names of the namespace its prefix names.
     fn routes(&self, destination: &str, subscriptions: &[&str]) -> Vec<usize> {
         let router = match &self.core.transport {
             Transport::InProcess(bus) => Some(bus.router()),

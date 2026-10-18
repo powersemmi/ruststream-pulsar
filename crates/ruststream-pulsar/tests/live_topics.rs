@@ -226,6 +226,64 @@ async fn a_pattern_subscription_reads_the_topics_it_matches() {
     connected.shutdown().await.expect("shutdown succeeds");
 }
 
+/// A pattern whose prefix names a namespace other than `public/default` reads that namespace.
+///
+/// The client lists one namespace per pattern subscription, so the namespace the pattern names
+/// is the one the subscription has to ask for; a topic of `public/default` with the same local
+/// name is not read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pattern_reads_the_namespace_its_prefix_names() {
+    let Some(url) = test_url() else { return };
+    let tenant = unique("tenant");
+    admin::create_namespace(&tenant, "orders").await;
+    let connected = connect(&url).await;
+
+    let run = std::process::id();
+    let matching = format!("persistent://{tenant}/orders/created-{run}");
+    let other = format!("persistent://public/default/created-{run}");
+    let publisher = connected.publisher();
+    for topic in [&matching, &other] {
+        publisher
+            .message(&Record(b"seed".to_vec()))
+            .to(topic.as_str())
+            .publish()
+            .await
+            .expect("the topic is created by publishing to it");
+    }
+
+    let mut subscriber = connected
+        .subscribe_descriptor(PulsarSubscription::pattern(
+            format!("persistent://{tenant}/orders/created-.*"),
+            unique("namespace-pattern-sub"),
+        ))
+        .await
+        .expect("subscription opens");
+
+    for topic in [&matching, &other] {
+        publisher
+            .message(&Record(topic.as_bytes().to_vec()))
+            .to(topic.as_str())
+            .publish()
+            .await
+            .expect("publish succeeds");
+    }
+
+    let read: Vec<Vec<u8>> = collect(&mut subscriber, 1)
+        .await
+        .into_iter()
+        .map(|(_, payload)| payload)
+        .collect();
+    assert_eq!(read, vec![matching.as_bytes().to_vec()]);
+
+    let mut stream = pin!(subscriber.stream());
+    assert!(
+        tokio::time::timeout(QUIET, stream.next()).await.is_err(),
+        "the pattern read a topic outside its namespace",
+    );
+
+    connected.shutdown().await.expect("shutdown succeeds");
+}
+
 /// A non-persistent topic keeps no log: the server accepts a seek over one, and there is nothing
 /// for it to replay. The in-process mode answers the same.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
