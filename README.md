@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <b><a href="https://powersemmi.github.io/ruststream-pulsar/">Documentation</a></b>
+  <b><a href="https://powersemmi.github.io/ruststream-pulsar/latest/">Documentation</a></b>
 </p>
 
 ---
@@ -129,7 +129,8 @@ tb.broker::<PulsarBroker>()
 
 ## Documentation
 
-- This crate: <https://docs.rs/ruststream-pulsar>
+- Guides, components and architecture: <https://powersemmi.github.io/ruststream-pulsar/latest/>
+- The API reference: <https://docs.rs/ruststream-pulsar>
 - The framework: <https://powersemmi.github.io/ruststream/latest>
 
 ## Minimum supported Rust version

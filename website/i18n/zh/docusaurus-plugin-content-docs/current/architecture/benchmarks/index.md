@@ -1,4 +1,9 @@
-# 基准测试 { #benchmarks }
+---
+title: 基准测试
+description: "ruststream-pulsar 在每条消息上的开销：相对裸 pulsar 客户端的吞吐量，以及其代码的指令数和内存分配次数。"
+---
+
+# 基准测试 {/* #benchmarks */}
 
 在 Pulsar 客户端和你的处理器之间，任何一层都要在每条消息上花时间：订阅的流、解码、确认、分发。
 这一页说明它花了多少，参照物是同样的活用 `pulsar` crate 手写一遍。
@@ -10,7 +15,7 @@ tokio 运行时和构建。这套流程属于框架本身，写在
 [RustStream 基准测试页](https://powersemmi.github.io/ruststream/latest/zh/benchmarks/#methodology)
 上；这一页公布它在这台机器上得出的结果。
 
-## 数字 { #the-numbers }
+## 数字 {/* #the-numbers */}
 
 三个交错轮次中的最佳值，括号里是中位的一轮。越大越好。
 
@@ -38,7 +43,7 @@ tokio 运行时和构建。这套流程属于框架本身，写在
 [`benchmarks/results.json`](https://powersemmi.github.io/ruststream-pulsar/latest/benchmarks/results.json)，
 框架的站点用它拼出跨 Broker 的汇总表。
 
-## crate 自身的代码 { #the-crates-own-code }
+## crate 自身的代码 {/* #the-crates-own-code */}
 
 <div id="benchmark-code"></div>
 
@@ -64,14 +69,14 @@ Broker 也不计入。在套接字上等待不花指令。每个数字的大部�
 超过这个上限时失败，加上 `--baseline=main` 时，指令数多出百分之二以上也算失败；改变开销的合并
 请求要附上自己的数字。
 
-## 机器 { #the-machine }
+## 机器 {/* #the-machine */}
 
 <div id="benchmark-environment"></div>
 
 构建标志和数字一起公布，因为它们会改变这些数字。用 `-C target-cpu=native` 构建出的二进制给出的
 结果，换一台机器就复现不了，所以这条 recipe 在构建前先把这个变量清空。
 
-## 这些数字不代表什么 { #what-they-do-not-mean }
+## 这些数字不代表什么 {/* #what-they-do-not-mean */}
 
 这里只有一个消费者、一个主题、一个很小的消息体，以及一台跑在回环地址上的服务器。它测的是一次
 投递在这个 crate 里的开销，不是 Pulsar 能扛多少。这里的一行也不能拿去和另一个 Broker 公布的
@@ -87,7 +92,7 @@ Broker 也不计入。在套接字上等待不花指令。每个数字的大部�
 这些数字是一台机器在某一天的快照。
 它们由人手工重测，测量期间机器只跑这一项：这一页要讲的差值，比与其他任务共用的机器上的噪声还小。
 
-## 自己跑一遍 { #running-it-yourself }
+## 自己跑一遍 {/* #running-it-yourself */}
 
 ```bash
 just bench

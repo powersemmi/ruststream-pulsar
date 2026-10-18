@@ -1,3 +1,8 @@
+---
+title: Benchmarks
+description: "What ruststream-pulsar costs on every message: throughput against the raw pulsar client, and instructions and allocations of its code."
+---
+
 # Benchmarks
 
 Everything between the Pulsar client and your handler costs time on every message: the subscription
