@@ -104,14 +104,12 @@ malformed topic name, or a pattern that is not a valid regular expression fails 
 `PulsarSubscription` implements `SubscriptionSource`, so it sits inline in the `#[subscriber(..)]`
 decorator:
 
-```rust
---8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:handler"
+```rust reference="examples/pulsar_service.rs#handler"
 ```
 
 Wire it onto the broker; the `with_broker` / `include` part is identical to the in-memory broker.
 
-```rust
---8<-- "crates/ruststream-pulsar/examples/pulsar_service.rs:app"
+```rust reference="examples/pulsar_service.rs#app"
 ```
 
 The plain string form `#[subscriber("orders")]` also works: it opens a `Shared` subscription named
@@ -124,8 +122,7 @@ regular expression, including topics created after the consumer attached. A topi
 `::topics([..])` is the fixed-membership alternative: it spans exactly the named topics, and a
 seek or a settlement covers all of them.
 
-```rust
---8<-- "crates/ruststream-pulsar/examples/pulsar_pattern.rs:pattern"
+```rust reference="examples/pulsar_pattern.rs#pattern"
 ```
 
 Because a pattern spans topics written by different producers, the payloads are not one schema;
