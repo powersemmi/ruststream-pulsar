@@ -36,11 +36,8 @@ fn service(broker: PulsarBroker) -> impl App<State = ()> {
 // --8<-- [start:broker]
 /// The cluster at `url`; an operation the server keeps refusing fails after three tries.
 fn broker(url: &str) -> PulsarBroker {
-    PulsarBroker::new(url).operation_retries(
-        OperationRetries::attempts(nonzero!(3u32))
-            .delay(Duration::from_secs(1))
-            .timeout(Duration::from_secs(10)),
-    )
+    PulsarBroker::new(url)
+        .operation_retries(OperationRetries::attempts(nonzero!(3u32)).delay(Duration::from_secs(1)))
 }
 
 #[ruststream::app]
