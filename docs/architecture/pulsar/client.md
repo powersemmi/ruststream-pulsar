@@ -33,7 +33,8 @@ broker, and feeds each consumer under flow permits.
 A Pulsar cluster spreads its topics over its brokers, and one broker owns each topic. The client
 asks the service URL which broker that is, then connects to the owner. A partitioned topic is
 looked up for its number of partitions first, then each partition on its own. The service URL is
-one address: a load balancer or a DNS name in front of the brokers serves a cluster.
+one address: a DNS name, a load balancer or the Pulsar proxy in front of the brokers serves a
+cluster.
 
 The client keeps one connection per broker address and shares it. This crate opens one producer per
 topic, the first time something publishes to it, and every publisher of the connection uses it. Each
