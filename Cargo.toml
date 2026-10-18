@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/ruststream-pulsar", "crates/ruststream-pulsar-bench"]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 # The floor the core crate declares on the 0.7 line; a lower one cannot resolve it.
 rust-version = "1.95"
