@@ -209,16 +209,8 @@ fn the_document_carries_no_credentials() {
         "hunter2",
     );
     message_shape::describes_addresses_without_credentials(
-        |addrs| {
-            // The client takes one URL naming several hosts: the first address with its scheme,
-            // then the others after a comma.
-            let rest = addrs
-                .iter()
-                .skip(1)
-                .map(|addr| addr.split_once("://").map_or(*addr, |(_, rest)| rest));
-            let url: Vec<&str> = addrs.iter().take(1).copied().chain(rest).collect();
-            PulsarBroker::new(url.join(","))
-        },
+        // The client dials one service URL, so the broker is configured with the first address.
+        |addrs| PulsarBroker::new(addrs[0]),
         "pulsar",
     );
 }

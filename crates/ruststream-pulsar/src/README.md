@@ -663,7 +663,11 @@ The harness itself is the framework's, and
 
 # Operations
 
-* The URL is `pulsar://` or `pulsar+ssl://`, and several brokers are a comma-separated list.
+* The broker takes one service URL, `pulsar://` or `pulsar+ssl://`, and the client dials that one
+  address. A cluster is reached through a single entry point in front of its brokers: a DNS name,
+  a load balancer or the Pulsar proxy, as
+  [Pulsar's service discovery](https://pulsar.apache.org/docs/next/concepts-architecture-overview/#service-discovery)
+  describes.
 * [`token`](PulsarBroker::token) attaches JWT authentication; the client reconnects consumers and
   producers on its own after a broker restart.
 * [`operation_retries`](PulsarBroker::operation_retries) bounds how long that waiting lasts, for
