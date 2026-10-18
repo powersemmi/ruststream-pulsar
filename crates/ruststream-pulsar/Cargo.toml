@@ -432,3 +432,15 @@ name = "manual_guide_subscription_types_and_ordering"
 path = "examples/manual/guide/subscription_types_and_ordering.rs"
 required-features = ["testing"]
 test = true
+
+[[example]]
+name = "guide_acknowledgement"
+path = "examples/guide/acknowledgement.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_guide_acknowledgement"
+path = "examples/manual/guide/acknowledgement.rs"
+required-features = ["testing"]
+test = true
