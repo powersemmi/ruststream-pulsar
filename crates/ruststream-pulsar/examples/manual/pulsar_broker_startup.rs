@@ -48,8 +48,7 @@ fn service(broker: PulsarBroker) -> impl App<State = ()> {
         // A bare topic name: it joins the broker's default subscription.
         b.include(subscriber("orders", Place).build());
         // A pattern: checked as a regular expression before its consumer opens.
-        let audit = PulsarSubscription::pattern("audit-.*", "auditors");
-        b.include(subscriber("audit", Audit).map_source(|_| audit).build());
+        b.include(subscriber(PulsarSubscription::pattern("audit-.*", "auditors"), Audit).build());
     })
 }
 
@@ -137,8 +136,9 @@ mod tests {
             PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-svc"),
             |b| {
                 b.include(subscriber("orders", Place).build());
-                let broken = PulsarSubscription::pattern("audit-(", "auditors");
-                b.include(subscriber("audit", Audit).map_source(|_| broken).build());
+                b.include(
+                    subscriber(PulsarSubscription::pattern("audit-(", "auditors"), Audit).build(),
+                );
             },
         );
 

@@ -33,11 +33,6 @@ impl MessageHeaders for Reading {
 }
 
 // --8<-- [start:handler]
-/// A batch that is not full closes 250 ms after its first reading.
-fn readings() -> PulsarSubscription {
-    PulsarSubscription::new("readings", "aggregator").batch_wait(Duration::from_millis(250))
-}
-
 /// Stores a batch of readings in one round-trip; `Ok` settles the whole batch.
 struct Aggregate;
 
@@ -59,12 +54,16 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("readings", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
-            // At most 64 readings per call.
+            // At most 64 readings per call; a batch that is not full closes 250 ms after its
+            // first reading.
             b.include(
-                subscriber("readings", Aggregate)
-                    .batch(nonzero!(64))
-                    .build()
-                    .map_source(|_| readings()),
+                subscriber(
+                    PulsarSubscription::new("readings", "aggregator")
+                        .batch_wait(Duration::from_millis(250)),
+                    Aggregate,
+                )
+                .batch(nonzero!(64))
+                .build(),
             );
         },
     )

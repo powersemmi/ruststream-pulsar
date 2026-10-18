@@ -39,11 +39,9 @@ impl Handle<AuditEntry> for Replay {
 /// The service on the Pulsar cluster `url` names.
 fn service(url: &str) -> impl App<State = ()> {
     RustStream::new(AppInfo::new("audit", "0.1.0")).with_broker(PulsarBroker::new(url), |b| {
-        let audit = PulsarSubscription::new("ledger.audit", "audit");
         // The projection is rebuilt from the oldest retained entry on every startup.
         b.include(
-            subscriber("ledger.audit", Replay)
-                .map_source(|_| audit)
+            subscriber(PulsarSubscription::new("ledger.audit", "audit"), Replay)
                 .start_at(PulsarPosition::earliest())
                 .build(),
         );

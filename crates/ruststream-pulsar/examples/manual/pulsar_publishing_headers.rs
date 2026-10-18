@@ -70,8 +70,7 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("billing", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
-            let orders = PulsarSubscription::new("orders", "billing");
-            let issue = subscriber("orders", Issue).map_source(|_| orders);
+            let issue = subscriber(PulsarSubscription::new("orders", "billing"), Issue);
             b.include(issue.build()).out(Invoices, Publish).build();
         },
     )

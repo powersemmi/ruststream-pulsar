@@ -51,8 +51,7 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("jobs", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
-            let jobs = PulsarSubscription::new("jobs", "workers");
-            b.include(subscriber("jobs", Work).map_source(|_| jobs).build());
+            b.include(subscriber(PulsarSubscription::new("jobs", "workers"), Work).build());
         },
     )
 }

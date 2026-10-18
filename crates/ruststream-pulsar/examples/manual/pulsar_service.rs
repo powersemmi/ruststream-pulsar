@@ -37,13 +37,6 @@ impl Handle<Order> for HandleOrder {
         ready(Ok(()))
     }
 }
-
-/// The shared subscription `workers` on `orders`.
-fn orders() -> PulsarSubscription {
-    PulsarSubscription::new("orders", "workers")
-        .subscription_type(SubscriptionType::Shared)
-        .ack_timeout(Duration::from_secs(30))
-}
 // --8<-- [end:handler]
 
 // --8<-- [start:app]
@@ -51,10 +44,15 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
+            // The shared subscription `workers` on `orders`.
             b.include(
-                subscriber("orders", HandleOrder)
-                    .map_source(|_| orders())
-                    .build(),
+                subscriber(
+                    PulsarSubscription::new("orders", "workers")
+                        .subscription_type(SubscriptionType::Shared)
+                        .ack_timeout(Duration::from_secs(30)),
+                    HandleOrder,
+                )
+                .build(),
             )
             .max_attempts(nonzero!(5))
             .dead_letter("orders-dlq");

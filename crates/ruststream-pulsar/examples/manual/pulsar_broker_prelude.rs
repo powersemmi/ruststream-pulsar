@@ -32,13 +32,14 @@ fn app() -> impl App {
     let broker = PulsarBroker::new("pulsar://localhost:6650")
         .operation_retries(OperationRetries::attempts(nonzero!(5u32)));
     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(broker, |b| {
-        let orders = PulsarSubscription::new("orders", "confirmations-svc")
-            .subscription_type(SubscriptionType::KeyShared);
         b.include(
-            subscriber("orders", Confirm)
-                .map_source(|_| orders)
-                .reply()
-                .build(),
+            subscriber(
+                PulsarSubscription::new("orders", "confirmations-svc")
+                    .subscription_type(SubscriptionType::KeyShared),
+                Confirm,
+            )
+            .reply()
+            .build(),
         )
         .out_reply(Publish);
     })

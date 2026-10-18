@@ -32,11 +32,12 @@ impl Handle<Order> for Fulfil {
 
 fn service(broker: PulsarBroker) -> impl App<State = ()> {
     RustStream::new(AppInfo::new("fulfilment", "0.1.0")).with_broker(broker, |b| {
-        let created = PulsarSubscription::new("persistent://acme/orders/created", "fulfilment");
         b.include(
-            subscriber("persistent://acme/orders/created", Fulfil)
-                .map_source(|_| created)
-                .build(),
+            subscriber(
+                PulsarSubscription::new("persistent://acme/orders/created", "fulfilment"),
+                Fulfil,
+            )
+            .build(),
         );
     })
 }

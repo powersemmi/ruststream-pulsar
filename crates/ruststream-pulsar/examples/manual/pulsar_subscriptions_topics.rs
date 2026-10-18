@@ -49,11 +49,12 @@ fn app() -> impl App {
     let broker = PulsarBroker::new("pulsar://localhost:6650");
     RustStream::new(AppInfo::new("fulfilment", "0.1.0")).with_broker(broker, |b| {
         // Two topics under one subscription, `regional`, which is also its reported name.
-        let regional = PulsarSubscription::topics(["orders-eu", "orders-us"], "regional");
         b.include(
-            subscriber("regional", Fulfil)
-                .build()
-                .map_source(|_| regional),
+            subscriber(
+                PulsarSubscription::topics(["orders-eu", "orders-us"], "regional"),
+                Fulfil,
+            )
+            .build(),
         );
     })
 }
