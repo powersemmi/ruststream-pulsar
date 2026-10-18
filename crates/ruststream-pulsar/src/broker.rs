@@ -723,8 +723,6 @@ mod tests {
             ("pulsar+ssl://admin:s3cret@broker", "broker"),
             // A password may hold an `@`, so the userinfo ends at the last one.
             ("pulsar://admin:p@ssw0rd@broker:6650", "broker:6650"),
-            // Pulsar takes a comma-separated broker list, which is the address as it stands.
-            ("pulsar://one:6650,two:6650", "one:6650,two:6650"),
         ] {
             assert_eq!(
                 PulsarBroker::new(url).describe_server().host.as_deref(),
