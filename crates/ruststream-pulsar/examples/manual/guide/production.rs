@@ -73,8 +73,7 @@ impl Handle<Order, Confirmation> for Confirm {
 fn service(broker: PulsarBroker) -> RustStream {
     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(broker, |b| {
         b.include(
-            subscriber("orders", Confirm)
-                .map_source(|_| PulsarSubscription::new("orders", "orders-svc"))
+            subscriber(PulsarSubscription::new("orders", "orders-svc"), Confirm)
                 .reply()
                 .build(),
         );

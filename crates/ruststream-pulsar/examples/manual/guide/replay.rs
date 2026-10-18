@@ -117,16 +117,11 @@ fn service(broker: PulsarBroker) -> impl App<State = Clients> {
         .on_startup(async move |()| Ok::<_, Infallible>(Clients::default()))
         .with_broker(broker, |b| {
             b.include(
-                subscriber("ledger", Project)
-                    .map_source(|_| PulsarSubscription::new("ledger", "balances"))
+                subscriber(PulsarSubscription::new("ledger", "balances"), Project)
                     .start_at(PulsarPosition::earliest())
                     .build(),
             );
-            b.include(
-                subscriber("orders", Index)
-                    .build()
-                    .map_source(|_| PulsarSubscription::new("orders", "search-index")),
-            );
+            b.include(subscriber(PulsarSubscription::new("orders", "search-index"), Index).build());
         })
 }
 
