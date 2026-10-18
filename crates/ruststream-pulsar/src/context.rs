@@ -77,9 +77,9 @@ impl BuildContext<PulsarMessage> for PulsarContext {
 /// header contract). Keeping this a separate type from [`PulsarContext`] is what rejects a batch
 /// body asking for per-delivery fields at compile time.
 ///
-/// Pulsar's client has no consumer-side batch receive, so a batch here is assembled on the client
-/// from the size the mount site's `batch(n)` names. Nothing about that reaches the body: the
-/// context, the seeker and the settlement are the same either way.
+/// Pulsar's client hands over one delivery at a time, so a batch here is assembled on the client
+/// from the size the mount site's `batch(n)` names. The body sees the same context, seeker and
+/// settlement as on a broker that batches on the wire.
 ///
 /// # Examples
 ///

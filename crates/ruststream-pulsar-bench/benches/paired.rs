@@ -50,8 +50,9 @@
 //! answer, so none of them can observe the server's side of it.
 //!
 //! Whether a row is one the transport paced is decided by arithmetic, not by a guess: a probe
-//! outside the rounds times a ping-pong against the live broker, and the row is flagged when the
-//! round trips a delivery costs already account for half of what a delivery took.
+//! outside the rounds times a topic lookup, one client-to-broker round trip against the live
+//! broker, and the row is flagged when the round trips a delivery costs already account for half
+//! of what a delivery took.
 
 use std::collections::VecDeque;
 use std::convert::Infallible;
