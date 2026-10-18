@@ -2,6 +2,7 @@
 //! [`PulsarSubscriber`](crate::PulsarSubscriber) reads when it was opened in process, and
 //! [`Settlement`], what a [`PulsarMessage`] of that subscription settles through.
 
+use std::mem;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -13,6 +14,7 @@ use tokio::time::sleep;
 
 use crate::error::PulsarError;
 use crate::in_process::bus::Bus;
+use crate::in_process::route::Route;
 use crate::in_process::router::{ConsumerId, Delivery};
 use crate::in_process::seek::LogSeeker;
 use crate::message::PulsarMessage;
@@ -23,6 +25,8 @@ use crate::subscriber::PulsarSeeker;
 pub(crate) struct Queued {
     bus: Arc<Bus>,
     id: ConsumerId,
+    /// The topics the subscription reads, which name each delivery the way the client names it.
+    route: Route,
     /// The harness coordinator, threaded into each delivery so a requeue re-counts and a settled
     /// delivery is released. `None` outside a harness run.
     coordinator: Option<Coordinator>,
@@ -32,11 +36,17 @@ pub(crate) struct Queued {
 }
 
 impl Queued {
-    pub(crate) fn new(bus: Arc<Bus>, id: ConsumerId, ack_timeout: Option<Duration>) -> Self {
+    pub(crate) fn new(
+        bus: Arc<Bus>,
+        id: ConsumerId,
+        route: Route,
+        ack_timeout: Option<Duration>,
+    ) -> Self {
         let coordinator = bus.coordinator().cloned();
         Self {
             bus,
             id,
+            route,
             coordinator,
             ack_timeout,
         }
@@ -49,16 +59,21 @@ impl Queued {
     ) -> Poll<Option<Result<PulsarMessage, PulsarError>>> {
         self.bus.router().poll_delivery(self.id, cx).map(|next| {
             next.map(|delivery| {
+                // The client reports a delivery under the name its consumer was given; the
+                // router keeps the full one, which is how a settlement finds the topic again.
+                let named = self.route.named(&delivery.topic).to_owned();
                 let settlement = Settlement {
                     bus: Arc::clone(&self.bus),
                     id: self.id,
                     seq: delivery.seq,
+                    topic: delivery.topic.clone(),
                     redeliveries: delivery.redeliveries,
                     coordinator: self.coordinator.clone(),
                     unsettled: Some(delivery.clone()),
                 };
                 Ok(PulsarMessage::in_process(
                     delivery,
+                    named,
                     settlement,
                     self.ack_timeout,
                 ))
@@ -97,6 +112,8 @@ pub(crate) struct Settlement {
     bus: Arc<Bus>,
     id: ConsumerId,
     seq: usize,
+    /// The topic's full name, which is the one the router knows it by.
+    topic: String,
     redeliveries: u32,
     coordinator: Option<Coordinator>,
     /// The delivery until it is settled: one dropped without a settlement stays unacknowledged
@@ -138,12 +155,12 @@ impl Settlement {
         ))
     }
 
-    fn delivery(&self, payload: Bytes, headers: HeaderMap, topic: String) -> Delivery {
+    fn delivery(&mut self, payload: Bytes, headers: HeaderMap) -> Delivery {
         Delivery {
             payload,
             headers,
             seq: self.seq,
-            topic,
+            topic: mem::take(&mut self.topic),
             redeliveries: self.redeliveries,
         }
     }
@@ -155,14 +172,9 @@ impl Settlement {
     ///
     /// Returns [`AckError::Broker`] once the broker shut down: nothing is left to hand the
     /// delivery back to, and an `Ok` would promise a redelivery that never comes.
-    pub(crate) fn requeue(
-        mut self,
-        payload: Bytes,
-        headers: HeaderMap,
-        topic: String,
-    ) -> Result<(), AckError> {
+    pub(crate) fn requeue(mut self, payload: Bytes, headers: HeaderMap) -> Result<(), AckError> {
         self.unsettled = None;
-        let delivery = self.delivery(payload, headers, topic);
+        let delivery = self.delivery(payload, headers);
         let queued = self
             .bus
             .router()
@@ -191,13 +203,12 @@ impl Settlement {
         delay: Duration,
         payload: Bytes,
         headers: HeaderMap,
-        topic: String,
     ) -> Result<(), AckError> {
         if !self.bus.router().settles(self.id) {
             return Err(consumer_gone());
         }
         self.unsettled = None;
-        let delivery = self.delivery(payload, headers, topic);
+        let delivery = self.delivery(payload, headers);
         let bus = Arc::clone(&self.bus);
         let id = self.id;
         if let Some(coordinator) = self.coordinator.clone() {
