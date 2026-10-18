@@ -95,10 +95,11 @@ All the topics share one payload type.
 </Tabs>
 
 [`PulsarSubscription::pattern`](../components/subscriptions/pattern.md) reads every topic whose full name matches a regular expression, so the expression is written in full.
+It reads the namespace its prefix names: `persistent://acme/orders/.*` reads `acme/orders`, and a pattern with no `tenant/namespace/` part reads `public/default`.
 `audit` reads `orders-eu` and `orders-us`, and any topic created later whose full name the expression matches.
 The client lists the topics again every 30 seconds.
 A new topic is read from the listing that finds it on, and what reached it before that listing is not delivered.
-An expression that is not a valid regular expression stops the service at startup.
+An expression that is not a valid regular expression, or whose tenant or namespace is itself a regular expression, stops the service at startup.
 
 ## The short form
 
