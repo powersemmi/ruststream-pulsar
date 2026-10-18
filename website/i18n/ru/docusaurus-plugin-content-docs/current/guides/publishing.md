@@ -33,7 +33,7 @@ import TabItem from '@theme/TabItem';
 
 `confirm` возвращает `Receipt`, и фреймворк его публикует.
 `#[outgoing(name = "receipts")]` закрепляет топик за типом, поэтому подписчику достаточно аргумента `reply` макроса без имени. В ручной форме - `.reply()`.
-[Политика публикации](../components/publishing/index.md) брокера, `Publish` из прелюдии, используется по умолчанию, поэтому простой `include` отвечает через неё.
+[Политика публикации](../components/publishing/index.md) брокера, `Publish` из [прелюдии](../components/broker/prelude.md), используется по умолчанию, поэтому простой `include` отвечает через неё.
 Публикация возвращает управление, когда брокер сохранил сообщение.
 
 ## Ответ в топик, который называет точка монтирования {/* #a-reply-to-a-topic-the-mount-site-names */}
@@ -79,7 +79,7 @@ import TabItem from '@theme/TabItem';
 
 [Слот `Out`](api:ruststream::runtime::Out) публикует из тела обработчика, а `Picks` объявляет тип, который он передаёт.
 [`partition_key`](../components/publishing/partition-key.md) задаёт ключом каждого листа комплектации его склад.
-На партиционированном топике ключ выбирает партицию, а подписка `KeyShared` сохраняет порядок каждого ключа.
+На партиционированном топике ключ выбирает партицию, а подписка [`KeyShared`](../components/subscriptions/subscription-type.md) сохраняет порядок каждого ключа.
 Этот шаг берётся из прелюдии брокера, поэтому слот ограничен `Publisher<Options = PulsarPublishOptions>`, чтобы шаг был доступен.
 
 Каждый [заголовок](../components/publishing/headers.md) становится одноимённым свойством сообщения.
