@@ -22,7 +22,8 @@ A message reaches every subscription on its topic once, and the type decides whi
 | `Failover` | the active consumer; a standby takes over when it leaves |
 | `KeyShared` | the consumer that holds the message's key, so one key is read in order |
 
-A second `Exclusive` consumer is a service that does not start and reports nothing, because the server keeps it waiting; an `Exclusive` subscription belongs to a service that runs one instance.
+The server refuses a second `Exclusive` consumer as busy, and the client asks again until its [operation retries](../broker/operation-retries.md) run out; with the default retries it asks for ever, so the second instance does not finish starting.
+An `Exclusive` subscription belongs to a service that runs one instance.
 Under the test harness that second consumer is refused at startup instead, so the test fails rather than hangs.
 A message's key is its [partition key](../publishing/partition-key.md).
 A retry cap needs `Shared` or `KeyShared`, because only there does the server count a message's redeliveries; a cap on the other two stops the service at startup, as [Dead letters](../settlement/dead-letters.md) explains.
