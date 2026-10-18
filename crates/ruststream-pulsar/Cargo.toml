@@ -149,3 +149,36 @@ name = "manual_pulsar_broker_errors"
 path = "examples/manual/pulsar_broker_errors.rs"
 required-features = ["testing"]
 test = true
+
+[[example]]
+name = "pulsar_asyncapi"
+required-features = ["asyncapi"]
+test = true
+
+[[example]]
+name = "manual_pulsar_asyncapi"
+path = "examples/manual/pulsar_asyncapi.rs"
+required-features = ["asyncapi"]
+test = true
+
+[[example]]
+name = "pulsar_testing"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_testing"
+path = "examples/manual/pulsar_testing.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_testing_live"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_testing_live"
+path = "examples/manual/pulsar_testing_live.rs"
+required-features = ["testing"]
+test = true
