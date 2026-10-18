@@ -109,9 +109,9 @@ zh = "编解码器"
 
 [[term]]
 en = "back-pressure"
-en_match = "back[- ]?pressure"
+en_match = "back[-\\s]?pressure"
 ru = "обратное давление"
-ru_match = "обратн\\w* давлени"
+ru_match = "обратн\\w*\\s+давлени"
 zh = "背压"
 
 [[term]]
@@ -126,14 +126,14 @@ zh = "至多一次"
 
 [[term]]
 en = "cancel safety"
-en_match = "cancel[- ]safe(ty)?"
+en_match = "cancel[-\\s]safe(ty)?"
 ru = "безопасность при отмене"
-ru_match = "безопасн\\w* при отмене"
+ru_match = "безопасн\\w*\\s+при\\s+отмене"
 zh = "取消安全"
 
 [[term]]
 en = "compile time"
-en_match = "compile[- ]time"
+en_match = "compile[-\\s]time"
 ru = "время компиляции"
 ru_match = "компиляци"
 zh = "编译期"
@@ -178,9 +178,9 @@ zh = "主题"
 
 [[term]]
 en = "subscription type"
-en_match = "subscription types?"
+en_match = "subscription\\s+types?"
 ru = "тип подписки"
-ru_match = "тип\\w* подписки"
+ru_match = "тип\\w*\\s+подписки"
 zh = "订阅类型"
 
 [[term]]
@@ -215,7 +215,7 @@ zh = "租户"
 en = "namespace"
 en_match = "namespaces?"
 ru = "пространство имён"
-ru_match = "пространств\\w* имён"
+ru_match = "пространств\\w*\\s+имён"
 zh = "命名空间"
 
 [[term]]
@@ -227,14 +227,14 @@ zh = "分区"
 
 [[term]]
 en = "partition key"
-en_match = "partition[- ]keys?"
+en_match = "partition[-\\s]keys?"
 ru = "ключ партиционирования"
-ru_match = "ключ\\w* партиционирования"
+ru_match = "ключ\\w*\\s+партиционирования"
 zh = "分区键"
 
 [[term]]
 en = "dead letter"
-en_match = "dead[- ]letter(ing)?"
+en_match = "dead[-\\s]letter(ing)?"
 ru = "dead-letter"
 zh = "死信"
 
@@ -244,3 +244,12 @@ en_match = "seek(s|ing|er)?"
 ru = "перемотка"
 ru_match = "перемот"
 zh = "定位"
+
+# The framework's vocabulary that this broker's pages meet beside Pulsar's.
+
+[[term]]
+en = "worker lane"
+en_match = "worker\\s+lanes?"
+ru = "партиция воркеров"
+ru_match = "партици\\w*\\s+воркеров"
+zh = "工作分区"
