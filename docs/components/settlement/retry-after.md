@@ -19,6 +19,8 @@ A process that exits during the wait loses the wait, not the message: the broker
 A delay that is not shorter than the subscription's `ack_timeout` is refused when the handler returns it; a subscription with no `ack_timeout` accepts any delay.
 A test waits the delay out with [`tb.advance`](api:ruststream::testing::TestApp::advance), in process on a paused clock and against a [live](../testing/live.md) broker in real time.
 
+[Retries and dead letters](../../guides/retries.md) holds a refund back while the card processor's rate limit is used up.
+
 ## Example
 
 An invoice whose customer has not reached the directory yet comes back after the replication lag.

@@ -34,7 +34,8 @@ A Pulsar cluster spreads its topics over its brokers, and one broker owns each t
 asks the service URL which broker that is, then connects to the owner. A partitioned topic is
 looked up for its number of partitions first, then each partition on its own. The service URL is
 one address: a DNS name, a load balancer or the Pulsar proxy in front of the brokers serves a
-cluster.
+cluster. A `pulsar+ssl://` URL dials the brokers' TLS listener, as
+[Security](../../components/broker/security.md) shows.
 
 The client keeps one connection per broker address and shares it. This crate opens one producer per
 topic, the first time something publishes to it, and every publisher of the connection uses it. Each
@@ -47,7 +48,7 @@ consumer can hold. This crate keeps that default.
 An operation the server answers with "not now", such as a lookup while a broker restarts or a
 second consumer of an `Exclusive` subscription, is tried again. By default the client tries without
 a limit, five seconds apart, and gives each try 30 seconds.
-[`OperationRetries`](api:ruststream_pulsar::OperationRetries) sets the number of tries, the delay
+[`OperationRetries`](../../components/broker/operation-retries.md) sets the number of tries, the delay
 and the timeout, for every operation of the connection, the consumer's reconnect included.
 
 The client runs its connections and its consumers as tasks of the service's tokio runtime. This

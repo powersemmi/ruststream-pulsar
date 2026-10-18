@@ -24,6 +24,8 @@ A body that reads both keys takes `ctx: &mut Context<'_, PulsarContext>` instead
 In the manual form the context is the fourth parameter of `Handle`: `impl Handle<Job, (), (), PulsarContext>`.
 A batch body reads a [`PulsarBatchContext`](./batch-context.md), which carries the seek handle alone.
 
+[Replay and seeking](../../guides/replay.md) reads the seek handle from the context to index every order again.
+
 ## Example
 
 A job whose result was lost moves the subscription back to its own position, so it is done again.

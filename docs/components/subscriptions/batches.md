@@ -22,6 +22,8 @@ A `Vec<HandlerOutcome>` settles delivery `i` with outcome `i`.
 A batch body reads a [`PulsarBatchContext`](../context/batch-context.md), which carries the seek handle and no per-delivery field.
 In the manual form the body is an `impl Handle<[T]>`, where `Ok(())` acks the batch and `Err(outcomes)` settles delivery by delivery.
 
+[Acknowledgement](../../guides/acknowledgement.md) records the stock counts of warehouse scans in batches.
+
 ## Example
 
 Readings that arrive together are stored in one call.

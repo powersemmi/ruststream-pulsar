@@ -34,22 +34,30 @@ export function design(words: Words): {boxes: Box[]; links: Link[]} {
       code: true,
       href: '/architecture/path/',
     }),
-    box('publishers', right, 226, column, 58, {kind: 'broker', code: true}),
+    box('publishers', right, 226, column, 58, {
+      kind: 'broker',
+      code: true,
+      href: '/components/publishing/',
+    }),
     box('message', left, 294, column, 30, {
       kind: 'broker',
       code: true,
       href: '/architecture/settlement/',
     }),
-    box('seeker', right, 294, column, 30, {kind: 'broker', code: true}),
+    box('seeker', right, 294, column, 30, {
+      kind: 'broker',
+      code: true,
+      href: '/components/positions/seek/',
+    }),
     box('broker', left, 334, column, 58, {
       kind: 'broker',
       code: true,
-      href: '/architecture/lifecycle/',
+      href: '/components/broker/',
     }),
     box('descriptors', right, 334, column, 58, {
       kind: 'broker',
       code: true,
-      href: '/architecture/pulsar/subscriptions/',
+      href: '/components/subscriptions/',
     }),
     box('client', 0, 428, 360, 72, {kind: 'group'}),
     box('consumer', left, 454, column, 36, {

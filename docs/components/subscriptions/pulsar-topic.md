@@ -20,6 +20,8 @@ It accepts a full name, a `tenant/namespace/topic` triple, which is persistent, 
 [`persistence`](api:ruststream_pulsar::PulsarTopic::persistence), [`tenant`](api:ruststream_pulsar::PulsarTopic::tenant), [`namespace`](api:ruststream_pulsar::PulsarTopic::namespace) and [`name`](api:ruststream_pulsar::PulsarTopic::name) return the parts.
 A descriptor and a publish parse every topic they are given the same way, so a name Pulsar would refuse never reaches the server: a descriptor stops the service at startup, and a publish returns an error.
 
+[Topics and subscriptions](../../guides/topics-and-subscriptions.md) names the topics of a fulfilment service.
+
 ## Example
 
 Each order goes to its tenant's own topic; an order naming a tenant that is no valid name part is dropped.

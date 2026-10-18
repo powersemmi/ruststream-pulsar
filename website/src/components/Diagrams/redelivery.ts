@@ -20,11 +20,11 @@ export function redelivery(words: Words): {boxes: Box[]; links: Link[]} {
   const boxes: Box[] = [
     box('delivery', 12, 0, 336, 44, 'broker'),
     box('check', 0, 72, 236, 89, 'core'),
-    box('deadLetter', 248, 72, 112, 89, 'bad'),
+    box('deadLetter', 248, 72, 112, 89, 'bad', {href: '/components/settlement/dead-letters/'}),
     box('handler', 12, 189, 336, 44, 'service'),
     box('ack', 0, 261, 112, 58, 'good'),
     box('nack', 124, 261, 112, 58, 'core'),
-    box('timeout', 248, 261, 112, 58, 'core'),
+    box('timeout', 248, 261, 112, 58, 'core', {href: '/components/settlement/ack-timeout/'}),
     box('again', 124, 347, 236, 44, 'broker'),
     box('counted', 0, 419, 360, 44, 'note'),
   ];

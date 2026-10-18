@@ -28,6 +28,8 @@ Unbounded, the second consumer waits for the first to leave, and the service doe
 Bounded, startup fails with [`PulsarError::Subscribe`](api:ruststream_pulsar::PulsarError::Subscribe), naming the topic.
 In a [`TestApp`](../testing/index.md) test the in-process transport refuses a second `Exclusive` consumer at once, so the bound shows only against a server.
 
+[Connecting to a production cluster](../../guides/production.md) bounds the retries of a service and tests the configuration.
+
 ## Example
 
 The ledger has one writer at a time.

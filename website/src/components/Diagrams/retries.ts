@@ -14,16 +14,17 @@ export function retries(words: Words): {boxes: Box[]; links: Link[]} {
     w: number,
     h: number,
     kind: Box['kind'],
-  ): Box => ({id, x, y, w, h, kind, lines: lines(words, id)});
+    fields: Partial<Box> = {},
+  ): Box => ({id, x, y, w, h, kind, lines: lines(words, id), ...fields});
   const boxes: Box[] = [
     box('delivery', 12, 0, 336, 44, 'broker'),
     box('outcome', 12, 72, 336, 44, 'service'),
     box('now', 0, 148, 172, 58, 'core'),
-    box('later', 188, 148, 172, 58, 'core'),
+    box('later', 188, 148, 172, 58, 'core', {href: '/components/settlement/retry-after/'}),
     box('redelivered', 12, 238, 336, 44, 'broker'),
-    box('cap', 12, 310, 336, 44, 'core'),
+    box('cap', 12, 310, 336, 44, 'core', {href: '/components/settlement/dead-letters/'}),
     box('again', 0, 386, 172, 58, 'step'),
-    box('deadLetter', 188, 386, 172, 58, 'bad'),
+    box('deadLetter', 188, 386, 172, 58, 'bad', {href: '/components/settlement/dead-letters/'}),
     box('refused', 0, 468, 360, 44, 'note'),
     box('crash', 0, 524, 360, 44, 'note'),
   ];

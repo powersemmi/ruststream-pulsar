@@ -24,6 +24,8 @@ A subscription names its topic and its durable subscription in a [`PulsarSubscri
 Building the crate needs `protoc` on the path, because the client compiles the Pulsar protocol definitions.
 Two features add to the crate: `testing` connects the broker in process for [`TestApp`](../testing/index.md), and `asyncapi` fills in the Pulsar part of the [generated document](../asyncapi/index.md).
 
+[Getting started](../../guides/getting-started.md) runs a first service against a local Pulsar.
+
 ## Example
 
 The service reads the topic `orders` in the shared subscription `workers`.

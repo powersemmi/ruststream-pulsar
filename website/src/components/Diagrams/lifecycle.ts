@@ -31,14 +31,14 @@ export function lifecycle(words: Words): {boxes: Box[]; links: Link[]} {
   const boxes: Box[] = [
     {id: 'states', x: 0, y: 0, w: 176, h: 410, kind: 'group', lines: lines(words, 'states')},
     {id: 'pulsar', x: 184, y: 0, w: 176, h: 410, kind: 'group', lines: lines(words, 'pulsar')},
-    left('unconnected', 28),
+    left('unconnected', 28, '/components/broker/'),
     left('connected', 168, '/architecture/design/'),
-    left('closed', 340),
+    left('closed', 340, '/components/broker/shutdown/'),
     right('config', 28),
-    right('client', 98, {href: '/architecture/pulsar/client/'}),
-    right('subscriptions', 168, {h: 72, href: '/architecture/path/'}),
-    right('producer', 252),
-    right('close', 340),
+    right('client', 98, {href: '/components/broker/startup/'}),
+    right('subscriptions', 168, {h: 72, href: '/components/subscriptions/'}),
+    right('producer', 252, {href: '/components/publishing/'}),
+    right('close', 340, {href: '/components/broker/shutdown/'}),
     {
       id: 'afterShutdown',
       x: 0,
@@ -47,6 +47,7 @@ export function lifecycle(words: Words): {boxes: Box[]; links: Link[]} {
       h: 44,
       kind: 'note',
       lines: lines(words, 'afterShutdown'),
+      href: '/components/broker/shutdown/',
     },
   ];
   const links: Link[] = [

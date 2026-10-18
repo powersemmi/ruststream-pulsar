@@ -20,6 +20,8 @@ On consume the key comes back as that header.
 A [`KeyShared`](../subscriptions/subscription-type.md) subscription hands every message of one key to one consumer, and `workers(n, by_key)` keeps one key on one lane inside a consumer.
 A handler body that keys one publish of a slot uses the [`partition_key`](./partition-key.md) step instead.
 
+[Subscription types and ordering](../../guides/subscription-types-and-ordering.md) places keyed messages on the partitions of a partitioned topic.
+
 ## Example
 
 <Tabs groupId="api">

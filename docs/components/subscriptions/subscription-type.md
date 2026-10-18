@@ -28,6 +28,8 @@ Under the test harness that second consumer is refused at startup instead, so th
 A message's key is its [partition key](../publishing/partition-key.md).
 A retry cap needs `Shared` or `KeyShared`, because only there does the server count a message's redeliveries; a cap on the other two stops the service at startup, as [Dead letters](../settlement/dead-letters.md) explains.
 
+[Subscription types and ordering](../../guides/subscription-types-and-ordering.md) reads a shipping service under each of the four types.
+
 ## Example
 
 Two workers on the `Shared` subscription `workers`: each task runs once, on one of them.

@@ -35,18 +35,18 @@ Without `workers`, one loop runs the handler for each message in turn, and nothi
 side.
 
 `workers(n, by_key)` runs `n` lanes. A message goes to the lane its key hashes to, and a lane runs
-its messages in order. The key is the message's partition key, which a delivery carries in the
-`partition-key` header, so the messages of one key keep their order. A message without a key has
+its messages in order. The key is the message's [partition key](../components/publishing/keys.md), which a delivery
+carries in the `partition-key` header, so the messages of one key keep their order. A message without a key has
 no lane key, and such messages rotate over the lanes.
 
 Lanes order the work inside one process. Across processes, a
-[`KeyShared`](pulsar/subscriptions.md) subscription keeps each key on one consumer, so several
+[`KeyShared`](../components/subscriptions/subscription-type.md) subscription keeps each key on one consumer, so several
 instances of a service share a topic and still keep each key's order.
 
-A seek through a [`PulsarSeeker`](api:ruststream_pulsar::PulsarSeeker) moves the whole
+A [seek](../components/positions/seek.md) through a [`PulsarSeeker`](api:ruststream_pulsar::PulsarSeeker) moves the whole
 subscription: every topic and every partition its consumer reads.
 
-A batch handler gets batches the runtime assembles in the service, because the client hands over
+A [batch handler](../components/subscriptions/batches.md) gets batches the runtime assembles in the service, because the client hands over
 one message at a time. A batch holds at most the size the mount site names. It closes when it is
 full, or 10 milliseconds after its first message, the descriptor's
 [`batch_wait`](api:ruststream_pulsar::PulsarSubscription::batch_wait).

@@ -32,7 +32,7 @@ It confirms orders with receipts, answers price quotes, sends pick lists to ware
 
 `confirm` returns a `Receipt`, and the framework publishes it.
 `#[outgoing(name = "receipts")]` fixes the topic on the type, so the subscriber writes the bare `reply` clause; in the manual form, `.reply()`.
-The broker's [publish policy](../components/publishing/index.md), `Publish` in the prelude, is its default, so a plain `include` replies through it.
+The broker's [publish policy](../components/publishing/index.md), `Publish` in the [prelude](../components/broker/prelude.md), is its default, so a plain `include` replies through it.
 A publish returns once the broker has stored the message.
 
 ## A reply to a topic the mount site names
@@ -78,7 +78,7 @@ It matches each quote to its request by the `request` id the two messages share.
 
 An [`Out` slot](api:ruststream::runtime::Out) publishes from the handler's body, and `Picks` declares the type it carries.
 [`partition_key`](../components/publishing/partition-key.md) keys each pick list by its warehouse.
-On a partitioned topic the key picks the partition, and a `KeyShared` subscription keeps the order of each key.
+On a partitioned topic the key picks the partition, and a [`KeyShared`](../components/subscriptions/subscription-type.md) subscription keeps the order of each key.
 The step comes from the broker's prelude, so the slot is bounded `Publisher<Options = PulsarPublishOptions>` to offer it.
 
 Each [header](../components/publishing/headers.md) becomes a message property of the same name.

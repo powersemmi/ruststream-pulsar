@@ -33,6 +33,8 @@ The assertions that follow read finished state.
 A delayed retry and a pattern's listing run on the runtime's clock, so [`tb.advance`](api:ruststream::testing::TestApp::advance) on a paused clock drives both.
 What only a server has is for a [live test](./live.md).
 
+[Testing a Pulsar service](../../guides/testing.md) tests a card payments service in process.
+
 ## Example
 
 The dependency line:

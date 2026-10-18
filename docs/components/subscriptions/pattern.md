@@ -18,6 +18,8 @@ A pattern has no single topic to name the subscription by, so it reports under t
 The expression is checked at startup, and one that is not a valid regular expression stops the service before any call to the server.
 The settings and their defaults are those of [`PulsarSubscription`](./pulsar-subscription.md), and a [seek](../positions/seek.md) moves the cursor on every topic the pattern reads.
 
+[Topics and subscriptions](../../guides/topics-and-subscriptions.md) audits every regional order topic, those created later included.
+
 ## Example
 
 Every `orders-*` topic is recorded byte for byte, whatever its producer wrote; `returns` is not.

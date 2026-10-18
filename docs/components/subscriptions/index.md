@@ -28,6 +28,8 @@ The manual form passes the name to [`subscriber(name, body)`](api:ruststream::ru
 A subscription the service creates starts at the tip of its topics, and one that already exists resumes at its cursor; [`start_at`](../positions/start-at.md) moves it.
 The Pulsar client moves a delivery whose retries are spent to a [dead-letter topic](../settlement/dead-letters.md) itself, so a registration on any of these forms declares its retries and publishes nothing.
 
+[Topics and subscriptions](../../guides/topics-and-subscriptions.md) builds a fulfilment service on one topic, a fixed list, a pattern and the short form.
+
 ## Example
 
 The topic `orders`, read under the subscription `orders-svc`.

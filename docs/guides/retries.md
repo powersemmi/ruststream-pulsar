@@ -72,7 +72,7 @@ A `retry`, a `retry_after` and an expired acknowledgement timeout each count as 
 A dropped refund settles and goes nowhere; the dead-letter topic holds only the refunds that ran out of attempts.
 
 Write both steps or neither: a cap without a destination, or a destination without a cap, stops the service at startup, and the error names the missing step.
-The broker counts redeliveries only on a `Shared` or a `KeyShared` subscription, so the cap belongs there.
+The broker counts redeliveries only on a `Shared` or a `KeyShared` [subscription](../components/subscriptions/subscription-type.md), so the cap belongs there.
 A cap on an `Exclusive` or a `Failover` subscription would never be reached, and such a registration stops the service at startup with an error that names the type.
 A handler mounted by a bare topic name takes the same declaration, on the broker's [default subscription](../components/subscriptions/index.md).
 
@@ -101,7 +101,7 @@ The client adds two properties: `REAL_TOPIC`, the topic the refund came from, an
 
 ## Testing the delay
 
-The tests in the example file run the app in process with `TestApp::with_state`, which hands the handlers a processor that fails on purpose.
+The tests in the example file run the app [in process](../components/testing/index.md) with `TestApp::with_state`, which hands the handlers a processor that fails on purpose.
 The delay test starts on a paused clock, so `tb.advance(BACKOFF)` lets the 30 seconds pass at once.
 The in-process Pulsar counts the deliveries and moves the spent refund to `refunds-dlq` the way the client does.
 [Testing a Pulsar service](testing.md) covers the harness.

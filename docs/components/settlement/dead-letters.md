@@ -21,6 +21,8 @@ A registration that declares a cap over `Exclusive` or `Failover` refuses to sta
 A handler mounted by a bare topic name declares the same pair, and one policy covers every topic of a [multi-topic](../subscriptions/topics.md) subscription.
 The client keeps the count to itself, so a handler cannot read how many deliveries a message has had.
 
+[Retries and dead letters](../../guides/retries.md) caps the deliveries of a refunds service and reads its dead letters.
+
 ## Example
 
 <Tabs groupId="api">

@@ -20,6 +20,8 @@ The mount site declares nothing for it, and a publish without the step goes unke
 Where a publish carries both the step and the header, the step wins.
 A test reads the key a slot publish carried with `tb.out::<Slot>().with_options(..)`.
 
+[Publishing and replies](../../guides/publishing.md) keys each pick list by its warehouse.
+
 ## Example
 
 <Tabs groupId="api">

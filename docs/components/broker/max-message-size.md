@@ -21,6 +21,8 @@ Retrying cannot make a payload smaller, so a handler usually logs it and drops t
 
 A [`TestApp`](../testing/index.md) test refuses the same publishes in process.
 
+[Connecting to a production cluster](../../guides/production.md) sets the message size a cluster accepts.
+
 ## Example
 
 The cluster runs with a one-mebibyte limit.

@@ -19,6 +19,8 @@ Pulsar properties are text, so a header value that is not valid UTF-8 fails the 
 On delivery the properties come back as the message's headers.
 One header has a meaning of its own: the partition-key header becomes the message [key](./keys.md).
 
+[Publishing and replies](../../guides/publishing.md) sends pick lists with headers to warehouses.
+
 ## Example
 
 <Tabs groupId="api">

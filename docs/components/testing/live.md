@@ -33,6 +33,8 @@ In the example, `stand` returns the server's URL from `PULSAR_TEST_URL`, and the
 A job that stood a server up sets `RUSTSTREAM_REQUIRE_LIVE=1`, and a missing URL then fails the test instead of skipping it.
 The repository's stand is `docker-compose.test.yml`, a Pulsar standalone on `127.0.0.1:6650` that `just brokers-up` starts.
 
+[Testing a Pulsar service](../../guides/testing.md) runs the same test against a server.
+
 ## Example
 
 The two tests share one body: one in process, one against the server at `PULSAR_TEST_URL`.

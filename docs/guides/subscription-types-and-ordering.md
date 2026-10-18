@@ -22,7 +22,7 @@ The [subscription type](https://pulsar.apache.org/docs/next/concepts-messaging/#
 |---|---|---|
 | `Shared` *(default)* | any consumer, in turn | none |
 | `KeyShared` | the consumer that holds the message's key | per key |
-| `Exclusive` | the one consumer; a second one is refused | the topic's order |
+| `Exclusive` | the one consumer; a second one waits for it | the topic's order |
 | `Failover` | the active consumer; the others stand by | the topic's order |
 
 [`subscription_type`](../components/subscriptions/subscription-type.md) on the descriptor sets the type.
@@ -51,7 +51,7 @@ That suits work whose messages do not depend on each other.
 
 `pack` publishes a shipment event for each order.
 The [`partition_key`](../components/publishing/partition-key.md) step keys the event by the order's id.
-The step comes from the broker's prelude, so the slot is bounded `Publisher<Options = PulsarPublishOptions>` to offer it.
+The step comes from the broker's [prelude](../components/broker/prelude.md), so the slot is bounded `Publisher<Options = PulsarPublishOptions>` to offer it.
 A [publish](../components/publishing/index.md) returns once the broker has stored the message.
 
 ## KeyShared: in order per key
@@ -98,7 +98,7 @@ The key reaches the handler as the [`partition-key` header](../components/publis
 </Tabs>
 
 `Exclusive` lets one consumer read the subscription, so `book` sees the payments in the order they were taken.
-The server refuses a second consumer as busy, and the client keeps asking until the first one leaves.
+The server refuses a second consumer as busy, and the client keeps asking until the first one leaves or [`OperationRetries`](../components/broker/operation-retries.md) runs out, which by default is never.
 So a second instance of the service does not start, and reports nothing while it waits.
 An `Exclusive` subscription belongs to a service that runs one instance.
 

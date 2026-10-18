@@ -41,3 +41,67 @@ describe('a box that links to a page', () => {
     }
   });
 });
+
+describe('a box that names a component', () => {
+  it('links to that component page on the path of a message', () => {
+    expect(hrefs('path')).toEqual({
+      consumer: '/architecture/pulsar/client/',
+      take: '/components/context/',
+      dispatch: '/architecture/lanes/',
+      body: '/components/subscriptions/',
+      publisher: '/components/publishing/',
+      settle: '/components/settlement/',
+      ack: '/architecture/pulsar/acknowledgement/',
+    });
+  });
+
+  it('links to that component page in the design of the crate', () => {
+    expect(hrefs('design')).toEqual({
+      subscriber: '/architecture/path/',
+      publishers: '/components/publishing/',
+      message: '/architecture/settlement/',
+      seeker: '/components/positions/seek/',
+      broker: '/components/broker/',
+      descriptors: '/components/subscriptions/',
+      consumer: '/architecture/pulsar/client/',
+      producer: '/architecture/pulsar/client/',
+      cluster: '/architecture/pulsar/',
+    });
+  });
+
+  it('links to that component page in the lifecycle', () => {
+    expect(hrefs('lifecycle')).toEqual({
+      unconnected: '/components/broker/',
+      connected: '/architecture/design/',
+      closed: '/components/broker/shutdown/',
+      client: '/components/broker/startup/',
+      subscriptions: '/components/subscriptions/',
+      producer: '/components/publishing/',
+      close: '/components/broker/shutdown/',
+      afterShutdown: '/components/broker/shutdown/',
+    });
+  });
+
+  it('links to that component page in the lanes, the retries and the redelivery', () => {
+    expect(hrefs('lanes')).toEqual({
+      keyed: '/components/publishing/keys/',
+      keyShared: '/architecture/pulsar/subscriptions/',
+    });
+    expect(hrefs('retries')).toEqual({
+      later: '/components/settlement/retry-after/',
+      cap: '/components/settlement/dead-letters/',
+      deadLetter: '/components/settlement/dead-letters/',
+    });
+    expect(hrefs('redelivery')).toEqual({
+      deadLetter: '/components/settlement/dead-letters/',
+      timeout: '/components/settlement/ack-timeout/',
+    });
+  });
+
+  it('links to that component page in the client', () => {
+    expect(hrefs('client')).toEqual({
+      url: '/components/broker/',
+      retries: '/components/broker/operation-retries/',
+    });
+  });
+});
