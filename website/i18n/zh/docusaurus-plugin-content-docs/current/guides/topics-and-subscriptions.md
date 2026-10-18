@@ -97,7 +97,7 @@ Pulsar 只通过[订阅](https://pulsar.apache.org/docs/next/concepts-messaging/
 </Tabs>
 
 [`PulsarSubscription::pattern`](../components/subscriptions/pattern.md) 读取完整名称与正则表达式匹配的每个主题，所以表达式要写出完整名称。
-`audit` 读取 `orders-eu` 和 `orders-us`，以及 `public/default` 中之后创建的任何 `orders-*` 主题。
+`audit` 读取 `orders-eu` 和 `orders-us`，以及之后创建的、完整名称与该表达式匹配的任何主题。
 客户端每 30 秒重新列出一次主题。
 新主题从发现它的那次列出开始读取，在那之前到达它的消息不会被投递。
 表达式不是合法的正则表达式时，服务会在启动时停止。

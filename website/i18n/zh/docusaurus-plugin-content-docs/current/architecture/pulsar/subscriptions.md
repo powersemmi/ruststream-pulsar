@@ -1,5 +1,6 @@
 ---
-title: 订阅
+title: Pulsar 上的订阅
+sidebar_label: 订阅
 sidebar_position: 1
 description: "Pulsar 订阅是 Broker 保存的一个具名游标；每个订阅都接收整个主题，订阅类型决定它的消费者如何共享它。"
 ---
@@ -37,7 +38,7 @@ Pulsar 订阅是 Broker 保存的一个具名游标。每个订阅都接收整�
 
 同一主题上的两个订阅互不影响。每个订阅都有自己的游标，接收每条消息。以同一个订阅名接入的消费者共享这一个游标。订阅是持久的：最后一个消费者离开后，它仍留在 Broker 上，积压不断增长，直到有消费者回来。
 
-[`SubscriptionType`](api:ruststream_pulsar::SubscriptionType) 选择一个订阅的消费者如何共享它：
+[`SubscriptionType`](../../components/subscriptions/subscription-type.md) 选择一个订阅的消费者如何共享它：
 
 | 类型 | 消费者 | 顺序 |
 |---|---|---|
@@ -46,10 +47,10 @@ Pulsar 订阅是 Broker 保存的一个具名游标。每个订阅都接收整�
 | `Failover` | 一个活跃，其余备用 | 保持 |
 | `KeyShared` | 全部，每个键发给其中一个 | 每个键内保持 |
 
-`Exclusive` 订阅的第二个消费者会得到“consumer busy”的应答。客户端把这个应答视为可以重试的应答，默认不限次数地重试，间隔五秒。因此，第二个消费者会等待第一个离开，它所在的服务也就无法启动。[`OperationRetries`](api:ruststream_pulsar::OperationRetries) 限制尝试次数，此时订阅以 [`PulsarError::Subscribe`](api:ruststream_pulsar::PulsarError::Subscribe) 失败。
+`Exclusive` 订阅的第二个消费者会得到“consumer busy”的应答。客户端把这个应答视为可以重试的应答，默认不限次数地重试，间隔五秒。因此，第二个消费者会等待第一个离开，它所在的服务也就无法启动。[`OperationRetries`](../../components/broker/operation-retries.md) 限制尝试次数，此时订阅以 [`PulsarError::Subscribe`](api:ruststream_pulsar::PulsarError::Subscribe) 失败。
 
-消费者第一次指定某个订阅时，服务器创建它，并把它定在最新的消息处：`pulsar` 客户端在没有其他指示时请求这个位置，本 crate 不改变它。要从别处开始的服务通过定位重新放置订阅，位置由 [`PulsarPosition`](api:ruststream_pulsar::PulsarPosition) 指定。定位移动的是保存的游标本身，因此它在每次启动时都生效，而不只是第一次。
+消费者第一次指定某个订阅时，服务器创建它，并把它定在最新的消息处：`pulsar` 客户端在没有其他指示时请求这个位置，本 crate 不改变它。要从别处开始的服务通过[定位](../../components/positions/seek.md)重新放置订阅，位置由 [`PulsarPosition`](../../components/positions/index.md) 指定。定位移动的是保存的游标本身，因此它在每次启动时都生效，而不只是第一次。
 
-基于主题列表或模式的订阅，在客户端内部是每个主题一个消费者，作为一个流读取。模式按完整名称匹配主题。客户端每 30 秒重新列出一次主题，因此订阅打开后才创建的主题会在下一次列出时加入。
+基于[主题列表](../../components/subscriptions/topics.md)或[模式](../../components/subscriptions/pattern.md)的订阅，在客户端内部是每个主题一个消费者，作为一个流读取。模式按完整名称匹配主题。客户端每 30 秒重新列出一次主题，因此订阅打开后才创建的主题会在下一次列出时加入。
 
 这个模型来自 Apache Pulsar 本身（[订阅](https://pulsar.apache.org/docs/next/concepts-messaging/#subscriptions)、[订阅类型](https://pulsar.apache.org/docs/next/concepts-messaging/#subscription-types)）。消费者如何确认，见[确认](acknowledgement.md)。

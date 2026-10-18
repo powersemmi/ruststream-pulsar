@@ -32,7 +32,7 @@ Broker 重启之后，客户端会自己重新连接，并为集群尚未接受�
 默认情况下，它不限次数地请求，间隔五秒，因此不论重启持续多久都能等过去。
 [`OperationRetries`](../components/broker/operation-retries.md) 给这个过程设定上限：尝试十次，间隔三秒，之后操作以集群的应答失败。
 这个上限覆盖查找、生产者以及每个消费者的重新连接。
-它还把 `Exclusive` 订阅的第二个消费者从启动时的等待变成启动时的错误。
+它还把 [`Exclusive`](../components/subscriptions/subscription-type.md) 订阅的第二个消费者从启动时的等待变成启动时的错误。
 
 [`max_message_size`](../components/broker/max-message-size.md) 是一次发布能携带的最大载荷，默认 5 MiB，与服务器相同。
 修改过服务器 `maxMessageSize` 的部署，在这里设置相同的值。

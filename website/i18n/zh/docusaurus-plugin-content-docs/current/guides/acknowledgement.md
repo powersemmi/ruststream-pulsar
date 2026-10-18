@@ -107,7 +107,7 @@ Pulsar 客户端一次交出一条消息，所以由服务组装批。
 
 ## 测试结果 {/* #testing-the-outcomes */}
 
-示例文件中的测试在进程内运行应用，用 `TestApp::with_state` 代替 `on_startup`。
+示例文件中的测试[在进程内](../components/testing/index.md)运行应用，用 `TestApp::with_state` 代替 `on_startup`。
 它们故意让库存服务失败，并检查每次投递的结果。
 和服务器一样，进程内 Pulsar 会把被否定确认的消息交还给订阅。
 确认超时之后的重新投递由服务器完成，本 crate 的测试在运行中的 Pulsar 上检查它。

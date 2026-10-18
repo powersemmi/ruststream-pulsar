@@ -30,11 +30,11 @@ Pulsar 主题位于某个租户的命名空间中。持久化主题把消息保�
 
 <Diagram name="topics" words={words} />
 
-主题的完整名称是 `{persistent|non-persistent}://tenant/namespace/topic`。租户和命名空间是 Pulsar 的管理单位：权限、保留策略和其他策略都设置在它们上面。[`PulsarTopic`](api:ruststream_pulsar::PulsarTopic) 在任何 I/O 之前解析名称，像 `orders` 这样只有名字的写法会变成 `persistent://public/default/orders`。
+主题的完整名称是 `{persistent|non-persistent}://tenant/namespace/topic`。租户和命名空间是 Pulsar 的管理单位：权限、保留策略和其他策略都设置在它们上面。[`PulsarTopic`](../../components/subscriptions/pulsar-topic.md) 在任何 I/O 之前解析名称，像 `orders` 这样只有名字的写法会变成 `persistent://public/default/orders`。
 
 持久化主题把每条消息写入 BookKeeper ledger。消息一直保留在那里，直到每个订阅都确认了它，之后再按命名空间的保留策略保留一段时间。非持久化主题什么也不保存：消息发给此刻已连接的消费者，之后才连接的消费者永远看不到它。
 
-分区主题是一组名为 `<topic>-partition-<n>` 的内部主题，每个都是一个独立的日志，各自归集群中的一个 Broker 所有。生产者为每条消息选择分区。本 crate 的生产者用消息键的哈希选择分区，因此同一个键的消息保持顺序；没有键的消息则轮流分配到各个分区。来自分区主题的投递在它的[主题名](api:ruststream_pulsar::PulsarMessage::topic)中给出分区。
+分区主题是一组名为 `<topic>-partition-<n>` 的内部主题，每个都是一个独立的日志，各自归集群中的一个 Broker 所有。生产者为每条消息选择分区。本 crate 的生产者用消息[键](../../components/publishing/keys.md)的哈希选择分区，因此同一个键的消息保持顺序；没有键的消息则轮流分配到各个分区。来自分区主题的投递在它的[主题名](api:ruststream_pulsar::PulsarMessage::topic)中给出分区。
 
 生产者或消费者第一次指定某个持久化主题时，服务器就会创建它，除非集群关闭了自动创建。分区主题由管理员创建，同时指定分区数。
 

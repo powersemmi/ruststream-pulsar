@@ -33,7 +33,7 @@ import TabItem from '@theme/TabItem';
 
 `confirm` 返回一个 `Receipt`，由框架发布它。
 `#[outgoing(name = "receipts")]` 在类型上固定了主题，所以订阅者只写不带参数的 `reply` 子句；在手写形式中是 `.reply()`。
-Broker 的[发布策略](../components/publishing/index.md)，即 prelude 中的 `Publish`，是它的默认策略，所以普通的 `include` 就通过它回复。
+Broker 的[发布策略](../components/publishing/index.md)，即 [prelude](../components/broker/prelude.md) 中的 `Publish`，是它的默认策略，所以普通的 `include` 就通过它回复。
 Broker 保存了消息之后，发布才返回。
 
 ## 回复到挂载点指定的主题 {/* #a-reply-to-a-topic-the-mount-site-names */}
@@ -79,7 +79,7 @@ Broker 保存了消息之后，发布才返回。
 
 [`Out` 槽位](api:ruststream::runtime::Out)在处理器的函数体中发布，`Picks` 声明它承载的类型。
 [`partition_key`](../components/publishing/partition-key.md) 以仓库作为每张拣货单的键。
-在分区主题上，键决定分区，`KeyShared` 订阅保持每个键的顺序。
+在分区主题上，键决定分区，[`KeyShared`](../components/subscriptions/subscription-type.md) 订阅保持每个键的顺序。
 这个步骤来自 Broker 的 prelude，所以槽位要以 `Publisher<Options = PulsarPublishOptions>` 为约束才能提供它。
 
 每个[消息头](../components/publishing/headers.md)都变成一个同名的消息属性。

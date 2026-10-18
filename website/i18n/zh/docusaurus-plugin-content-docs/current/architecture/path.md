@@ -26,10 +26,10 @@ export const words = {
 
 <Diagram name="path" words={words} />
 
-客户端消费者持有 Broker 在流量许可范围内预先推送来的消息。订阅的驱动任务取出下一条，构建一个 [`PulsarMessage`](api:ruststream_pulsar::PulsarMessage)：它把载荷复制进一个 `Bytes`，保留主题名和消息 id，并把消息属性转换为消息头。消息的分区键变成 `partition-key` 消息头，工作分区读取的就是它。投递在一个容量为 16 的通道中等待，直到分发循环取走它。
+客户端消费者持有 Broker 在流量许可范围内预先推送来的消息。订阅的驱动任务取出下一条，构建一个 [`PulsarMessage`](api:ruststream_pulsar::PulsarMessage)：它把载荷复制进一个 `Bytes`，保留主题名和消息 id（处理器通过它的[上下文](../components/context/index.md)读取这两者），并把消息属性转换为[消息头](../components/publishing/headers.md)。消息的分区键变成 [`partition-key` 消息头](../components/publishing/keys.md)，工作分区读取的就是它。投递在一个容量为 16 的通道中等待，直到分发循环取走它。
 
-处理器的应答编码进一个缓冲区，[发布者](api:ruststream_pulsar::PulsarPublisher)把这个缓冲区交给客户端，不做复制。超过 [`max_message_size`](api:ruststream_pulsar::PulsarBroker::max_message_size) 的载荷在发送之前就会失败：客户端不检查大小，而服务器遇到过大的消息会断开整个连接。Broker 存储了消息并发回回执之后，发布才返回。应答发布失败时，这次投递以重试的方式结算。
+处理器的应答编码进一个缓冲区，[发布者](../components/publishing/index.md)把这个缓冲区交给客户端，不做复制。超过 [`max_message_size`](../components/broker/max-message-size.md) 的载荷在发送之前就会失败：客户端不检查大小，而服务器遇到过大的消息会断开整个连接。Broker 存储了消息并发回回执之后，发布才返回。应答发布失败时，这次投递以重试的方式结算。
 
-投递在应答之后结算。结算回到驱动任务，由它交给客户端，客户端把它放入队列后调用即返回。客户端把确认写入连接，不等待任何应答。
+投递在应答之后[结算](../components/settlement/index.md)。结算回到驱动任务，由它交给客户端，客户端把它放入队列后调用即返回。客户端把确认写入连接，不等待任何应答。
 
 [基准测试](benchmarks/index.md)统计这条路径在每条消息上的开销，以及其中有多少属于客户端。

@@ -23,7 +23,7 @@ import TabItem from '@theme/TabItem';
 |---|---|---|
 | `Shared`（默认） | 任一消费者，轮流 | 不保证 |
 | `KeyShared` | 持有该消息键的消费者 | 每个键内保持 |
-| `Exclusive` | 唯一的消费者；第二个被拒绝 | 主题的顺序 |
+| `Exclusive` | 唯一的消费者；第二个等待它离开 | 主题的顺序 |
 | `Failover` | 活跃的消费者；其余待命 | 主题的顺序 |
 
 描述符上的 [`subscription_type`](../components/subscriptions/subscription-type.md) 设置类型。
@@ -52,7 +52,7 @@ import TabItem from '@theme/TabItem';
 
 `pack` 为每个订单发布一个发货事件。
 [`partition_key`](../components/publishing/partition-key.md) 步骤以订单 id 作为事件的键。
-这个步骤来自 Broker 的 prelude，所以槽位要以 `Publisher<Options = PulsarPublishOptions>` 为约束才能提供它。
+这个步骤来自 Broker 的 [prelude](../components/broker/prelude.md)，所以槽位要以 `Publisher<Options = PulsarPublishOptions>` 为约束才能提供它。
 Broker 保存了消息之后，[发布](../components/publishing/index.md)才返回。
 
 ## KeyShared：每个键内有序 {/* #keyshared-in-order-per-key */}
@@ -99,7 +99,7 @@ Broker 保存了消息之后，[发布](../components/publishing/index.md)才返
 </Tabs>
 
 `Exclusive` 只让一个消费者读取订阅，所以 `book` 按收款的顺序看到各笔付款。
-服务器以“忙”拒绝第二个消费者，客户端则不断重新请求，直到第一个消费者离开。
+服务器以“忙”拒绝第二个消费者，客户端则不断重新请求，直到第一个消费者离开，或者 [`OperationRetries`](../components/broker/operation-retries.md) 的次数用完，而默认情况下次数永远不会用完。
 因此，服务的第二个实例无法启动，并且在等待期间不报告任何东西。
 `Exclusive` 订阅属于只运行一个实例的服务。
 

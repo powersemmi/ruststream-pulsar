@@ -51,9 +51,9 @@ export const retries = {
 
 <Diagram name="settlement" words={table} />
 
-每种结果都是对订阅的客户端消费者的一次调用，由订阅的驱动任务发出。`ack` 和 `drop` 都确认消息，因为 Pulsar 没有永久拒绝消息的命令：不应再回来的消息被确认，一再失败的消息则因上限进入死信主题。`retry` 请求 Broker 立即再次投递它。
+每种[结果](../components/settlement/index.md)都是对订阅的客户端消费者的一次调用，由订阅的驱动任务发出。`ack` 和 `drop` 都确认消息，因为 Pulsar 没有永久拒绝消息的命令：不应再回来的消息被确认，一再失败的消息则因上限进入[死信主题](../components/settlement/dead-letters.md)。`retry` 请求 Broker 立即再次投递它。
 
-`retry_after(d)` 在服务中把投递保持在未确认状态 `d` 这么久，然后发出同样的否定确认。等待运行在 Broker 建立连接的那个运行时上。不短于订阅 [`ack_timeout`](api:ruststream_pulsar::PulsarSubscription::ack_timeout) 的延迟会被拒绝，因为客户端的计时器会先把消息送回来。
+[`retry_after(d)`](../components/settlement/retry-after.md) 在服务中把投递保持在未确认状态 `d` 这么久，然后发出同样的否定确认。等待运行在 Broker 建立连接的那个运行时上。不短于订阅 [`ack_timeout`](../components/settlement/ack-timeout.md) 的延迟会被拒绝，因为客户端的计时器会先把消息送回来。
 
 没有处理器结算的投递保持未确认状态。设置了 `ack_timeout` 时，超时一过，客户端就会再次请求它，[确认](pulsar/acknowledgement.md)一页用图说明了这一点。没有设置时，只有消费者断开连接后它才会回来。
 
@@ -63,6 +63,6 @@ export const retries = {
 
 送回消息不需要发布任何东西：Broker 再次投递同一条消息，并为它计数。注册的 [`max_attempts`](api:ruststream::runtime::Mounting::max_attempts) 和死信主题变成客户端的死信策略。消息的计数低于上限时，客户端交出它，因此处理器会看到它 `max_attempts` 次。到达上限时，客户端把它生产到死信主题，并确认原消息。
 
-这两项设置要一起使用：只声明其中一项的注册会拒绝启动；`Exclusive` 或 `Failover` 订阅上的上限也会拒绝启动，因为这两种订阅的消息到达时计数总是零。
+这两项设置要一起使用：只声明其中一项的注册会拒绝启动；`Exclusive` 或 `Failover` [订阅](../components/subscriptions/subscription-type.md)上的上限也会拒绝启动，因为这两种订阅的消息到达时计数总是零。
 
 计数归客户端自己所有，投递不会报告它。在 `retry_after` 等待期间停止的进程，丢失的是等待而不是消息：消息仍未确认，Broker 会在确认超时之后，或在消费者的连接断开后再次投递它。

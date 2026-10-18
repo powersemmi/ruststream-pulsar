@@ -73,7 +73,7 @@ Pulsar 客户端统计重新投递的次数，把第五次失败的退款发布�
 被丢弃的退款完成结算，不会去任何地方；死信主题只存放用完了尝试次数的退款。
 
 两个步骤要么都写，要么都不写：有上限而没有目的地，或者有目的地而没有上限，都会让服务在启动时停止，错误信息会指出缺少的步骤。
-Broker 只在 `Shared` 或 `KeyShared` 订阅上统计重新投递，所以上限属于这两种订阅。
+Broker 只在 `Shared` 或 `KeyShared` [订阅](../components/subscriptions/subscription-type.md)上统计重新投递，所以上限属于这两种订阅。
 `Exclusive` 或 `Failover` 订阅上的上限永远不会达到，这样的注册会让服务在启动时停止，错误信息会指出订阅类型。
 以简单主题名称挂载的处理器接受同样的声明，作用在 Broker 的[默认订阅](../components/subscriptions/index.md)上。
 
@@ -102,7 +102,7 @@ Broker 只在 `Shared` 或 `KeyShared` 订阅上统计重新投递，所以上�
 
 ## 测试延迟 {/* #testing-the-delay */}
 
-示例文件中的测试用 `TestApp::with_state` 在进程内运行应用，它交给处理器一个故意失败的处理商客户端。
+示例文件中的测试用 `TestApp::with_state` [在进程内](../components/testing/index.md)运行应用，它交给处理器一个故意失败的处理商客户端。
 延迟测试在暂停的时钟上启动，所以 `tb.advance(BACKOFF)` 让 30 秒瞬间过去。
 进程内 Pulsar 统计投递次数，并像客户端那样把用完次数的退款移到 `refunds-dlq`。
 [测试 Pulsar 服务](testing.md)讲解了测试工具。
