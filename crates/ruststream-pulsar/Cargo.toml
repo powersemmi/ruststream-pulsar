@@ -272,3 +272,125 @@ name = "manual_pulsar_testing_live"
 path = "examples/manual/pulsar_testing_live.rs"
 required-features = ["testing"]
 test = true
+
+# --- examples: flow ---
+[[example]]
+name = "pulsar_positions"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_positions"
+path = "examples/manual/pulsar_positions.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_positions_start_at"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_positions_start_at"
+path = "examples/manual/pulsar_positions_start_at.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_positions_seek"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_positions_seek"
+path = "examples/manual/pulsar_positions_seek.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_settlement_ack"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_settlement_ack"
+path = "examples/manual/pulsar_settlement_ack.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_settlement_ack_timeout"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_settlement_ack_timeout"
+path = "examples/manual/pulsar_settlement_ack_timeout.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_settlement_retry_after"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_settlement_retry_after"
+path = "examples/manual/pulsar_settlement_retry_after.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_settlement_dead_letters"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_settlement_dead_letters"
+path = "examples/manual/pulsar_settlement_dead_letters.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_publishing_publish"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_publishing_publish"
+path = "examples/manual/pulsar_publishing_publish.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_publishing_headers"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_publishing_headers"
+path = "examples/manual/pulsar_publishing_headers.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_publishing_keys"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_publishing_keys"
+path = "examples/manual/pulsar_publishing_keys.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_publishing_partition_key"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_publishing_partition_key"
+path = "examples/manual/pulsar_publishing_partition_key.rs"
+required-features = ["testing"]
+test = true
