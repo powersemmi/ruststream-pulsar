@@ -6,7 +6,7 @@ description: "Settle Pulsar messages by the handler's outcome, bound an unsettle
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
-# Acknowledgement
+# Acknowledging messages
 
 This guide settles Pulsar messages by the handler's outcome, bounds an unsettled delivery with an acknowledgement timeout, and settles a batch at once.
 

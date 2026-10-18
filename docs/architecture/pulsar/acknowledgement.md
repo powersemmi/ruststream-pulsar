@@ -1,5 +1,6 @@
 ---
-title: Acknowledgement
+title: Acknowledgement on Pulsar
+sidebar_label: Acknowledgement
 sidebar_position: 2
 description: "A Pulsar consumer acknowledges a message or asks for it again; the client also asks after the timeout, and moves a message that came back too often aside."
 ---

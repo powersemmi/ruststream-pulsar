@@ -1,5 +1,6 @@
 ---
-title: Subscriptions
+title: Subscriptions on Pulsar
+sidebar_label: Subscriptions
 sidebar_position: 1
 description: "A Pulsar subscription is a named cursor the broker stores; every subscription receives the whole topic, and its type decides how its consumers share it."
 ---
