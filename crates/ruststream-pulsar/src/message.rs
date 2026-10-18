@@ -1,7 +1,7 @@
 //! [`PulsarMessage`] and the mapping between `RustStream` headers and message properties.
 //!
-//! Message properties carry headers directly - no envelope format is invented - and the
-//! partition key rides the message's own `partition_key` in both directions.
+//! Message properties carry headers directly, one property per header, and the partition key
+//! rides the message's own `partition_key` in both directions.
 
 use std::collections::HashMap;
 use std::future::{Future, ready};
@@ -66,7 +66,7 @@ pub(crate) enum SettleKind {
 ///     start_at(PulsarPosition::latest())
 /// )]
 /// async fn show(tick: &Tick, Ctx(seeker): Ctx<SeekHandle>) -> HandlerOutcome {
-///     println!("price {}", tick.price);
+///     tracing::info!(price = tick.price, "tick shown");
 ///     if let Some(millis) = tick.replay_from
 ///         && seeker.seek(PulsarPosition::timestamp(millis)).await.is_err()
 ///     {
@@ -97,6 +97,38 @@ pub enum PulsarPosition {
 impl PulsarPosition {
     /// The beginning of the log; see [`PulsarPosition::Earliest`] for how it interacts with a
     /// durable subscription's cursor.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # mod demo {
+    /// use ruststream_pulsar::prelude::*;
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Deserialize)]
+    /// struct Job {
+    ///     id: u64,
+    ///     resume_at: Option<u64>,
+    /// }
+    ///
+    /// /// Reads the whole retained backlog on every startup, and skips forward past a region the
+    /// /// producer marked poisoned.
+    /// #[subscriber(
+    ///     PulsarSubscription::pattern("persistent://public/default/orders-.*", "audit"),
+    ///     start_at(PulsarPosition::earliest())
+    /// )]
+    /// async fn audit(job: &Job, Ctx(seeker): Ctx<SeekHandle>) -> HandlerOutcome {
+    ///     tracing::info!(job.id, "audited");
+    ///     if let Some(millis) = job.resume_at
+    ///         && seeker.seek(PulsarPosition::timestamp(millis)).await.is_err()
+    ///     {
+    ///         return HandlerOutcome::retry();
+    ///     }
+    ///     HandlerOutcome::ack()
+    /// }
+    /// # }
+    /// # fn main() {}
+    /// ```
     #[must_use]
     pub fn earliest() -> Self {
         Self::Earliest
@@ -197,9 +229,10 @@ pub(crate) fn within_ack_timeout(
 ///
 /// `ack` acknowledges; `nack(requeue = true)` asks the broker to redeliver, which is what
 /// drives the delivery count towards the subscription's dead-letter policy.
-/// `nack(requeue = false)` acknowledges: Pulsar has no terminal reject verb - poison routing
-/// belongs to the dead-letter policy, reached by repeated redelivery. The client queues
-/// acknowledgements asynchronously, so `Ok` means "queued", not "broker confirmed".
+/// `nack(requeue = false)` acknowledges too: Pulsar settles a message by acknowledging it or
+/// asking for it again, and a poison message leaves through the dead-letter policy, reached by
+/// repeated redelivery. The client queues acknowledgements asynchronously, so `Ok` means
+/// "queued", not "broker confirmed".
 ///
 /// `nack_after(delay)` is the delayed form, and the delay is this process's: Pulsar's negative
 /// acknowledgement carries none, so the delivery is held unacknowledged until the delay is over
