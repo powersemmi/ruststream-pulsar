@@ -323,9 +323,9 @@ impl Subscriber for PulsarSubscriber {
     }
 }
 
-/// Batches assembled on the client, because the transport has none of its own: the client's
-/// consumer yields one delivery at a time, and its `batch_size` is a flow-control window rather
-/// than a receive size, so there is nothing to translate a batch size into on the wire.
+/// Batches assembled on the client: the client's consumer yields one delivery at a time, and its
+/// `batch_size` is a flow-control window rather than a receive size, so the buffer in front of the
+/// consumer cuts the batches to the size the registration names.
 ///
 /// A batch never carries more than the size the registration named - the buffer closes it there -
 /// and it carries fewer whenever the deadline elapsed first.

@@ -406,9 +406,9 @@ where
 /// In the generated `AsyncAPI` document it describes the channel it publishes to: the
 /// specification's `pulsar` channel binding is a namespace and a persistence, and both live in
 /// the destination's topic name, which the runtime hands the policy. Its operation and message
-/// objects are empty, and the policy has no settings of its own to report beside them: a
-/// partition key belongs to one message. Replies go to the declared destination too, so there is
-/// no reply-to header for a client to read an address out of.
+/// objects are empty, and a partition key belongs to one message rather than to the policy.
+/// Replies go to the destination the reply type or the mount site declares, the channel the
+/// document reports for them.
 ///
 /// # Examples
 ///

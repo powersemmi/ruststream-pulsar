@@ -21,6 +21,8 @@ A seek after the service shut down returns [`PulsarError::NotConnected`](api:rus
 A batch handler reaches the same key through its [`PulsarBatchContext`](../context/batch-context.md).
 A position that has to apply on each boot belongs in [`start_at`](./start-at.md) instead.
 
+[Replay and seeking](../../guides/replay.md) indexes every order again with a seek from the handler.
+
 ## Example
 
 A job marked poisoned starts a run the producer knows to be unprocessable; the subscription jumps to the tip of the log past it.

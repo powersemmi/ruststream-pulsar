@@ -42,7 +42,7 @@ message. Consumers that attach under the same subscription name share that one c
 subscription is durable: it stays on the broker when its last consumer leaves, and the backlog
 grows until a consumer returns.
 
-[`SubscriptionType`](api:ruststream_pulsar::SubscriptionType) picks how the consumers of one
+[`SubscriptionType`](../../components/subscriptions/subscription-type.md) picks how the consumers of one
 subscription share it:
 
 | Type | Consumers | Order |
@@ -55,16 +55,17 @@ subscription share it:
 A second consumer of an `Exclusive` subscription is answered "consumer busy". The client treats
 that answer as one to retry, and by default it retries without a limit, five seconds apart. So the
 second consumer waits for the first to leave, and its service does not start.
-[`OperationRetries`](api:ruststream_pulsar::OperationRetries) bounds the tries, and subscribing then
+[`OperationRetries`](../../components/broker/operation-retries.md) bounds the tries, and subscribing then
 fails with [`PulsarError::Subscribe`](api:ruststream_pulsar::PulsarError::Subscribe).
 
 The server creates a subscription the first time a consumer names it, positioned at the newest
 message: the `pulsar` client asks for that position unless told otherwise, and this crate leaves
-it. A service that starts somewhere else repositions the subscription with a seek, which
-[`PulsarPosition`](api:ruststream_pulsar::PulsarPosition) names. A seek moves the stored cursor
+it. A service that starts somewhere else repositions the subscription with a [seek](../../components/positions/seek.md), which
+[`PulsarPosition`](../../components/positions/index.md) names. A seek moves the stored cursor
 itself, so it applies on every start, not only the first.
 
-A subscription over a list of topics, or over a pattern, is one consumer per topic inside the
+A subscription over a [list of topics](../../components/subscriptions/topics.md), or over a
+[pattern](../../components/subscriptions/pattern.md), is one consumer per topic inside the
 client, read as one stream. A pattern matches topics by their full names. The client lists the
 topics again every 30 seconds, so a topic created after the subscription opened joins it on the
 next listing.

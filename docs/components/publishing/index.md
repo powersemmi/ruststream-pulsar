@@ -19,6 +19,8 @@ A publish returns once the broker has stored the message, or with the error it r
 Outside a handler, [`PulsarBroker::publisher`](api:ruststream_pulsar::PulsarBroker::publisher) hands out a publisher before the service starts.
 Per message, a publish carries [headers](./headers.md) and a [key](./keys.md).
 
+[Publishing and replies](../../guides/publishing.md) confirms orders with receipts and answers price quotes.
+
 ## Example
 
 <Tabs groupId="api">

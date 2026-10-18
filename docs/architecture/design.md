@@ -40,10 +40,12 @@ and one driver task per subscription, one producer per topic.
 The crate implements the core's broker traits over the
 [`pulsar`](https://docs.rs/pulsar/6.9.0/pulsar/) client. The runtime above it is the same for every
 broker. What is particular to Pulsar is in this crate: the
-[descriptors](pulsar/subscriptions.md), [what each outcome sends](settlement.md), the dead-letter
-policy and the [positions a seek moves to](api:ruststream_pulsar::PulsarPosition).
+[descriptors](../components/subscriptions/index.md), [what each outcome sends](settlement.md), the
+[dead-letter policy](../components/settlement/dead-letters.md) and the
+[positions a seek moves to](../components/positions/index.md).
 
-A connected broker holds one client. Every publisher of the connection shares that client and its
+A connected [broker](../components/broker/index.md) holds one client. Every
+[publisher](../components/publishing/index.md) of the connection shares that client and its
 producers, one per topic, opened by the first publish to the topic.
 
 Each subscription opens one client consumer, and a task of its own drives it. The client
@@ -51,10 +53,10 @@ acknowledges through the consumer, which only one owner can use at a time, while
 settle from wherever the handler runs. So the driver task owns the consumer. It passes each
 delivery on through a channel of 16, and takes back the acknowledgements and the seeks the
 deliveries send it. A [`PulsarMessage`](api:ruststream_pulsar::PulsarMessage) carries the way back
-to its driver, and a [`PulsarSeeker`](api:ruststream_pulsar::PulsarSeeker) uses the same way.
+to its driver, and a [`PulsarSeeker`](../components/positions/seek.md) uses the same way.
 
-The client hands over one message at a time. A batch handler gets batches the runtime assembles in
-the service, as [Lanes](lanes.md) draws.
+The client hands over one message at a time. A [batch handler](../components/subscriptions/batches.md)
+gets batches the runtime assembles in the service, as [Lanes](lanes.md) draws.
 
 A retry is the broker's: the delivery is negatively acknowledged and the broker delivers it again.
 Nothing is published from the service to bring it back, so a registration on this broker has no
@@ -65,15 +67,15 @@ How the pieces start and stop is on [Lifecycle](lifecycle.md), and the way of on
 
 ## The in-process transport
 
-With the `testing` feature, [`TestApp::start`](api:ruststream::testing::TestApp::start) connects
-the same broker to an in-process transport instead of a server. The descriptors, the policies and
+With the `testing` feature, [`TestApp::start`](../components/testing/index.md) connects the same
+broker to an in-process transport instead of a server. The descriptors, the policies and
 the deliveries are the production ones, and so are their settings. The transport models full topic
 names; subscriptions over one topic, a list or a pattern; the four subscription types; negative
 acknowledgement; the client's dead-letter policy; delayed retries on the runtime's clock; and the
 retained log a seek moves over. It refuses what a server refuses: a payload over
 `max_message_size`, a second consumer of an `Exclusive` subscription, a handle used after shutdown.
 
-What is the server's own is left to a live run: `KeyShared` hash ranges, which consumer of a
+What is the server's own is left to a [live run](../components/testing/live.md): `KeyShared` hash ranges, which consumer of a
 `Shared` subscription the server picks, the redelivery after the acknowledgement timeout,
 partitioned topics, and messages published while a subscription has no consumer.
 

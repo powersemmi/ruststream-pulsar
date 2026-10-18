@@ -18,7 +18,7 @@ export function client(words: Words): {boxes: Box[]; links: Link[]} {
     fields: Partial<Box> = {},
   ): Box => ({id, x, y, w, h, kind, lines: lines(words, id), ...fields});
   const boxes: Box[] = [
-    box('url', 12, 0, 336, 44, 'service', {code: true}),
+    box('url', 12, 0, 336, 44, 'service', {code: true, href: '/components/broker/'}),
     box('lookup', 12, 72, 336, 44, 'broker'),
     box('pool', 0, 148, 360, 170, 'group'),
     box('producer', 12, 174, 160, 44, 'broker', {code: true}),
@@ -26,7 +26,7 @@ export function client(words: Words): {boxes: Box[]; links: Link[]} {
     box('refresh', 12, 232, 160, 74, 'note'),
     box('permits', 188, 232, 160, 74, 'core'),
     box('cluster', 12, 342, 336, 44, 'broker'),
-    box('retries', 0, 410, 360, 44, 'note'),
+    box('retries', 0, 410, 360, 44, 'note', {href: '/components/broker/operation-retries/'}),
   ];
   const links: Link[] = [
     {from: 'url', to: 'lookup', label: word(words, 'asks')},

@@ -28,6 +28,8 @@ Every setting has a default, so the two names are all a descriptor needs:
 The subscription reports under its topic, as written: a test reads its deliveries under that name, and the [AsyncAPI document](../asyncapi/channels.md) reports that channel.
 A topic name Pulsar would refuse stops the service at startup with an error that names it, before any call to the server; [`PulsarTopic`](./pulsar-topic.md) is the same check as a type.
 
+[Topics and subscriptions](../../guides/topics-and-subscriptions.md) reads one topic under two subscriptions of a fulfilment service.
+
 ## Example
 
 Billing and shipping read every order of `acme/sales/orders`, each under a subscription of its own.

@@ -52,14 +52,14 @@ the broker counts toward the client's dead-letter policy.
 
 <Diagram name="settlement" words={table} />
 
-Every outcome is a call on the subscription's client consumer, which its driver task makes. `ack`
+Every [outcome](../components/settlement/index.md) is a call on the subscription's client consumer, which its driver task makes. `ack`
 and `drop` acknowledge the message, because Pulsar has no command that rejects one for good: a
 message that should not come back is acknowledged, and one that keeps failing reaches the
-dead-letter topic by the cap. `retry` asks the broker to deliver it again at once.
+[dead-letter topic](../components/settlement/dead-letters.md) by the cap. `retry` asks the broker to deliver it again at once.
 
-`retry_after(d)` holds the delivery unacknowledged in the service for `d`, then sends the same
+[`retry_after(d)`](../components/settlement/retry-after.md) holds the delivery unacknowledged in the service for `d`, then sends the same
 negative acknowledgement. The wait runs on the runtime the broker connected on. A delay not shorter
-than the subscription's [`ack_timeout`](api:ruststream_pulsar::PulsarSubscription::ack_timeout) is
+than the subscription's [`ack_timeout`](../components/settlement/ack-timeout.md) is
 refused, because the client's timer would bring the message back first.
 
 A delivery no handler settles stays unacknowledged. With an `ack_timeout`, the client asks for it
@@ -77,7 +77,7 @@ count is below the cap, so the handler sees it `max_attempts` times. At the cap 
 it to the dead-letter topic and acknowledges the original.
 
 The two settings go together: a registration that declares one without the other refuses to
-start, and so does a cap on an `Exclusive` or a `Failover` subscription, whose messages always
+start, and so does a cap on an `Exclusive` or a `Failover` [subscription](../components/subscriptions/subscription-type.md), whose messages always
 arrive with a count of zero.
 
 The count is the client's own, and a delivery does not report it. A process that stops during a

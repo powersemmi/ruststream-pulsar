@@ -100,7 +100,7 @@ It models Pulsar rather than a queue:
 - A negatively acknowledged message goes back to its subscription, and the dead-letter policy counts its deliveries as the client does.
 - Each topic keeps its log, so a [seek](replay.md) replays it; a non-persistent topic replays nothing.
 - A pattern subscription reads a new topic from the client's next listing, 30 seconds of the paused clock later.
-- Headers travel as text properties, and a payload over `max_message_size` fails the publish.
+- Headers travel as text properties, and a payload over [`max_message_size`](../components/broker/max-message-size.md) fails the publish.
 
 A server keeps a second `Exclusive` consumer waiting, while the in-process Pulsar refuses it at once, so such a test fails instead of hanging.
 The redelivery after the acknowledgement timeout, partitioned topics, the key ranges of `KeyShared` and messages published while a subscription has no consumer need a server.

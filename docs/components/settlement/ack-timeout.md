@@ -18,6 +18,8 @@ A `retry_after` delay that is not shorter than the timeout is refused when the h
 A handler keeps its backoff below the timeout for that reason.
 The in-process transport of a [`TestApp`](api:ruststream::testing::TestApp) test applies the bound on `retry_after`; the redelivery itself happens on a broker.
 
+[Acknowledgement](../../guides/acknowledgement.md) bounds an unsettled delivery of an inventory service with an acknowledgement timeout.
+
 ## Example
 
 An export the archive refused waits thirty seconds, inside the one-minute ack timeout of its subscription.

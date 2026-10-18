@@ -25,7 +25,16 @@ export function lanes(words: Words): {boxes: Box[]; links: Link[]} {
   boxes.push(
     {id: 'consumer', x: 12, y: 66, w: 336, h: 44, kind: 'broker', lines: lines(words, 'consumer')},
     {id: 'stream', x: 12, y: 138, w: 336, h: 44, kind: 'broker', lines: lines(words, 'stream')},
-    {id: 'keyed', x: 12, y: 210, w: 336, h: 44, kind: 'core', lines: lines(words, 'keyed')},
+    {
+      id: 'keyed',
+      x: 12,
+      y: 210,
+      w: 336,
+      h: 44,
+      kind: 'core',
+      lines: lines(words, 'keyed'),
+      href: '/components/publishing/keys/',
+    },
     ...LANE_X.map(
       (x, lane): Box => ({
         id: `lane${lane}`,

@@ -30,18 +30,20 @@ handler, the reply and the acknowledgement.
 The client consumer holds the messages the broker pushed ahead, under its flow permits. The
 subscription's driver task takes the next one and builds a
 [`PulsarMessage`](api:ruststream_pulsar::PulsarMessage): it copies the payload into a `Bytes`, keeps
-the topic name and the message id, and turns the message properties into headers. A message's
-partition key becomes the `partition-key` header, which the lanes read. The delivery waits in a
+the topic name and the message id, which a handler reads through its
+[context](../components/context/index.md), and turns the message properties into
+[headers](../components/publishing/headers.md). A message's partition key becomes the
+[`partition-key` header](../components/publishing/keys.md), which the lanes read. The delivery waits in a
 channel of 16 until the dispatch loop takes it.
 
 The handler's reply is encoded into a buffer, and the
-[publisher](api:ruststream_pulsar::PulsarPublisher) hands that buffer to the client without a copy.
-A payload over [`max_message_size`](api:ruststream_pulsar::PulsarBroker::max_message_size) fails
+[publisher](../components/publishing/index.md) hands that buffer to the client without a copy.
+A payload over [`max_message_size`](../components/broker/max-message-size.md) fails
 before it is sent: the client does not check the size, and the server drops the whole connection
 on an oversized message. The publish returns once the broker has stored the message and sent its
 receipt. A reply that fails to publish settles the delivery with a retry.
 
-The delivery settles after the reply. The settlement goes back to the driver task, which hands it
+The delivery [settles](../components/settlement/index.md) after the reply. The settlement goes back to the driver task, which hands it
 to the client, and the call returns once the client has queued it. The client writes the
 acknowledgement to the connection and waits for no answer.
 

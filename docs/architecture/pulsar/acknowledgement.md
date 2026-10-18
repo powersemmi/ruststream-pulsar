@@ -34,17 +34,18 @@ done. Pulsar also has a cumulative acknowledgement, which marks every message up
 the subscription type. The acknowledgement is a command written to the connection, and the broker
 sends no answer to it.
 
-A negative acknowledgement asks the broker to deliver a message again. The Rust client sends the
+A negative acknowledgement asks the broker to deliver a message again; a handler's
+[`retry`](../../components/settlement/index.md) sends one. The Rust client sends the
 request at once; the Java client waits a configurable delay first. The broker delivers the message
 again, to the same consumer or to another one of the subscription.
 
-The acknowledgement timeout is a timer of the client. With a timeout set, the client remembers
+The [acknowledgement timeout](../../components/settlement/ack-timeout.md) is a timer of the client. With a timeout set, the client remembers
 when it handed over each message, checks twice a second, and asks the broker to deliver again
 every message that waited longer than the timeout. Without one, a message nobody answers stays
 with the consumer until it disconnects, and then goes back to the subscription.
 
 The broker counts how many times it delivered a message again, on `Shared` and `KeyShared`
-subscriptions. The dead-letter policy is the client's: when a message arrives with a count at the
+subscriptions. The [dead-letter policy](../../components/settlement/dead-letters.md) is the client's: when a message arrives with a count at the
 limit, the client produces it to the dead-letter topic, adds the `REAL_TOPIC` and
 `ORIGIN_MESSAGE_ID` properties, and acknowledges the original. The handler never sees it.
 

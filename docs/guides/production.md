@@ -31,7 +31,7 @@ The client reconnects on its own after a broker restart, and asks again for any 
 By default it asks for ever, five seconds apart, which waits out a restart of any length.
 [`OperationRetries`](../components/broker/operation-retries.md) bounds that: ten tries three seconds apart, and then the operation fails with the cluster's answer.
 The bound covers the lookups, the producers and the reconnect of every consumer.
-It also turns a second consumer of an `Exclusive` subscription into an error at startup instead of a wait.
+It also turns a second consumer of an [`Exclusive`](../components/subscriptions/subscription-type.md) subscription into an error at startup instead of a wait.
 
 [`max_message_size`](../components/broker/max-message-size.md) is the largest payload a publish may carry, five mebibytes by default as on the server.
 A deployment that changed the server's `maxMessageSize` sets the same value here.

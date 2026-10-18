@@ -19,6 +19,8 @@ A seek to such a position delivers that message again, then the rest of the log 
 A position applies to every topic and every partition the subscription reads.
 A non-persistent topic retains nothing, so a move over it replays nothing.
 
+[Replay and seeking](../../guides/replay.md) rebuilds balances from a ledger on every startup and indexes every order again with a seek.
+
 ## Example
 
 A projection bookmarks the entry that closes a day; a rebuild request moves the ledger subscription back to it.

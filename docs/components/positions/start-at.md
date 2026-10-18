@@ -19,6 +19,8 @@ Pulsar's own initial position is different: the broker applies it only when it c
 A subscription without the clause resumes from its cursor.
 It suits a read model rebuilt from the retained log on each boot.
 
+[Replay and seeking](../../guides/replay.md) rebuilds account balances from a ledger on every startup.
+
 ## Example
 
 The audit projection is rebuilt from the oldest retained entry on every startup, although its subscription acknowledged everything it read before.

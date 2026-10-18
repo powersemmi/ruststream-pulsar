@@ -6,13 +6,13 @@ import type {Words} from './words';
 export function path(words: Words): {boxes: Box[]; links: Link[]} {
   return chain(words, [
     {key: 'consumer', kind: 'broker', href: '/architecture/pulsar/client/'},
-    {key: 'take', kind: 'broker'},
+    {key: 'take', kind: 'broker', href: '/components/context/'},
     {key: 'dispatch', kind: 'core', href: '/architecture/lanes/'},
     {key: 'decode'},
-    {key: 'body', kind: 'service'},
+    {key: 'body', kind: 'service', href: '/components/subscriptions/'},
     {key: 'encode'},
-    {key: 'publisher', kind: 'broker'},
-    {key: 'settle', kind: 'core', href: '/architecture/settlement/'},
+    {key: 'publisher', kind: 'broker', href: '/components/publishing/'},
+    {key: 'settle', kind: 'core', href: '/components/settlement/'},
     {key: 'ack', kind: 'broker', href: '/architecture/pulsar/acknowledgement/'},
   ]);
 }

@@ -106,7 +106,7 @@ In the manual form, `Ok(())` acknowledges the batch, and `Err(outcomes)` settles
 
 ## Testing the outcomes
 
-The tests in the example file run the app in process, with `TestApp::with_state` in place of `on_startup`.
+The tests in the example file run the app [in process](../components/testing/index.md), with `TestApp::with_state` in place of `on_startup`.
 They make the stock service fail on purpose and check the outcome of each delivery.
 The in-process Pulsar hands a negatively acknowledged message back to the subscription, as a server does.
 The redelivery after the acknowledgement timeout is the server's, and the crate's live tests check it against a running Pulsar.

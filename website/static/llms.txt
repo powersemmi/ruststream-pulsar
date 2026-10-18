@@ -2,25 +2,79 @@
 
 > `ruststream-pulsar` is the Apache Pulsar broker crate for RustStream, a Rust framework for services that subscribe to message brokers and publish to them. It runs over the `pulsar` client: a topic is a retained log a subscription can rewind over, a subscription picks one of Pulsar's four subscription types, and a retry cap ends at a dead-letter topic.
 
-A subscription is the descriptor `PulsarSubscription`: one topic (`PulsarSubscription::new`), a fixed list (`::topics`) or a pattern over the lookup namespace (`::pattern`), with its subscription type, acknowledgement timeout and batch wait. A routes file imports `ruststream_pulsar::prelude::*`, which offers `PulsarPublish` as `Publish`; a body that sets the partition key of one message takes the `partition_key` step. Building the crate needs `protoc` on the path.
+A subscription is the descriptor `PulsarSubscription`: one topic (`PulsarSubscription::new`), a fixed list (`::topics`) or every topic whose full name a regular expression matches (`::pattern`), with its subscription type, acknowledgement timeout and batch wait; a bare `#[subscriber("orders")]` reads the topic under the broker's `default_subscription`. A service imports `ruststream_pulsar::prelude::*`, which offers `PulsarPublish` as `Publish`; the partition key of one publish is its per-message setting. Building the crate needs `protoc` on the path.
 
 This site holds the guides, one page per component and the architecture of the crate; the API reference is on docs.rs, and the framework itself is documented on the RustStream site.
 
 ## Guides
 
 - [Guides](https://powersemmi.github.io/ruststream-pulsar/latest/): building an Apache Pulsar service with the crate, from installation to production
+- [Getting started](https://powersemmi.github.io/ruststream-pulsar/latest/guides/getting-started/): installation, a local Pulsar, a first subscriber against it and its test without a server
+- [Topics and subscriptions](https://powersemmi.github.io/ruststream-pulsar/latest/guides/topics-and-subscriptions/): topic names, durable subscriptions, one topic, a fixed list, a pattern and the short form
+- [Subscription types and ordering](https://powersemmi.github.io/ruststream-pulsar/latest/guides/subscription-types-and-ordering/): how the consumers of a subscription share it, per-key order, and keyed messages on partitions
+- [Acknowledgement](https://powersemmi.github.io/ruststream-pulsar/latest/guides/acknowledgement/): settling by the handler's outcome, the acknowledgement timeout, and a batch settled at once
+- [Retries and dead letters](https://powersemmi.github.io/ruststream-pulsar/latest/guides/retries/): a retry now or later, the delivery cap and the dead-letter topic a handler reads
+- [Replay and seeking](https://powersemmi.github.io/ruststream-pulsar/latest/guides/replay/): reading the retained log again from the start on every startup, or from a position a handler seeks to
+- [Publishing and replies](https://powersemmi.github.io/ruststream-pulsar/latest/guides/publishing/): replies, keyed publishes with headers through an `Out` slot, and a publish at startup
+- [Testing a Pulsar service](https://powersemmi.github.io/ruststream-pulsar/latest/guides/testing/): `TestApp` on the production app with keyed payments, replies and delays, and the same test against a server
+- [Connecting to a production cluster](https://powersemmi.github.io/ruststream-pulsar/latest/guides/production/): TLS and a token, bounded retries, the message size limit and a test of the configuration
 
 ## Components
 
 - [Components](https://powersemmi.github.io/ruststream-pulsar/latest/components/): the parts of the crate a Pulsar service uses, one page each
+- [Pulsar broker](https://powersemmi.github.io/ruststream-pulsar/latest/components/broker/): `PulsarBroker`, its service URL and its lazy connection
+- [Startup](https://powersemmi.github.io/ruststream-pulsar/latest/components/broker/startup/): the dial of the service URL and a consumer per subscription; a refused descriptor stops the start
+- [Shutdown](https://powersemmi.github.io/ruststream-pulsar/latest/components/broker/shutdown/): the producers closed, and `PulsarError::NotConnected` for a publisher or a seek used afterwards
+- [Security](https://powersemmi.github.io/ruststream-pulsar/latest/components/broker/security/): `token`, a JWT on the connection, and the `pulsar+ssl://` listener
+- [OperationRetries](https://powersemmi.github.io/ruststream-pulsar/latest/components/broker/operation-retries/): how long the client retries an operation a server has not accepted, unbounded by default
+- [max_message_size](https://powersemmi.github.io/ruststream-pulsar/latest/components/broker/max-message-size/): the largest payload a publish may carry, five mebibytes as on the server
+- [Prelude](https://powersemmi.github.io/ruststream-pulsar/latest/components/broker/prelude/): `ruststream_pulsar::prelude`, the one glob a Pulsar service imports
+- [Errors](https://powersemmi.github.io/ruststream-pulsar/latest/components/broker/errors/): `PulsarError`, the one error type of the crate
+- [Subscriptions](https://powersemmi.github.io/ruststream-pulsar/latest/components/subscriptions/): a topic name in `#[subscriber]` under the broker's default subscription, and the descriptor that carries every other setting
+- [PulsarSubscription](https://powersemmi.github.io/ruststream-pulsar/latest/components/subscriptions/pulsar-subscription/): `PulsarSubscription::new`, one durable subscription on one topic
+- [topics](https://powersemmi.github.io/ruststream-pulsar/latest/components/subscriptions/topics/): `PulsarSubscription::topics`, a fixed list of topics under one subscription
+- [pattern](https://powersemmi.github.io/ruststream-pulsar/latest/components/subscriptions/pattern/): `PulsarSubscription::pattern`, every topic whose full name a regular expression matches, topics created later included
+- [SubscriptionType](https://powersemmi.github.io/ruststream-pulsar/latest/components/subscriptions/subscription-type/): `Exclusive`, `Shared`, `Failover` or `KeyShared`, how the consumers of one subscription share it
+- [PulsarTopic](https://powersemmi.github.io/ruststream-pulsar/latest/components/subscriptions/pulsar-topic/): a topic name checked on construction
+- [Batches](https://powersemmi.github.io/ruststream-pulsar/latest/components/subscriptions/batches/): slice handlers over batches the service assembles, closed by size or by `batch_wait`
+- [Acknowledgement](https://powersemmi.github.io/ruststream-pulsar/latest/components/settlement/): what `ack`, `retry` and `drop` do to a Pulsar delivery
+- [ack_timeout](https://powersemmi.github.io/ruststream-pulsar/latest/components/settlement/ack-timeout/): the redelivery of a message left unacknowledged longer than the timeout
+- [retry_after](https://powersemmi.github.io/ruststream-pulsar/latest/components/settlement/retry-after/): a negative acknowledgement held back in the service for a delay
+- [Dead letters](https://powersemmi.github.io/ruststream-pulsar/latest/components/settlement/dead-letters/): `max_attempts` with `dead_letter`, the consumer's own dead-letter policy
+- [PulsarContext](https://powersemmi.github.io/ruststream-pulsar/latest/components/context/): where a delivery sits in the log and the handle that moves the subscription, read through `Ctx<K>`
+- [PulsarBatchContext](https://powersemmi.github.io/ruststream-pulsar/latest/components/context/batch-context/): a batch handler's context and its seek handle
+- [PulsarPosition](https://powersemmi.github.io/ruststream-pulsar/latest/components/positions/): a place in a topic's retained log: either end, a delivered message, or a publish time
+- [start_at](https://powersemmi.github.io/ruststream-pulsar/latest/components/positions/start-at/): a subscription seeked to a position on every startup
+- [Seek](https://powersemmi.github.io/ruststream-pulsar/latest/components/positions/seek/): a running subscription moved from its handler through `Ctx<SeekHandle>`
+- [Publish](https://powersemmi.github.io/ruststream-pulsar/latest/components/publishing/): `PulsarPublish`, `Publish` in the prelude, one producer per topic and `Ok` once stored
+- [partition_key](https://powersemmi.github.io/ruststream-pulsar/latest/components/publishing/partition-key/): the step that keys one publish from a handler body
+- [Keys](https://powersemmi.github.io/ruststream-pulsar/latest/components/publishing/keys/): the partition-key header as the message key, which places it on a partition and orders `KeyShared`
+- [Headers](https://powersemmi.github.io/ruststream-pulsar/latest/components/publishing/headers/): one Pulsar message property per header
+- [Pulsar bindings](https://powersemmi.github.io/ruststream-pulsar/latest/components/asyncapi/): the Pulsar bindings of the AsyncAPI document behind the `asyncapi` feature
+- [Server](https://powersemmi.github.io/ruststream-pulsar/latest/components/asyncapi/server/): the host and port of the service URL, never a token
+- [Channels](https://powersemmi.github.io/ruststream-pulsar/latest/components/asyncapi/channels/): a topic's namespace and persistence in the `pulsar` channel binding
+- [Operations](https://powersemmi.github.io/ruststream-pulsar/latest/components/asyncapi/operations/): a consumer's subscription, type and acknowledgement timeout under `x-ruststream-pulsar`
+- [Testing](https://powersemmi.github.io/ruststream-pulsar/latest/components/testing/): `TestApp::start` with `PulsarBroker` on an in-process Pulsar behind the `testing` feature
+- [Live](https://powersemmi.github.io/ruststream-pulsar/latest/components/testing/live/): `TestApp::start_live`, the same test body against a running Pulsar
 
 ## Architecture
 
 - [Architecture](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/): how Apache Pulsar works, where the crate sits between Pulsar and the RustStream runtime, and what that costs
-- [Benchmarks](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/benchmarks/): what this crate and the framework's runtime cost over the raw `pulsar` client, and how to re-measure it with `just bench`
+- [Topics](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/pulsar/): tenants, namespaces, persistent and partitioned topics
+- [Subscriptions](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/pulsar/subscriptions/): a named cursor the broker stores, and how a subscription type shares it
+- [Acknowledgement](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/pulsar/acknowledgement/): acknowledgement, negative acknowledgement, the timeout and the client's dead-letter policy
+- [Client](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/pulsar/client/): the lookup through the service URL, one connection per broker and flow permits
+- [Design](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/design/): one consumer and one driver task per subscription and one producer per topic, between the runtime and the client
+- [Lifecycle](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/lifecycle/): `new`, `connect`, a consumer per subscription at startup, and the producers closed at shutdown
+- [Path](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/path/): one message from the consumer through the handler and the reply to its acknowledgement
+- [Lanes](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/lanes/): one consumer per subscription, and `workers(n, by_key)` lanes keyed by the partition key
+- [Settlement](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/settlement/): what `ack`, drop, retry and `retry_after` become on Pulsar
+- [Benchmarks](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/benchmarks/): what the crate and the framework's runtime cost over the raw `pulsar` client, and the cost of the crate's own code
+- [Benchmarks: Numbers](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/benchmarks/numbers/): what each published number measures, and what it does not allow you to conclude
+- [Benchmarks: Methodology](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/benchmarks/methodology/): the three loops, the run on a real broker, the broker-bound arithmetic and the code count
 
 ## Optional
 
-- [API reference](https://docs.rs/ruststream-pulsar): the full rustdoc of the crate
+- [API reference](https://docs.rs/ruststream-pulsar): the full rustdoc of the crate, whose overview maps each topic to its page here
 - [RustStream llms.txt](https://powersemmi.github.io/ruststream/llms.txt): the index of the framework's own documentation
 - [Source](https://github.com/powersemmi/ruststream-pulsar): the crate's repository

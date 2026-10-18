@@ -19,6 +19,8 @@ The registration's [dead-letter topic](../settlement/dead-letters.md) is one for
 The settings and their defaults are those of [`PulsarSubscription`](./pulsar-subscription.md).
 An empty list, or a name in it that Pulsar would refuse, stops the service at startup.
 
+[Topics and subscriptions](../../guides/topics-and-subscriptions.md) totals the orders of two regional topics under one subscription.
+
 ## Example
 
 The European and the American orders, fulfilled under one subscription.

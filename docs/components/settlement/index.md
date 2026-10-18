@@ -18,6 +18,8 @@ The client queues acknowledgements and sends them in the background, so a settle
 A message nobody settles comes back after the subscription's [`ack_timeout`](./ack-timeout.md).
 [`retry_after`](./retry-after.md) asks for the delivery back after a delay.
 
+[Acknowledgement](../../guides/acknowledgement.md) settles the stock reservations of an inventory service by the handler's outcome.
+
 ## Example
 
 <Tabs groupId="api">

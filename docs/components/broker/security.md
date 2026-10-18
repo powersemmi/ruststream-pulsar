@@ -22,6 +22,8 @@ A [`TestApp`](../testing/index.md) test runs the same broker in process.
 It checks the URL as the client parses it, and the token goes nowhere.
 The generated [AsyncAPI document](../asyncapi/server.md) reports the host and the port, and never the token or a user name in the URL.
 
+[Connecting to a production cluster](../../guides/production.md) takes the service URL and the token from the environment.
+
 ## Example
 
 The service authenticates with the token in `PULSAR_TOKEN` and talks to the cluster over TLS.
