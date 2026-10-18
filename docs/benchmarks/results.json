@@ -2,8 +2,8 @@
   "schema": 3,
   "crate": "ruststream-pulsar",
   "crate_version": "0.7.0",
-  "core_version": "0.7.0-rc.9",
-  "measured_at": "2026-09-23",
+  "core_version": "0.7.0",
+  "measured_at": "2026-10-18",
   "environment": {
     "cpu": "AMD Ryzen 9 7900X 12-Core Processor",
     "architecture": "x86_64",
@@ -11,11 +11,11 @@
     "cores": "12 physical, 24 logical",
     "memory": "62.4 GiB",
     "memory_speed": "unknown",
-    "os": "Linux 7.2.6-x64v3-xanmod1-1",
+    "os": "Linux 7.2.11-x64v3-xanmod1-1",
     "broker": "apachepulsar/pulsar:4.1.2 in Docker on localhost",
     "round_trip": "0.047 ms round trip",
-    "rustc": "1.98.1",
-    "profile": "bench, inheriting release (opt-level = 3, lto = false, codegen-units = 16)",
+    "rustc": "1.99.0",
+    "profile": "bench, inheriting release (opt-level = 3, lto = fat, codegen-units = 16, debug = line-tables-only)",
     "features": "ruststream-pulsar default (none), ruststream macros,json",
     "rustflags": "none (the recipe clears RUSTFLAGS, so the numbers are not tied to this CPU)",
     "valgrind": "3.25.1"
@@ -24,24 +24,24 @@
     {
       "name": "Exclusive subscription, 128 B JSON, ack each",
       "unit": "msg/s",
-      "messages": 167273,
+      "messages": 166034,
       "pairs": 3,
       "raw": {
-        "best": 27631,
-        "median": 27620,
-        "worst": 27511
+        "best": 27594,
+        "median": 27518,
+        "worst": 27510
       },
       "adapter": {
-        "best": 27672,
-        "median": 27633,
-        "worst": 27465
+        "best": 27656,
+        "median": 27554,
+        "worst": 27523
       },
       "framework": {
-        "best": 27685,
-        "median": 27677,
-        "worst": 26522
+        "best": 27652,
+        "median": 27586,
+        "worst": 27243
       },
-      "adapter_overhead_percent": -0.1,
+      "adapter_overhead_percent": -0.2,
       "adapter_verdict": "indistinguishable",
       "overhead_percent": -0.2,
       "verdict": "indistinguishable",
@@ -50,27 +50,27 @@
     {
       "name": "Shared subscription, 128 B JSON, ack each",
       "unit": "msg/s",
-      "messages": 171673,
+      "messages": 172927,
       "pairs": 3,
       "raw": {
-        "best": 27754,
-        "median": 27744,
-        "worst": 27735
+        "best": 27720,
+        "median": 27716,
+        "worst": 27657
       },
       "adapter": {
-        "best": 27776,
-        "median": 27662,
-        "worst": 27659
+        "best": 27662,
+        "median": 27548,
+        "worst": 27232
       },
       "framework": {
-        "best": 27674,
-        "median": 27660,
-        "worst": 27654
+        "best": 27710,
+        "median": 27408,
+        "worst": 26783
       },
-      "adapter_overhead_percent": -0.1,
+      "adapter_overhead_percent": 0.2,
       "adapter_verdict": "indistinguishable",
-      "overhead_percent": 0.3,
-      "verdict": "measured",
+      "overhead_percent": 0.0,
+      "verdict": "indistinguishable",
       "broker_bound": true
     }
   ],
@@ -79,12 +79,12 @@
       "name": "shared subscription, JSON decode into a small struct, ack each",
       "messages": 1000,
       "framework": {
-        "instructions": 63539.2,
+        "instructions": 58724.1,
         "allocations": 18.9
       },
       "cold": {
-        "instructions": 677998,
-        "allocations": 273
+        "instructions": 603714,
+        "allocations": 277
       },
       "gated": true
     },
@@ -92,12 +92,12 @@
       "name": "reply through this crate's publisher, broker receipt awaited",
       "messages": 1000,
       "framework": {
-        "instructions": 129823.5,
+        "instructions": 120058.1,
         "allocations": 38.0
       },
       "cold": {
-        "instructions": 693857,
-        "allocations": 288
+        "instructions": 622642,
+        "allocations": 293
       },
       "gated": true
     },
@@ -105,14 +105,19 @@
       "name": "shared subscription in batches of 64, assembled on the client",
       "messages": 1000,
       "framework": {
-        "instructions": 63948.0,
+        "instructions": 59643.5,
         "allocations": 18.2
       },
       "cold": {
-        "instructions": 689063,
-        "allocations": 277
+        "instructions": 614552,
+        "allocations": 281
       },
       "gated": true
     }
-  ]
+  ],
+  "code_measured": {
+    "crate_version": "0.7.0",
+    "core_version": "0.7.0",
+    "measured_at": "2026-10-18"
+  }
 }
