@@ -91,10 +91,10 @@ fn broker(token: &str) -> PulsarBroker {
 // --8<-- [end:server]
 
 // --8<-- [start:app]
+// --8<-- [start:channels]
+// --8<-- [start:operations]
 fn service(broker: PulsarBroker) -> impl App<State = ()> {
     RustStream::new(AppInfo::new("orders", "1.0.0")).with_broker_labeled("pulsar", broker, |b| {
-        // --8<-- [start:channels]
-        // --8<-- [start:operations]
         b.include(
             subscriber(
                 PulsarSubscription::new("persistent://acme/orders/created", "confirmations")
@@ -105,7 +105,6 @@ fn service(broker: PulsarBroker) -> impl App<State = ()> {
             .to("persistent://acme/orders/confirmed")
             .build(),
         );
-        // --8<-- [end:operations]
         b.include(
             subscriber(
                 PulsarSubscription::topics(
@@ -118,9 +117,10 @@ fn service(broker: PulsarBroker) -> impl App<State = ()> {
             .build(),
         );
         b.include(subscriber(PulsarSubscription::pattern("audit-.*", "auditors"), Audit).build());
-        // --8<-- [end:channels]
     })
 }
+// --8<-- [end:operations]
+// --8<-- [end:channels]
 
 fn app() -> impl App<State = ()> {
     let token = env::var("PULSAR_TOKEN").unwrap_or_default();
