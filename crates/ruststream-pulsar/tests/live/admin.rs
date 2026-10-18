@@ -167,3 +167,23 @@ pub(crate) async fn partition_count(topic: &str) -> u64 {
         .and_then(Value::as_u64)
         .unwrap_or_default()
 }
+
+/// Creates `tenant` and its `namespace`, allowed on every cluster the stand runs, so a suite can
+/// put topics outside `public/default`.
+///
+/// # Panics
+///
+/// Panics when the broker refuses either request, which includes a tenant that already exists:
+/// callers pass names unique to the run.
+pub(crate) async fn create_namespace(tenant: &str, namespace: &str) {
+    let clusters = get("clusters".to_owned()).await;
+    let tenant_path = format!("tenants/{tenant}");
+    let namespace_path = format!("namespaces/{tenant}/{namespace}");
+    let tenant_body = serde_json::json!({ "allowedClusters": clusters }).to_string();
+    tokio::task::spawn_blocking(move || {
+        request("PUT", &tenant_path, Some(&tenant_body));
+        request("PUT", &namespace_path, Some("{}"));
+    })
+    .await
+    .expect("the admin requests run to completion");
+}

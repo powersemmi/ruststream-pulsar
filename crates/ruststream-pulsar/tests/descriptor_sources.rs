@@ -61,6 +61,21 @@ async fn audit(order: &Order) -> HandlerOutcome {
     HandlerOutcome::ack()
 }
 
+/// A pattern written for a namespace of its own: the namespace in its prefix is the one the
+/// client lists.
+#[subscriber(PulsarSubscription::pattern("persistent://acme/orders/.*", "acme-audit"))]
+async fn acme_audit(order: &Order) -> HandlerOutcome {
+    let _ = order;
+    HandlerOutcome::ack()
+}
+
+/// A prefix whose namespace is itself a regular expression names no single namespace to list.
+#[subscriber(PulsarSubscription::pattern("persistent://acme/(orders|billing)/.*", "acme-all"))]
+async fn acme_everything(order: &Order) -> HandlerOutcome {
+    let _ = order;
+    HandlerOutcome::ack()
+}
+
 #[derive(Debug, PartialEq, Eq, Deserialize, Outgoing, Serialize)]
 struct Receipt {
     id: u64,
@@ -190,6 +205,73 @@ async fn a_pattern_descriptor_reads_a_new_topic_from_the_next_listing() {
             .received::<Order>(),
         vec![order(3)],
         "the pattern reads its listed topics and nothing else",
+    );
+}
+
+/// A pattern reads the namespace its own prefix names, and only that one: a topic of
+/// `public/default` is not listed for it even where the regular expression alone would match.
+#[tokio::test(start_paused = true)]
+async fn a_pattern_reads_the_namespace_its_prefix_names() {
+    let app =
+        RustStream::new(AppInfo::new("acme", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
+            b.include(acme_audit);
+        });
+    let tb = TestApp::start(app).await.expect("start harness");
+
+    // The topics come to exist after the subscription opened, so the next listing reads them.
+    for (topic, id) in [
+        ("persistent://acme/orders/created", 1),
+        ("persistent://public/default/created", 2),
+    ] {
+        tb.broker::<PulsarBroker>()
+            .message(&order(id))
+            .to(topic)
+            .publish()
+            .await
+            .expect("publish");
+    }
+    tb.advance(PATTERN_REFRESH)
+        .await
+        .expect("the client lists the namespace again");
+    for (topic, id) in [
+        ("persistent://acme/orders/created", 3),
+        ("persistent://public/default/created", 4),
+    ] {
+        tb.broker::<PulsarBroker>()
+            .message(&order(id))
+            .to(topic)
+            .publish()
+            .await
+            .expect("publish");
+    }
+
+    assert_eq!(
+        tb.broker::<PulsarBroker>()
+            .subscriber("acme-audit")
+            .assert_called_once()
+            .settled(HandlerOutcome::ack())
+            .received::<Order>(),
+        vec![order(3)],
+        "the pattern reads the topics of acme/orders and nothing else",
+    );
+}
+
+/// A namespace written as a regular expression is refused at startup, and the refusal names the
+/// pattern.
+#[tokio::test]
+async fn a_pattern_with_a_regex_namespace_refuses_to_start() {
+    let app =
+        RustStream::new(AppInfo::new("acme", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
+            b.include(acme_everything);
+        });
+
+    let failed = TestApp::start(app)
+        .await
+        .expect_err("a pattern naming no single namespace must not start");
+    let message = failed.to_string();
+    assert!(
+        message.contains("persistent://acme/(orders|billing)/.*"),
+        "{message}"
     );
 }
 

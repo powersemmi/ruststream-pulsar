@@ -12,7 +12,8 @@
 //! the live broker returns.
 //!
 //! What it models: fully qualified topic names, with a delivery naming its topic the way its
-//! subscription named it; single-topic, multi-topic and pattern subscriptions, a pattern reading the `public/default` namespace by full name and a topic
+//! subscription named it; single-topic, multi-topic and pattern subscriptions, a pattern reading
+//! the namespace its prefix names by full name and a topic
 //! created after it opened from the client's next listing, thirty seconds on; the four
 //! subscription types, with one delivery per subscription and the type choosing the consumer;
 //! negative acknowledgement back to the subscription; what a closing consumer left queued or
