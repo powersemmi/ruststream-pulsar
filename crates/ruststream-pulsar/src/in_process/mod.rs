@@ -11,8 +11,8 @@
 //! exclusive subscription and a handle outliving its connection are refused here with the error
 //! the live broker returns.
 //!
-//! What it models: fully qualified topic names; single-topic, multi-topic and pattern
-//! subscriptions, a pattern reading the `public/default` namespace by full name and a topic
+//! What it models: fully qualified topic names, with a delivery naming its topic the way its
+//! subscription named it; single-topic, multi-topic and pattern subscriptions, a pattern reading the `public/default` namespace by full name and a topic
 //! created after it opened from the client's next listing, thirty seconds on; the four
 //! subscription types, with one delivery per subscription and the type choosing the consumer;
 //! negative acknowledgement back to the subscription; what a closing consumer left queued or
@@ -89,14 +89,14 @@ pub(crate) fn subscribe(
     let membership = Membership::new(descriptor.subscription, descriptor.sub_type);
     let id = bus
         .router()
-        .subscribe(route, membership, dead_letter, bus.coordinator())
+        .subscribe(route.clone(), membership, dead_letter, bus.coordinator())
         .map_err(|held| PulsarError::Subscribe {
             topic: display.clone(),
             source: Box::new(held),
         })?;
     let subscriber = PulsarSubscriber::in_process(
         display,
-        Queued::new(Arc::clone(bus), id, descriptor.ack_timeout),
+        Queued::new(Arc::clone(bus), id, route, descriptor.ack_timeout),
         descriptor.batch_wait,
     );
     Ok((subscriber, id))

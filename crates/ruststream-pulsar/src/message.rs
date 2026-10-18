@@ -284,11 +284,13 @@ impl PulsarMessage {
         }
     }
 
-    /// A delivery of the in-process transport, reporting what a live one reports: its topic's
-    /// full name, and a message id whose entry id is its place in the topic's log.
+    /// A delivery of the in-process transport, reporting what a live one reports: its topic
+    /// as the subscription named it (`topic`), and a message id whose entry id is its place in
+    /// the topic's log.
     #[cfg(feature = "testing")]
     pub(crate) fn in_process(
         delivery: Delivery,
+        topic: String,
         settlement: Settlement,
         ack_timeout: Option<Duration>,
     ) -> Self {
@@ -296,7 +298,7 @@ impl PulsarMessage {
         Self {
             payload: delivery.payload,
             headers: delivery.headers,
-            topic: delivery.topic,
+            topic,
             id: MessageIdData {
                 ledger_id: 0,
                 entry_id,
@@ -309,8 +311,11 @@ impl PulsarMessage {
         }
     }
 
-    /// The fully resolved topic this message arrived on (with its partition suffix when the
-    /// topic is partitioned).
+    /// The topic this message arrived on, named the way its subscription named it: as written
+    /// in [`PulsarSubscription::new`](crate::PulsarSubscription::new) or
+    /// [`topics`](crate::PulsarSubscription::topics), and by its full name for a
+    /// [`pattern`](crate::PulsarSubscription::pattern), whose topics the client finds by listing
+    /// their full names. A partitioned topic adds its partition suffix.
     #[must_use]
     pub fn topic(&self) -> &str {
         &self.topic
@@ -399,7 +404,7 @@ impl IncomingMessage for PulsarMessage {
             #[cfg(feature = "testing")]
             Settle::InProcess(settlement) => {
                 if requeue {
-                    (*settlement).requeue(self.payload, self.headers, self.topic)
+                    (*settlement).requeue(self.payload, self.headers)
                 } else {
                     settlement.settle();
                     Ok(())
@@ -456,12 +461,7 @@ impl IncomingMessage for PulsarMessage {
             }
             #[cfg(feature = "testing")]
             Settle::InProcess(settlement) => {
-                return ready((*settlement).nack_after(
-                    delay,
-                    self.payload,
-                    self.headers,
-                    self.topic,
-                ));
+                return ready((*settlement).nack_after(delay, self.payload, self.headers));
             }
         }
         ready(Ok(()))
