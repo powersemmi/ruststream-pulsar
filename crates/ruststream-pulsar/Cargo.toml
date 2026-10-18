@@ -47,7 +47,10 @@ tracing.workspace = true
 [dev-dependencies]
 # `cbor` is a second codec for the tests alone: a publish that names a per-message setting has to
 # leave in the format its mount site named, and one codec cannot tell that apart from the default.
+# `asyncapi` because the examples' manual twins derive `JsonSchema` for the message types their
+# registrations document, as a service on the manual path does.
 ruststream = { workspace = true, features = [
+    "asyncapi",
     "cbor",
     "conformance",
     "testing",
@@ -57,3 +60,37 @@ ruststream = { workspace = true, features = [
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+# --- examples: flow ---
+[[example]]
+name = "pulsar_positions"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_positions"
+path = "examples/manual/pulsar_positions.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_positions_start_at"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_positions_start_at"
+path = "examples/manual/pulsar_positions_start_at.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_positions_seek"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_positions_seek"
+path = "examples/manual/pulsar_positions_seek.rs"
+required-features = ["testing"]
+test = true
