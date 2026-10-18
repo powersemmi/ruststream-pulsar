@@ -10,6 +10,7 @@ use std::time::Duration;
 
 #[cfg(feature = "asyncapi")]
 use ruststream::asyncapi::Bindings;
+use ruststream::runtime::IntoSource;
 use ruststream::{BrokerMoves, DeclareRetryError, RetryDeclaration, SubscriptionSource};
 #[cfg(feature = "asyncapi")]
 use serde::Serialize;
@@ -455,6 +456,16 @@ impl DeclaredRetries {
         self.by_topic
             .lock()
             .expect("the declarations are read and written without panicking")
+    }
+}
+
+// The manual path binds a `Handle` body to its source with `subscriber(source, body)`, which
+// takes the descriptor as it is, the way the `#[subscriber(..)]` attribute does.
+impl IntoSource for PulsarSubscription {
+    type Source = Self;
+
+    fn into_source(self) -> Self {
+        self
     }
 }
 
