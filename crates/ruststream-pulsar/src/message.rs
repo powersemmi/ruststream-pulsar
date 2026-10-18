@@ -184,7 +184,10 @@ pub(crate) fn within_ack_timeout(
 ) -> Result<(), AckError> {
     match ack_timeout {
         Some(timeout) if delay >= timeout => Err(AckError::Broker(Box::from(format!(
-            "topic '{topic}': a retry delay of {delay:?} is not shorter than the subscription's              ack_timeout of {timeout:?}. A delayed retry is held in this process, and the              consumer redelivers an unacknowledged message once the ack timeout elapses, so the              message would come back early. Raise ack_timeout above the delay, or shorten it"
+            "topic '{topic}': a retry delay of {delay:?} is not shorter than the subscription's \
+             ack_timeout of {timeout:?}. A delayed retry is held in this process, and the \
+             consumer redelivers an unacknowledged message once the ack timeout elapses, so the \
+             message would come back early. Raise ack_timeout above the delay, or shorten it"
         )))),
         _ => Ok(()),
     }
@@ -525,6 +528,24 @@ mod tests {
             .expect_err("a delay equal to the timeout must be refused");
         let message = format!("{refused:?}");
         assert!(message.contains("ack_timeout"), "{message}");
+    }
+
+    /// The refusal is what a handler's log shows, so it reads as one sentence with single spaces.
+    #[test]
+    fn the_ack_timeout_refusal_reads_as_one_sentence() {
+        let timeout = Duration::from_secs(30);
+        let AckError::Broker(source) = within_ack_timeout(timeout, Some(timeout), "orders")
+            .expect_err("a delay equal to the timeout must be refused")
+        else {
+            panic!("the refusal is the broker's own");
+        };
+        assert_eq!(
+            source.to_string(),
+            "topic 'orders': a retry delay of 30s is not shorter than the subscription's \
+             ack_timeout of 30s. A delayed retry is held in this process, and the consumer \
+             redelivers an unacknowledged message once the ack timeout elapses, so the message \
+             would come back early. Raise ack_timeout above the delay, or shorten it",
+        );
     }
 
     /// The client's message owns its payload, so the publish hands the buffer the framework
