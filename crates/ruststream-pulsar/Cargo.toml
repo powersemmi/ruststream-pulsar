@@ -420,3 +420,15 @@ name = "manual_guide_topics_and_subscriptions"
 path = "examples/manual/guide/topics_and_subscriptions.rs"
 required-features = ["testing"]
 test = true
+
+[[example]]
+name = "guide_subscription_types_and_ordering"
+path = "examples/guide/subscription_types_and_ordering.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_guide_subscription_types_and_ordering"
+path = "examples/manual/guide/subscription_types_and_ordering.rs"
+required-features = ["testing"]
+test = true
