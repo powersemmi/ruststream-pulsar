@@ -139,3 +139,14 @@ name = "manual_pulsar_batches"
 path = "examples/manual/pulsar_batches.rs"
 required-features = ["testing"]
 test = true
+
+[[example]]
+name = "pulsar_context"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_context"
+path = "examples/manual/pulsar_context.rs"
+required-features = ["testing"]
+test = true
