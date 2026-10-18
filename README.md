@@ -129,9 +129,17 @@ tb.broker::<PulsarBroker>()
 
 ## Documentation
 
-- Guides, components and architecture: <https://powersemmi.github.io/ruststream-pulsar/latest/>
-- The API reference: <https://docs.rs/ruststream-pulsar>
-- The framework: <https://powersemmi.github.io/ruststream/latest>
+- [Getting started](https://powersemmi.github.io/ruststream-pulsar/latest/guides/getting-started/) - installation and a first service against a
+  local Pulsar.
+- [Guides](https://powersemmi.github.io/ruststream-pulsar/latest/) - topics and subscriptions, subscription types and ordering, acknowledgement,
+  retries, replay, publishing, testing and a production cluster.
+- [Components](https://powersemmi.github.io/ruststream-pulsar/latest/components/) - one page per part of the crate: the broker, subscriptions,
+  settlement, positions, publishing, the AsyncAPI bindings and testing.
+- [Architecture](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/) - how the crate sits between the `pulsar` client and the
+  runtime.
+- [Benchmarks](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/benchmarks/) - what the crate costs over the raw client.
+- [API reference](https://docs.rs/ruststream-pulsar) - every item on docs.rs.
+- The framework: <https://powersemmi.github.io/ruststream/latest/>
 
 ## Minimum supported Rust version
 
