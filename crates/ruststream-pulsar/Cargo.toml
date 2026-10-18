@@ -480,3 +480,15 @@ name = "manual_guide_publishing"
 path = "examples/manual/guide/publishing.rs"
 required-features = ["testing"]
 test = true
+
+[[example]]
+name = "guide_testing"
+path = "examples/guide/testing.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_guide_testing"
+path = "examples/manual/guide/testing.rs"
+required-features = ["testing"]
+test = true
