@@ -47,7 +47,10 @@ tracing.workspace = true
 [dev-dependencies]
 # `cbor` is a second codec for the tests alone: a publish that names a per-message setting has to
 # leave in the format its mount site named, and one codec cannot tell that apart from the default.
+# `asyncapi` because the examples' manual twins derive `JsonSchema` for the message types their
+# registrations document, as a service on the manual path does.
 ruststream = { workspace = true, features = [
+    "asyncapi",
     "cbor",
     "conformance",
     "testing",
@@ -57,3 +60,93 @@ ruststream = { workspace = true, features = [
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+# --- examples: subscriptions ---
+
+[[example]]
+name = "pulsar_subscriptions_name"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_subscriptions_name"
+path = "examples/manual/pulsar_subscriptions_name.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_subscriptions_descriptor"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_subscriptions_descriptor"
+path = "examples/manual/pulsar_subscriptions_descriptor.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_subscriptions_topics"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_subscriptions_topics"
+path = "examples/manual/pulsar_subscriptions_topics.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_pattern"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_pattern"
+path = "examples/manual/pulsar_pattern.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_subscriptions_topic"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_subscriptions_topic"
+path = "examples/manual/pulsar_subscriptions_topic.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_subscriptions_type"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_subscriptions_type"
+path = "examples/manual/pulsar_subscriptions_type.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_batches"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_batches"
+path = "examples/manual/pulsar_batches.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_context"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_context"
+path = "examples/manual/pulsar_context.rs"
+required-features = ["testing"]
+test = true

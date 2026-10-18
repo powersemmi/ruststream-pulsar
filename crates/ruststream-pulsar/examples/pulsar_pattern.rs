@@ -1,27 +1,23 @@
-//! Pattern subscriptions: one consumer over every topic matching a regular expression.
+//! Pattern subscriptions: one subscription over every topic whose full name matches a regular
+//! expression, topics created later included. Each scenario is a test.
 //!
-//! Run a broker first (`just brokers-up`), then:
-//! `cargo run --example pulsar_pattern -- run`
+//! ```text
+//! cargo test --example pulsar_pattern --features testing
+//! cargo run --example pulsar_pattern --features testing -- run
+//! ```
 
 use ruststream_pulsar::prelude::*;
 
-/// One subscription spans every `orders-*` topic in the lookup namespace, including topics
-/// created after the consumer attached. What those producers write is not one schema, so the
-/// payload rides the byte lane: `Deserialized` names the bytes without decoding them, and no
-/// codec stands between the broker and the handler.
-///
-/// An audit trail wants the whole record, so the subscription opens at the beginning of the
-/// retained log; the clause seeks on every startup, not only when the subscription is created.
 // --8<-- [start:pattern]
+/// What the `orders-*` producers write is not one schema, so the payload rides the byte lane:
+/// `Deserialized` names the bytes without decoding them.
 #[derive(Deserialized)]
 struct Record<'a>(&'a [u8]);
 
-#[subscriber(
-    PulsarSubscription::pattern("orders-.*", "audit"),
-    start_at(PulsarPosition::earliest())
-)]
+/// Records every `orders-*` topic of `public/default`, those created after startup included.
+#[subscriber(PulsarSubscription::pattern("persistent://public/default/orders-.*", "audit"))]
 async fn audit(record: &Record<'_>) -> HandlerOutcome {
-    println!("audit: {}", String::from_utf8_lossy(record.0));
+    tracing::info!(bytes = record.0.len(), "order event recorded");
     HandlerOutcome::ack()
 }
 // --8<-- [end:pattern]
@@ -37,3 +33,70 @@ fn app() -> impl App {
     )
 }
 // --8<-- [end:app]
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+    use std::time::Duration;
+
+    use ruststream::testing::TestApp;
+    use serde::{Deserialize, Serialize};
+
+    use super::*;
+
+    /// What one producer writes; the audit reads it as bytes.
+    #[derive(Debug, PartialEq, Deserialize, Serialize, Outgoing)]
+    struct Event {
+        id: String,
+    }
+
+    /// How often the client lists the namespace again for a pattern subscription.
+    const LISTING: Duration = Duration::from_secs(30);
+
+    #[tokio::test(start_paused = true)]
+    async fn a_new_topic_is_read_from_the_next_listing() -> Result<(), Box<dyn Error>> {
+        let tb = TestApp::start(app()).await?;
+
+        // None of these topics existed when the subscription opened.
+        for (topic, id) in [
+            ("orders-eu", "eu-1"),
+            ("orders-us", "us-1"),
+            ("returns", "r-1"),
+        ] {
+            tb.broker::<PulsarBroker>()
+                .message(&Event { id: id.to_owned() })
+                .to(topic)
+                .publish()
+                .await?;
+        }
+        tb.broker::<PulsarBroker>()
+            .subscriber("audit")
+            .assert_not_called();
+
+        tb.advance(LISTING).await?;
+        for (topic, id) in [
+            ("orders-eu", "eu-2"),
+            ("orders-us", "us-2"),
+            ("returns", "r-2"),
+        ] {
+            tb.broker::<PulsarBroker>()
+                .message(&Event { id: id.to_owned() })
+                .to(topic)
+                .publish()
+                .await?;
+        }
+
+        // The listing found both `orders-*` topics; `returns` does not match.
+        let recorded: Vec<String> = tb
+            .broker::<PulsarBroker>()
+            .subscriber("audit")
+            .assert_called(2)
+            .settled(HandlerOutcome::ack())
+            .received::<Event>()
+            .into_iter()
+            .map(|event| event.id)
+            .collect();
+        assert_eq!(recorded, ["eu-2", "us-2"]);
+        Ok(())
+    }
+}
