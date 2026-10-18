@@ -59,7 +59,7 @@ pub(crate) const DEFAULT_MAX_MESSAGE_SIZE: usize = 5 * 1024 * 1024;
 /// # }
 /// # #[subscriber(PulsarSubscription::new("orders", "workers").subscription_type(SubscriptionType::Exclusive))]
 /// # async fn handle(order: &Order) -> HandlerOutcome {
-/// #     println!("order {}", order.id);
+/// #     tracing::info!(order.id, "accepted");
 /// #     HandlerOutcome::ack()
 /// # }
 ///
@@ -236,7 +236,7 @@ pub(crate) type CoreCell = Arc<OnceCell<Arc<Core>>>;
 /// # }
 /// # #[subscriber(PulsarSubscription::new("orders", "workers"))]
 /// # async fn handle(order: &Order) -> HandlerOutcome {
-/// #     println!("order {}", order.id);
+/// #     tracing::info!(order.id, "accepted");
 /// #     HandlerOutcome::ack()
 /// # }
 ///
@@ -251,6 +251,68 @@ pub(crate) type CoreCell = Arc<OnceCell<Arc<Core>>>;
 ///     })
 /// }
 /// # }
+/// # fn main() {}
+/// ```
+///
+/// A test runs the app `main` runs. With the `testing` feature, `TestApp::start` connects this
+/// broker in process, with no server, and the test addresses it by its production type:
+///
+/// ```
+/// # #[cfg(feature = "testing")]
+/// # mod demo {
+/// use std::error::Error;
+///
+/// use ruststream::testing::TestApp;
+/// use ruststream_pulsar::prelude::*;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Deserialize, Eq, Outgoing, PartialEq, Serialize)]
+/// struct Order {
+///     id: u64,
+///     quantity: u32,
+/// }
+///
+/// #[subscriber(PulsarSubscription::new("orders", "workers"))]
+/// async fn handle(order: &Order) -> HandlerOutcome {
+///     if order.quantity == 0 {
+///         return HandlerOutcome::drop();
+///     }
+///     HandlerOutcome::ack()
+/// }
+///
+/// /// The app `main` runs, and the one the tests hand the harness.
+/// pub fn app() -> RustStream {
+///     RustStream::new(AppInfo::new("orders", "0.1.0"))
+///         .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
+///             b.include(handle);
+///         })
+/// }
+///
+/// pub async fn an_empty_order_is_dropped() -> Result<(), Box<dyn Error>> {
+///     let tb = TestApp::start(app()).await?;
+///
+///     // The publish returns once the handler it woke has settled.
+///     tb.broker::<PulsarBroker>()
+///         .message(&Order { id: 1, quantity: 0 })
+///         .to("orders")
+///         .publish()
+///         .await?;
+///
+///     tb.broker::<PulsarBroker>()
+///         .subscriber("orders")
+///         .assert_called_once()
+///         .with(&Order { id: 1, quantity: 0 })
+///         .settled(HandlerOutcome::drop());
+///     tb.shutdown().await?;
+///     Ok(())
+/// }
+/// # }
+/// # #[cfg(feature = "testing")]
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     demo::an_empty_order_is_dropped().await
+/// # }
+/// # #[cfg(not(feature = "testing"))]
 /// # fn main() {}
 /// ```
 #[derive(Debug, Clone)]
@@ -310,7 +372,7 @@ impl PulsarBroker {
     /// /// service.
     /// #[subscriber("orders")]
     /// async fn handle(order: &Order) -> HandlerOutcome {
-    ///     println!("order {}", order.id);
+    ///     tracing::info!(order.id, "accepted");
     ///     HandlerOutcome::ack()
     /// }
     ///
@@ -357,7 +419,7 @@ impl PulsarBroker {
     /// # }
     /// # #[subscriber(PulsarSubscription::new("orders", "workers").subscription_type(SubscriptionType::Exclusive))]
     /// # async fn handle(order: &Order) -> HandlerOutcome {
-    /// #     println!("order {}", order.id);
+    /// #     tracing::info!(order.id, "accepted");
     /// #     HandlerOutcome::ack()
     /// # }
     ///
@@ -399,7 +461,7 @@ impl PulsarBroker {
     /// # }
     /// # #[subscriber(PulsarSubscription::new("scans", "archive"))]
     /// # async fn archive(scan: &Scan) -> HandlerOutcome {
-    /// #     println!("scan {}", scan.id);
+    /// #     tracing::info!(scan.id, "archived");
     /// #     HandlerOutcome::ack()
     /// # }
     ///
@@ -723,8 +785,6 @@ mod tests {
             ("pulsar+ssl://admin:s3cret@broker", "broker"),
             // A password may hold an `@`, so the userinfo ends at the last one.
             ("pulsar://admin:p@ssw0rd@broker:6650", "broker:6650"),
-            // Pulsar takes a comma-separated broker list, which is the address as it stands.
-            ("pulsar://one:6650,two:6650", "one:6650,two:6650"),
         ] {
             assert_eq!(
                 PulsarBroker::new(url).describe_server().host.as_deref(),

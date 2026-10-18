@@ -10,6 +10,7 @@ use std::time::Duration;
 
 #[cfg(feature = "asyncapi")]
 use ruststream::asyncapi::Bindings;
+use ruststream::runtime::IntoSource;
 use ruststream::{BrokerMoves, DeclareRetryError, RetryDeclaration, SubscriptionSource};
 #[cfg(feature = "asyncapi")]
 use serde::Serialize;
@@ -27,10 +28,11 @@ use crate::topic::PulsarTopic;
 pub enum SubscriptionType {
     /// One consumer holds the subscription.
     ///
-    /// A server answers a second attach with "consumer busy" and the client waits for the holder
-    /// to leave rather than reporting it, so a second consumer of this subscription is a service
-    /// that does not start. In process, under the test harness, the attach is refused with
-    /// [`PulsarError::Subscribe`](crate::PulsarError::Subscribe) instead, so the test fails
+    /// A server refuses a second attach as busy, and the client retries it until
+    /// [`OperationRetries`](crate::OperationRetries) runs out, which by default is never: a second
+    /// consumer of this subscription is a service that does not start. A bound on the retries
+    /// turns the wait into [`PulsarError::Subscribe`](crate::PulsarError::Subscribe). In process,
+    /// under the test harness, the attach is refused with that error at once, so the test fails
     /// rather than hangs.
     Exclusive,
     /// Competing consumers, round-robin. The default.
@@ -118,20 +120,23 @@ pub(crate) const DEFAULT_BATCH_WAIT: Duration = Duration::from_millis(10);
 
 /// A subscription descriptor for one Pulsar subscription over one or more topics.
 ///
-/// Where the subscription starts reading is not a descriptor option: it is the framework's
-/// `start_at(..)` clause over [`PulsarPosition`](crate::PulsarPosition), which the `Seekable`
-/// capability backs.
+/// It names the subscription, the topics it reads and the settings its consumer opens with:
+/// [`new`](Self::new) reads one topic, [`topics`](Self::topics) a fixed list and
+/// [`pattern`](Self::pattern) every topic whose full name a regular expression matches. Where the
+/// subscription starts reading is the framework's `start_at(..)` clause over
+/// [`PulsarPosition`](crate::PulsarPosition).
 ///
-/// How often a spent delivery is retried, and where it goes afterwards, is not a descriptor
-/// option either: the registration declares it at the mount site with
+/// The registration declares the retry cap and the dead-letter topic at the mount site with
 /// `b.include(handler).max_attempts(nonzero!(5)).dead_letter("orders-dlq")`, and this descriptor
-/// turns the declaration into the consumer's own `DeadLetterPolicy`. Nothing is republished from
-/// the service, so `out_retry(..)` does not compile over this descriptor. The cap needs a
+/// turns the declaration into the consumer's own `DeadLetterPolicy`. The Pulsar client moves a
+/// spent delivery itself, so the registration takes no `out_retry(..)` step. The cap needs a
 /// subscription that dispatches to competing consumers - Pulsar counts a message's redeliveries
-/// on [`Shared`](SubscriptionType::Shared) and [`KeyShared`](SubscriptionType::KeyShared) and
-/// nowhere else - so a declaration over the other two types refuses to start.
+/// on [`Shared`](SubscriptionType::Shared) and [`KeyShared`](SubscriptionType::KeyShared) - so a
+/// declaration over the other two types refuses to start.
 ///
-/// Implements [`SubscriptionSource`] for the broker, so the declaration below sits inline in the
+/// # Examples
+///
+/// Implements [`SubscriptionSource`] for the broker, so the declaration sits inline in the
 /// `#[subscriber(..)]` decorator:
 ///
 /// ```
@@ -152,7 +157,7 @@ pub(crate) const DEFAULT_BATCH_WAIT: Duration = Duration::from_millis(10);
 ///         .ack_timeout(Duration::from_secs(30))
 /// )]
 /// async fn handle(order: &Order) -> HandlerOutcome {
-///     println!("order {}", order.id);
+///     tracing::info!(order.id, "accepted");
 ///     HandlerOutcome::ack()
 /// }
 ///
@@ -162,6 +167,57 @@ pub(crate) const DEFAULT_BATCH_WAIT: Duration = Duration::from_millis(10);
 ///         PulsarBroker::new("pulsar://localhost:6650"),
 ///         |b| {
 ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter("orders-dlq");
+///         },
+///     )
+/// }
+/// # }
+/// # fn main() {}
+/// ```
+///
+/// The three forms side by side, one handler each:
+///
+/// ```
+/// # mod demo {
+/// use std::time::Duration;
+///
+/// use ruststream_pulsar::prelude::*;
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct Order {
+///     id: u64,
+/// }
+///
+/// #[subscriber(PulsarSubscription::new("persistent://acme/orders/created", "workers"))]
+/// async fn fulfil(order: &Order) -> HandlerOutcome {
+///     tracing::info!(order.id, "fulfilling");
+///     HandlerOutcome::ack()
+/// }
+///
+/// #[subscriber(PulsarSubscription::topics(["orders-eu", "orders-us"], "regional"))]
+/// async fn tally(order: &Order) -> HandlerOutcome {
+///     tracing::info!(order.id, "counted");
+///     HandlerOutcome::ack()
+/// }
+///
+/// #[subscriber(
+///     PulsarSubscription::pattern("persistent://public/default/orders-.*", "audit")
+///         .subscription_type(SubscriptionType::KeyShared)
+///         .ack_timeout(Duration::from_secs(30))
+/// )]
+/// async fn audit(order: &Order) -> HandlerOutcome {
+///     tracing::info!(order.id, "audited");
+///     HandlerOutcome::ack()
+/// }
+///
+/// #[ruststream::app]
+/// fn app() -> impl App {
+///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
+///         PulsarBroker::new("pulsar://localhost:6650"),
+///         |b| {
+///             b.include(fulfil);
+///             b.include(tally);
+///             b.include(audit);
 ///         },
 ///     )
 /// }
@@ -246,6 +302,43 @@ impl PulsarSubscription {
     /// `batch(n)` registration on this subscription assembles its batches here, and a batch
     /// closes when it holds `n` deliveries or when this has elapsed, whichever comes first.
     /// Defaults to 10 ms; raising it trades latency for fuller batches on a sparse topic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # mod demo {
+    /// use std::time::Duration;
+    ///
+    /// use ruststream_pulsar::prelude::*;
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Deserialize)]
+    /// struct Reading {
+    ///     value: f64,
+    /// }
+    ///
+    /// #[subscriber(
+    ///     PulsarSubscription::new("readings", "aggregator")
+    ///         .batch_wait(Duration::from_millis(250))
+    /// )]
+    /// async fn aggregate(readings: &[Reading]) -> HandlerOutcome {
+    ///     let total: f64 = readings.iter().map(|reading| reading.value).sum();
+    ///     tracing::info!(count = readings.len(), total, "readings settled");
+    ///     HandlerOutcome::ack()
+    /// }
+    ///
+    /// #[ruststream::app]
+    /// fn app() -> impl App {
+    ///     RustStream::new(AppInfo::new("readings", "0.1.0")).with_broker(
+    ///         PulsarBroker::new("pulsar://localhost:6650"),
+    ///         |b| {
+    ///             b.include(aggregate.batch(nonzero!(64)));
+    ///         },
+    ///     )
+    /// }
+    /// # }
+    /// # fn main() {}
+    /// ```
     pub fn batch_wait(mut self, wait: Duration) -> Self {
         self.batch_wait = wait;
         self
@@ -462,6 +555,16 @@ impl DeclaredRetries {
         self.by_topic
             .lock()
             .expect("the declarations are read and written without panicking")
+    }
+}
+
+// The manual path binds a `Handle` body to its source with `subscriber(source, body)`, which
+// takes the descriptor as it is, the way the `#[subscriber(..)]` attribute does.
+impl IntoSource for PulsarSubscription {
+    type Source = Self;
+
+    fn into_source(self) -> Self {
+        self
     }
 }
 

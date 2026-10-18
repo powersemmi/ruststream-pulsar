@@ -151,7 +151,7 @@ impl PulsarTopic {
     /// # }
     /// # #[subscriber(PulsarSubscription::new(orders().as_str(), "workers"))]
     /// # async fn handle(order: &Order) -> HandlerOutcome {
-    /// #     println!("order {}", order.id);
+    /// #     tracing::info!(order.id, "accepted");
     /// #     HandlerOutcome::retry()
     /// # }
     /// #[ruststream::app]
@@ -197,7 +197,7 @@ impl PulsarTopic {
     /// # }
     /// # #[subscriber(PulsarSubscription::new(orders().as_str(), "workers"))]
     /// # async fn handle(order: &Order) -> HandlerOutcome {
-    /// #     println!("order {}", order.id);
+    /// #     tracing::info!(order.id, "accepted");
     /// #     HandlerOutcome::retry()
     /// # }
     /// #[ruststream::app]
@@ -239,7 +239,7 @@ impl PulsarTopic {
     /// # }
     /// # #[subscriber(PulsarSubscription::new(orders().as_str(), "workers"))]
     /// # async fn handle(order: &Order) -> HandlerOutcome {
-    /// #     println!("order {}", order.id);
+    /// #     tracing::info!(order.id, "accepted");
     /// #     HandlerOutcome::retry()
     /// # }
     /// #[ruststream::app]
@@ -281,7 +281,7 @@ impl PulsarTopic {
     /// # }
     /// # #[subscriber(PulsarSubscription::new(orders().as_str(), "workers"))]
     /// # async fn handle(order: &Order) -> HandlerOutcome {
-    /// #     println!("order {}", order.id);
+    /// #     tracing::info!(order.id, "accepted");
     /// #     HandlerOutcome::retry()
     /// # }
     /// #[ruststream::app]

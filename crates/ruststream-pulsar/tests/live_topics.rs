@@ -226,6 +226,61 @@ async fn a_pattern_subscription_reads_the_topics_it_matches() {
     connected.shutdown().await.expect("shutdown succeeds");
 }
 
+/// A delivery names its topic the way the subscription named it: a bare name stays bare, and
+/// each topic of a list keeps the spelling the list gave it. The in-process mode answers the
+/// same.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delivery_names_its_topic_as_the_subscription_wrote_it() {
+    let Some(url) = test_url() else { return };
+    let connected = connect(&url).await;
+    let bare = unique("named-bare");
+    let listed = [
+        unique("named-listed-eu"),
+        format!("public/default/{}", unique("named-listed-us")),
+    ];
+
+    let mut single = connected
+        .subscribe_descriptor(PulsarSubscription::new(&bare, unique("named-bare-sub")))
+        .await
+        .expect("subscription opens");
+    let mut list = connected
+        .subscribe_descriptor(PulsarSubscription::topics(
+            listed.clone(),
+            unique("named-listed-sub"),
+        ))
+        .await
+        .expect("subscription opens");
+
+    // Each message goes to the topic's full name, so the name a delivery reports is not the one
+    // it was published under.
+    let publisher = connected.publisher();
+    for topic in std::iter::once(&bare).chain(&listed) {
+        let local = topic.rsplit('/').next().unwrap_or(topic);
+        publisher
+            .message(&Record(topic.as_bytes().to_vec()))
+            .to(format!("persistent://public/default/{local}").as_str())
+            .publish()
+            .await
+            .expect("publish succeeds");
+    }
+
+    assert_eq!(
+        collect(&mut single, 1).await,
+        [(bare.clone(), bare.as_bytes().to_vec())]
+    );
+    let read: BTreeSet<(String, Vec<u8>)> =
+        collect(&mut list, listed.len()).await.into_iter().collect();
+    assert_eq!(
+        read,
+        listed
+            .iter()
+            .map(|topic| (topic.clone(), topic.as_bytes().to_vec()))
+            .collect::<BTreeSet<_>>(),
+    );
+
+    connected.shutdown().await.expect("shutdown succeeds");
+}
+
 /// A pattern whose prefix names a namespace other than `public/default` reads that namespace.
 ///
 /// The client lists one namespace per pattern subscription, so the namespace the pattern names

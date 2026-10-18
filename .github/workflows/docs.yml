@@ -11,15 +11,14 @@ on:
     # check, or the label leaves a stale red run blocking the merge.
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     paths:
-      - docs/**
-      - properdocs.yml
-      - overrides/**
-      - crates/ruststream-pulsar/examples/**
-      - scripts/lint_doc_fences.py
-      - scripts/check_doc_i18n.py
-      - scripts/check_doc_parity.py
-      - scripts/doc_glossary.toml
-      - .github/workflows/docs.yml
+      - "docs/**"
+      - "website/i18n/**"
+      - "crates/ruststream-pulsar/examples/**"
+      - "scripts/lint_doc_fences.py"
+      - "scripts/check_doc_i18n.py"
+      - "scripts/check_doc_parity.py"
+      - "scripts/doc_glossary.toml"
+      - ".github/workflows/docs.yml"
 
 permissions:
   contents: read

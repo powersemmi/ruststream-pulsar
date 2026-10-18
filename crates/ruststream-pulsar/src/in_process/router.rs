@@ -150,7 +150,7 @@ struct RouterState {
     parked: HashMap<String, Vec<Delivery>>,
     /// The subscription each detached consumer belonged to, so a delivery it handed out and that
     /// is dropped unsettled afterwards still finds its way back.
-    departed: HashMap<ConsumerId, (Membership, Option<DeadLetterRoute>)>,
+    departed: HashMap<ConsumerId, (Membership, Option<DeadLetterRoute>, Route)>,
 }
 
 impl RouterState {
@@ -502,9 +502,10 @@ impl AddressRouter {
             delivery.redeliveries = delivery.redeliveries.saturating_add(1);
             state.hand_back(&consumer.membership, delivery, false, coordinator);
         }
-        state
-            .departed
-            .insert(id, (consumer.membership, consumer.dead_letter));
+        state.departed.insert(
+            id,
+            (consumer.membership, consumer.dead_letter, consumer.route),
+        );
     }
 
     /// Keeps `delivery`, which the consumer `id` dropped without settling it, unacknowledged
@@ -522,7 +523,7 @@ impl AddressRouter {
             return;
         }
         // Gone with the broker's shutdown, the whole world is: nothing is left to go back to.
-        let Some((membership, _)) = state.departed.get(&id).cloned() else {
+        let Some((membership, ..)) = state.departed.get(&id).cloned() else {
             return;
         };
         delivery.redeliveries = delivery.redeliveries.saturating_add(1);
@@ -571,8 +572,12 @@ impl AddressRouter {
         coordinator: Option<&Coordinator>,
     ) -> Option<bool> {
         let mut state = self.lock();
-        let (membership, dead_letter) = match state.consumers.get(&id) {
-            Some(consumer) => (consumer.membership.clone(), consumer.dead_letter.clone()),
+        let (membership, dead_letter, route) = match state.consumers.get(&id) {
+            Some(consumer) => (
+                consumer.membership.clone(),
+                consumer.dead_letter.clone(),
+                consumer.route.clone(),
+            ),
             None => state.departed.get(&id).cloned()?,
         };
         delivery.redeliveries = delivery.redeliveries.saturating_add(1);
@@ -582,7 +587,9 @@ impl AddressRouter {
             // The registration's declaration parsed the topic when it was taken in.
             let topic = PulsarTopic::parse(&policy.topic)
                 .map_or(policy.topic, |topic| topic.as_str().to_owned());
-            state.deliver(&topic, delivery.payload, delivery.headers, coordinator);
+            let origin = route.named(&delivery.topic);
+            let headers = stamp_origin(delivery.headers, origin, delivery.seq);
+            state.deliver(&topic, delivery.payload, headers, coordinator);
             return Some(false);
         }
         let members = state.members_of(&delivery.topic, &membership.name, Instant::now());
@@ -757,6 +764,25 @@ impl AddressRouter {
         state.parked.clear();
         state.departed.clear();
     }
+}
+
+/// The property the client names the source topic of a dead-lettered message with.
+const REAL_TOPIC: &str = "REAL_TOPIC";
+/// The property the client names the source message id of a dead-lettered message with.
+const ORIGIN_MESSAGE_ID: &str = "ORIGIN_MESSAGE_ID";
+
+/// Adds to `headers` what the client adds to a message it produces to the dead-letter topic: the
+/// topic it was read from and its message id there, in the form the in-process delivery reports
+/// it (ledger 0, the log index as the entry, -1 for a topic that is not partitioned). A property
+/// the message already carries keeps its value, as the client keeps it.
+fn stamp_origin(mut headers: HeaderMap, topic: &str, seq: usize) -> HeaderMap {
+    if !headers.contains(REAL_TOPIC) {
+        headers.insert(REAL_TOPIC, topic.to_owned());
+    }
+    if !headers.contains(ORIGIN_MESSAGE_ID) {
+        headers.insert(ORIGIN_MESSAGE_ID, format!("0:{seq}:-1"));
+    }
+    headers
 }
 
 /// Resolves `position` to an index in `entries`, clamped to its end.

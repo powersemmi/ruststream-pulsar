@@ -35,9 +35,9 @@ use crate::subscriber::PulsarSeeker;
 /// }
 ///
 /// /// Logs where each job sits, and replays the retained backlog when a job asks for it.
-/// #[subscriber("jobs")]
+/// #[subscriber(PulsarSubscription::new("jobs", "workers"))]
 /// async fn work(job: &Job, ctx: &mut Context<'_, PulsarContext>) -> HandlerOutcome {
-///     println!("job {} at {:?}", job.id, ctx.context(Position));
+///     tracing::info!(job = job.id, position = ?ctx.context(Position), "job received");
 ///     if job.rewind
 ///         && ctx
 ///             .context(SeekHandle)
@@ -77,9 +77,9 @@ impl BuildContext<PulsarMessage> for PulsarContext {
 /// header contract). Keeping this a separate type from [`PulsarContext`] is what rejects a batch
 /// body asking for per-delivery fields at compile time.
 ///
-/// Pulsar's client has no consumer-side batch receive, so a batch here is assembled on the client
-/// from the size the mount site's `batch(n)` names. Nothing about that reaches the body: the
-/// context, the seeker and the settlement are the same either way.
+/// Pulsar's client hands over one delivery at a time, so a batch here is assembled on the client
+/// from the size the mount site's `batch(n)` names. The body sees the same context, seeker and
+/// settlement as on a broker that batches on the wire.
 ///
 /// # Examples
 ///
@@ -96,9 +96,10 @@ impl BuildContext<PulsarMessage> for PulsarContext {
 ///
 /// /// A batch that carries the rewind marker replays the retained backlog once it is settled:
 /// /// the next batch opens at the beginning of the log.
-/// #[subscriber("jobs.bulk")]
+/// #[subscriber(PulsarSubscription::new("jobs.bulk", "bulk-workers"))]
 /// async fn work(jobs: &[Job], ctx: &mut Context<'_, PulsarBatchContext>) -> HandlerOutcome {
-///     println!("{} jobs, first {:?}", jobs.len(), jobs.first().map(|job| job.id));
+///     let first = jobs.first().map(|job| job.id);
+///     tracing::info!(count = jobs.len(), ?first, "jobs received");
 ///     if jobs.iter().any(|job| job.rewind)
 ///         && ctx
 ///             .context(SeekHandle)
@@ -152,9 +153,9 @@ impl BuildBatchContext<PulsarMessage> for PulsarBatchContext {
 /// # #[derive(serde::Deserialize)]
 /// # struct Job { id: u64 }
 ///
-/// #[subscriber("jobs")]
+/// #[subscriber(PulsarSubscription::new("jobs", "auditors"))]
 /// async fn audit(job: &Job, Ctx(at): Ctx<Position>) -> HandlerOutcome {
-///     println!("job {} sits at {at:?}", job.id);
+///     tracing::info!(job = job.id, position = ?at, "job audited");
 ///     HandlerOutcome::ack()
 /// }
 /// ```
@@ -193,7 +194,7 @@ impl Field<PulsarContext> for Position {
 /// # struct Job { id: u64, poisoned_until: Option<u64> }
 ///
 /// /// Skips forward past a region the producer marked poisoned.
-/// #[subscriber("jobs")]
+/// #[subscriber(PulsarSubscription::new("jobs", "workers"))]
 /// async fn work(job: &Job, Ctx(seeker): Ctx<SeekHandle>) -> HandlerOutcome {
 ///     if let Some(resume_at) = job.poisoned_until
 ///         && seeker.seek(PulsarPosition::timestamp(resume_at)).await.is_err()

@@ -266,15 +266,11 @@ impl ruststream::Seeker for PulsarSeeker {
         match &self.inner {
             SeekerKind::Consumer(cmd) => {
                 let (done, wait) = oneshot::channel();
+                // A driver that is gone means the subscription is closed, which the in-process
+                // arm reports the same way.
                 cmd.send(DriverCmd::Seek(SeekCmd { position: to, done }))
-                    .map_err(|_| PulsarError::Receive {
-                        topic: String::new(),
-                        source: Box::from("the subscription's driver task has shut down"),
-                    })?;
-                wait.await.map_err(|_| PulsarError::Receive {
-                    topic: String::new(),
-                    source: Box::from("the subscription's driver task has shut down"),
-                })?
+                    .map_err(|_| PulsarError::NotConnected)?;
+                wait.await.map_err(|_| PulsarError::NotConnected)?
             }
             #[cfg(feature = "testing")]
             SeekerKind::InProcess(seeker) => seeker.seek(&to),
@@ -329,9 +325,9 @@ impl Subscriber for PulsarSubscriber {
     }
 }
 
-/// Batches assembled on the client, because the transport has none of its own: the client's
-/// consumer yields one delivery at a time, and its `batch_size` is a flow-control window rather
-/// than a receive size, so there is nothing to translate a batch size into on the wire.
+/// Batches assembled on the client: the client's consumer yields one delivery at a time, and its
+/// `batch_size` is a flow-control window rather than a receive size, so the buffer in front of the
+/// consumer cuts the batches to the size the registration names.
 ///
 /// A batch never carries more than the size the registration named - the buffer closes it there -
 /// and it carries fewer whenever the deadline elapsed first.
@@ -554,4 +550,41 @@ async fn apply_seek(
                 source: box_err(e),
             });
     let _ = done.send(result);
+}
+
+#[cfg(test)]
+mod tests {
+    use ruststream::Seeker;
+
+    use super::*;
+
+    /// A seek through a handle whose subscription is gone answers as a handle used after
+    /// shutdown does, on either transport, rather than as a receive failure on no topic.
+    #[tokio::test]
+    async fn a_seek_after_the_driver_is_gone_reports_not_connected() {
+        let (cmd, driver) = mpsc::unbounded_channel();
+        drop(driver);
+
+        let refused = PulsarSeeker::new(cmd)
+            .seek(PulsarPosition::earliest())
+            .await
+            .expect_err("no driver is left to seek");
+
+        assert!(matches!(refused, PulsarError::NotConnected), "{refused:?}");
+    }
+
+    /// The driver may go between taking the command and answering it; the handle reports that
+    /// the same way.
+    #[tokio::test]
+    async fn a_seek_the_driver_drops_unanswered_reports_not_connected() {
+        let (cmd, mut driver) = mpsc::unbounded_channel();
+        let seeker = PulsarSeeker::new(cmd);
+
+        let (refused, ()) = tokio::join!(seeker.seek(PulsarPosition::earliest()), async {
+            drop(driver.recv().await);
+        });
+
+        let refused = refused.expect_err("the driver went without answering");
+        assert!(matches!(refused, PulsarError::NotConnected), "{refused:?}");
+    }
 }

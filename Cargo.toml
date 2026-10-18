@@ -9,6 +9,7 @@ edition = "2024"
 rust-version = "1.95"
 license = "Apache-2.0"
 repository = "https://github.com/powersemmi/ruststream-pulsar"
+homepage = "https://powersemmi.github.io/ruststream-pulsar/latest/"
 authors = ["RustStream contributors"]
 
 [workspace.dependencies]
@@ -27,7 +28,7 @@ bytes = "1"
 futures = "0.3"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-tracing = "0.1"
+tracing = "0.1.36"
 # Not a bare "1": `serde_derive` below this cannot parse a `#[derive(Serialize)]` type that also
 # carries `#[outgoing(headers = Meta)]`, whose value is a path rather than a literal, so the
 # doctests fail to expand. The floor the minimal-versions job verifies.
@@ -53,3 +54,16 @@ module_name_repetitions = "allow"
 missing_const_for_fn = "allow"
 multiple_crate_versions = "allow"
 redundant_pub_crate = "allow"
+
+# What ships is optimized across crate boundaries: the framework is generic to the point where a
+# dispatch path is only as cheap as the inlining it gets, and a build that stops at each crate
+# boundary is not the one to publish numbers from.
+[profile.release]
+lto = "fat"
+
+# The benchmarks measure what ships, so they are built the way a release is: the profile inherits
+# it whole, and the only addition is the line tables a profile needs to name functions. Debug
+# information is metadata and changes no codegen decision.
+[profile.bench]
+inherits = "release"
+debug = "line-tables-only"

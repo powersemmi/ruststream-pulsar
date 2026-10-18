@@ -1,7 +1,7 @@
 //! [`PulsarMessage`] and the mapping between `RustStream` headers and message properties.
 //!
-//! Message properties carry headers directly - no envelope format is invented - and the
-//! partition key rides the message's own `partition_key` in both directions.
+//! Message properties carry headers directly, one property per header, and the partition key
+//! rides the message's own `partition_key` in both directions.
 
 use std::collections::HashMap;
 use std::future::{Future, ready};
@@ -66,7 +66,7 @@ pub(crate) enum SettleKind {
 ///     start_at(PulsarPosition::latest())
 /// )]
 /// async fn show(tick: &Tick, Ctx(seeker): Ctx<SeekHandle>) -> HandlerOutcome {
-///     println!("price {}", tick.price);
+///     tracing::info!(price = tick.price, "tick shown");
 ///     if let Some(millis) = tick.replay_from
 ///         && seeker.seek(PulsarPosition::timestamp(millis)).await.is_err()
 ///     {
@@ -97,6 +97,38 @@ pub enum PulsarPosition {
 impl PulsarPosition {
     /// The beginning of the log; see [`PulsarPosition::Earliest`] for how it interacts with a
     /// durable subscription's cursor.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # mod demo {
+    /// use ruststream_pulsar::prelude::*;
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Deserialize)]
+    /// struct Job {
+    ///     id: u64,
+    ///     resume_at: Option<u64>,
+    /// }
+    ///
+    /// /// Reads the whole retained backlog on every startup, and skips forward past a region the
+    /// /// producer marked poisoned.
+    /// #[subscriber(
+    ///     PulsarSubscription::pattern("persistent://public/default/orders-.*", "audit"),
+    ///     start_at(PulsarPosition::earliest())
+    /// )]
+    /// async fn audit(job: &Job, Ctx(seeker): Ctx<SeekHandle>) -> HandlerOutcome {
+    ///     tracing::info!(job.id, "audited");
+    ///     if let Some(millis) = job.resume_at
+    ///         && seeker.seek(PulsarPosition::timestamp(millis)).await.is_err()
+    ///     {
+    ///         return HandlerOutcome::retry();
+    ///     }
+    ///     HandlerOutcome::ack()
+    /// }
+    /// # }
+    /// # fn main() {}
+    /// ```
     #[must_use]
     pub fn earliest() -> Self {
         Self::Earliest
@@ -184,7 +216,10 @@ pub(crate) fn within_ack_timeout(
 ) -> Result<(), AckError> {
     match ack_timeout {
         Some(timeout) if delay >= timeout => Err(AckError::Broker(Box::from(format!(
-            "topic '{topic}': a retry delay of {delay:?} is not shorter than the subscription's              ack_timeout of {timeout:?}. A delayed retry is held in this process, and the              consumer redelivers an unacknowledged message once the ack timeout elapses, so the              message would come back early. Raise ack_timeout above the delay, or shorten it"
+            "topic '{topic}': a retry delay of {delay:?} is not shorter than the subscription's \
+             ack_timeout of {timeout:?}. A delayed retry is held in this process, and the \
+             consumer redelivers an unacknowledged message once the ack timeout elapses, so the \
+             message would come back early. Raise ack_timeout above the delay, or shorten it"
         )))),
         _ => Ok(()),
     }
@@ -194,9 +229,10 @@ pub(crate) fn within_ack_timeout(
 ///
 /// `ack` acknowledges; `nack(requeue = true)` asks the broker to redeliver, which is what
 /// drives the delivery count towards the subscription's dead-letter policy.
-/// `nack(requeue = false)` acknowledges: Pulsar has no terminal reject verb - poison routing
-/// belongs to the dead-letter policy, reached by repeated redelivery. The client queues
-/// acknowledgements asynchronously, so `Ok` means "queued", not "broker confirmed".
+/// `nack(requeue = false)` acknowledges too: Pulsar settles a message by acknowledging it or
+/// asking for it again, and a poison message leaves through the dead-letter policy, reached by
+/// repeated redelivery. The client queues acknowledgements asynchronously, so `Ok` means
+/// "queued", not "broker confirmed".
 ///
 /// `nack_after(delay)` is the delayed form, and the delay is this process's: Pulsar's negative
 /// acknowledgement carries none, so the delivery is held unacknowledged until the delay is over
@@ -248,11 +284,13 @@ impl PulsarMessage {
         }
     }
 
-    /// A delivery of the in-process transport, reporting what a live one reports: its topic's
-    /// full name, and a message id whose entry id is its place in the topic's log.
+    /// A delivery of the in-process transport, reporting what a live one reports: its topic
+    /// as the subscription named it (`topic`), and a message id whose entry id is its place in
+    /// the topic's log.
     #[cfg(feature = "testing")]
     pub(crate) fn in_process(
         delivery: Delivery,
+        topic: String,
         settlement: Settlement,
         ack_timeout: Option<Duration>,
     ) -> Self {
@@ -260,7 +298,7 @@ impl PulsarMessage {
         Self {
             payload: delivery.payload,
             headers: delivery.headers,
-            topic: delivery.topic,
+            topic,
             id: MessageIdData {
                 ledger_id: 0,
                 entry_id,
@@ -273,8 +311,11 @@ impl PulsarMessage {
         }
     }
 
-    /// The fully resolved topic this message arrived on (with its partition suffix when the
-    /// topic is partitioned).
+    /// The topic this message arrived on, named the way its subscription named it: as written
+    /// in [`PulsarSubscription::new`](crate::PulsarSubscription::new) or
+    /// [`topics`](crate::PulsarSubscription::topics), and by its full name for a
+    /// [`pattern`](crate::PulsarSubscription::pattern), whose topics the client finds by listing
+    /// their full names. A partitioned topic adds its partition suffix.
     #[must_use]
     pub fn topic(&self) -> &str {
         &self.topic
@@ -363,7 +404,7 @@ impl IncomingMessage for PulsarMessage {
             #[cfg(feature = "testing")]
             Settle::InProcess(settlement) => {
                 if requeue {
-                    (*settlement).requeue(self.payload, self.headers, self.topic)
+                    (*settlement).requeue(self.payload, self.headers)
                 } else {
                     settlement.settle();
                     Ok(())
@@ -420,12 +461,7 @@ impl IncomingMessage for PulsarMessage {
             }
             #[cfg(feature = "testing")]
             Settle::InProcess(settlement) => {
-                return ready((*settlement).nack_after(
-                    delay,
-                    self.payload,
-                    self.headers,
-                    self.topic,
-                ));
+                return ready((*settlement).nack_after(delay, self.payload, self.headers));
             }
         }
         ready(Ok(()))
@@ -525,6 +561,24 @@ mod tests {
             .expect_err("a delay equal to the timeout must be refused");
         let message = format!("{refused:?}");
         assert!(message.contains("ack_timeout"), "{message}");
+    }
+
+    /// The refusal is what a handler's log shows, so it reads as one sentence with single spaces.
+    #[test]
+    fn the_ack_timeout_refusal_reads_as_one_sentence() {
+        let timeout = Duration::from_secs(30);
+        let AckError::Broker(source) = within_ack_timeout(timeout, Some(timeout), "orders")
+            .expect_err("a delay equal to the timeout must be refused")
+        else {
+            panic!("the refusal is the broker's own");
+        };
+        assert_eq!(
+            source.to_string(),
+            "topic 'orders': a retry delay of 30s is not shorter than the subscription's \
+             ack_timeout of 30s. A delayed retry is held in this process, and the consumer \
+             redelivers an unacknowledged message once the ack timeout elapses, so the message \
+             would come back early. Raise ack_timeout above the delay, or shorten it",
+        );
     }
 
     /// The client's message owns its payload, so the publish hands the buffer the framework
