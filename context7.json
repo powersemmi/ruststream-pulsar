@@ -15,15 +15,19 @@
     "target"
   ],
   "rules": [
-    "Import `ruststream_pulsar::prelude::*` in a routes file; a handler body imports `ruststream::prelude::*` alone, except a body that names `partition_key`, which imports this crate's prelude too.",
-    "Name a `PulsarSubscription` in `#[subscriber(..)]` whenever the handler needs a setting: `new` for one topic, `topics([..])` for a fixed list, `pattern(..)` for every matching topic, with `subscription_type`, `ack_timeout` and `batch_wait` on it.",
-    "`#[subscriber(\"orders\")]` is the short form and opens a `Shared` subscription on that topic under the name set with `PulsarBroker::default_subscription(..)`, and a broker that sets none refuses it at startup; a cap and a dead-letter topic declared on it reach that consumer, and every other setting needs a descriptor.",
-    "Cap redeliveries with `.max_attempts(n).dead_letter(topic)` right after `include`, always both steps and only on a `Shared` or `KeyShared` subscription (Pulsar counts redeliveries nowhere else), and let the Pulsar client move the spent delivery; `.out_retry(..)` does not compile on this broker.",
-    "Set the partition key with the `partition_key` step of the publish builder, bounding the slot `Out<impl Publisher<Options = PulsarPublishOptions>, Marker>`, or write the `partition-key` header for the portable spelling; the key picks the partition of a partitioned topic.",
-    "Publish and reply through the `Publish` policy (`out_reply(Publish)`, `.out(Marker, Publish).build()`); the client has no transactions and no reply inbox, so a request/reply exchange is an ordinary publish to another topic.",
-    "Open a subscription at a position with `start_at(PulsarPosition::..)` and reposition it from a handler through the `SeekHandle` context key; `start_at` seeks on every startup and rewinds the subscription's durable cursor.",
-    "Ask for a batch with `.batch(n)` at the mount site and set `batch_wait` on the descriptor; the Pulsar client delivers one message at a time, so the batch is assembled in the service.",
-    "Build a topic name with `PulsarTopic::persistent`/`non_persistent` for literals and `PulsarTopic::parse` for untrusted input, rather than passing a raw string and letting the broker reject it.",
-    "Test a service by handing its production app to `TestApp::start(app())` (feature `testing`), which connects `PulsarBroker` in process, and address the broker as `tb.broker::<PulsarBroker>()`; the same body runs against a stand with `TestApp::start_live(app())`."
+    "Import `ruststream_pulsar::prelude::*` at a mount site and name the policy `Publish` there; a handler body imports `ruststream::prelude::*` and bounds a slot with a capability such as `Out<impl Publisher>` (Components > Broker > Prelude).",
+    "Describe a subscription with `PulsarSubscription::new(topic, name)` for one topic, `::topics([..], name)` for a fixed list or `::pattern(regex, name)` for every topic whose full name matches (Components > Subscriptions).",
+    "Mount a handler written without the macros as `subscriber(PulsarSubscription::new(..), Body)`, the descriptor passed as the source as it is (Components > Subscriptions > PulsarSubscription).",
+    "Use bare `#[subscriber(\"orders\")]` with `PulsarBroker::default_subscription(name)` for a `Shared` subscription with default settings; name a `PulsarSubscription` for any other setting (Components > Subscriptions).",
+    "Pick `SubscriptionType::KeyShared` to keep each key's order across consumers, `Shared` for any consumer, and `Exclusive` or `Failover` for one reader, bounding `OperationRetries` to fail fast (Components > Subscriptions > SubscriptionType).",
+    "Settle through the handler's outcome: `ack()` and `drop()` acknowledge, `retry()` negatively acknowledges, and `ack_timeout` on the descriptor redelivers an unsettled message (Components > Settlement).",
+    "Cap redeliveries with `.max_attempts(n).dead_letter(topic)` after `include` on a `Shared` or `KeyShared` subscription; the Pulsar client counts the deliveries and moves the spent message (Guides > Retries and dead letters).",
+    "Take a batch with a slice handler and `.batch(n)` at the mount site, and set `batch_wait` on the descriptor to close a partial one (Components > Subscriptions > Batches).",
+    "Replay the retained log with `start_at(PulsarPosition::earliest())` on every startup, and move a running subscription from its handler through `Ctx<SeekHandle>` (Guides > Replay and seeking).",
+    "Publish and reply through `Publish` at the mount site (`.out_reply(Publish)`, `.out(Marker, Publish).build()`); a request-reply exchange is a publish to another topic (Components > Publishing).",
+    "Key one publish with the `partition_key` step on a slot bounded `Out<impl Publisher<Options = PulsarPublishOptions>, Marker>`, or write the `partition-key` header (Components > Publishing > partition_key).",
+    "Build a topic name from code with `PulsarTopic::persistent` or `non_persistent`, and parse one read at run time with `PulsarTopic::parse` (Components > Subscriptions > PulsarTopic).",
+    "Test the production app: hand the app `main` runs to `TestApp::start` with the `testing` feature, address the broker as `tb.broker::<PulsarBroker>()`, and run the same body on `TestApp::start_live` (Components > Testing).",
+    "Give `PulsarBroker::new` one service URL, `pulsar://` or `pulsar+ssl://`, of a DNS name, load balancer or proxy in front of the cluster, and attach a JWT with `token` (Guides > Connecting to a production cluster)."
   ]
 }
