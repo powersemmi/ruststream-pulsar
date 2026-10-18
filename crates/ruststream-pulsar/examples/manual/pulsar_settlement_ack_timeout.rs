@@ -78,12 +78,13 @@ fn app() -> impl App<State = AppState> {
         .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
             // An export nobody settles within a minute, because the handler hangs or the service
             // stops, comes back from the broker.
-            let exports =
-                PulsarSubscription::new("exports", "archiver").ack_timeout(Duration::from_secs(60));
             b.include(
-                subscriber("exports", Upload)
-                    .map_source(|_| exports)
-                    .build(),
+                subscriber(
+                    PulsarSubscription::new("exports", "archiver")
+                        .ack_timeout(Duration::from_secs(60)),
+                    Upload,
+                )
+                .build(),
             );
         })
 }

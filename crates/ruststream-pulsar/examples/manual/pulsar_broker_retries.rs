@@ -41,7 +41,7 @@ fn ledger(topic: impl Into<String>) -> PulsarSubscription {
 
 fn service(broker: PulsarBroker, ledger: PulsarSubscription) -> impl App<State = ()> {
     RustStream::new(AppInfo::new("ledger", "0.1.0")).with_broker(broker, |b| {
-        b.include(subscriber("ledger", Record).map_source(|_| ledger).build());
+        b.include(subscriber(ledger, Record).build());
     })
 }
 

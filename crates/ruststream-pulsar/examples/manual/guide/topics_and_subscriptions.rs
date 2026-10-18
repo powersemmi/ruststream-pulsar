@@ -1,6 +1,6 @@
 //! The fulfilment service of the Topics and subscriptions guide, written without the macros: each
-//! handler is a type with an `impl Handle`, mounted with the `subscriber` constructor, and its
-//! descriptor joins the chain through `map_source`.
+//! handler is a type with an `impl Handle`, mounted on its descriptor with the `subscriber`
+//! constructor, and `main` is written by hand.
 //!
 //! ```text
 //! docker compose up -d
@@ -112,26 +112,24 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("fulfilment", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650").default_subscription("fulfilment"),
         |b| {
+            b.include(subscriber(PulsarSubscription::new("orders", "fulfilment"), Fulfil).build());
             b.include(
-                subscriber("orders", Fulfil)
-                    .build()
-                    .map_source(|_| PulsarSubscription::new("orders", "fulfilment")),
+                subscriber(PulsarSubscription::new("orders", "notifications"), Notify).build(),
             );
             b.include(
-                subscriber("orders", Notify)
-                    .build()
-                    .map_source(|_| PulsarSubscription::new("orders", "notifications")),
+                subscriber(
+                    PulsarSubscription::topics(["orders-eu", "orders-us"], "regional-totals"),
+                    Tally,
+                )
+                .build(),
             );
             b.include(
-                subscriber("regional-totals", Tally)
-                    .build()
-                    .map_source(|_| {
-                        PulsarSubscription::topics(["orders-eu", "orders-us"], "regional-totals")
-                    }),
+                subscriber(
+                    PulsarSubscription::pattern("persistent://public/default/orders-.*", "audit"),
+                    Audit,
+                )
+                .build(),
             );
-            b.include(subscriber("audit", Audit).build().map_source(|_| {
-                PulsarSubscription::pattern("persistent://public/default/orders-.*", "audit")
-            }));
             b.include(subscriber("returns", Restock).build());
         },
     )

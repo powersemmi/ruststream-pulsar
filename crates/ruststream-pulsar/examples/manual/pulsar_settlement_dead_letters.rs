@@ -45,15 +45,10 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("bookkeeping", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
-            let payments = PulsarSubscription::new("payments", "bookkeeping");
             // Three deliveries in all; then the client moves the payment to `payments-dlq`.
-            b.include(
-                subscriber("payments", Book)
-                    .map_source(|_| payments)
-                    .build(),
-            )
-            .max_attempts(nonzero!(3))
-            .dead_letter("payments-dlq");
+            b.include(subscriber(PulsarSubscription::new("payments", "bookkeeping"), Book).build())
+                .max_attempts(nonzero!(3))
+                .dead_letter("payments-dlq");
         },
     )
 }

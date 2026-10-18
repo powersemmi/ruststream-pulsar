@@ -57,11 +57,12 @@ fn app() -> impl App {
     let broker =
         PulsarBroker::new("pulsar://localhost:6650").max_message_size(nonzero!(1_048_576usize));
     RustStream::new(AppInfo::new("archive", "0.1.0")).with_broker(broker, |b| {
-        let uploads = PulsarSubscription::new("uploads", "archiver");
         b.include(
-            subscriber("uploads", ArchiveUpload)
-                .map_source(|_| uploads)
-                .build(),
+            subscriber(
+                PulsarSubscription::new("uploads", "archiver"),
+                ArchiveUpload,
+            )
+            .build(),
         )
         .out(Archive, Publish)
         .build();

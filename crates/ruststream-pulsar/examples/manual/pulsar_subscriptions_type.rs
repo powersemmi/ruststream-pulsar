@@ -46,19 +46,18 @@ impl Handle<Task> for Worker {
     }
 }
 
-/// The subscription both workers attach to: each task goes to one of them.
-fn workers() -> PulsarSubscription {
-    PulsarSubscription::new("tasks", "workers").subscription_type(SubscriptionType::Shared)
-}
-
 fn app() -> impl App {
     let broker = PulsarBroker::new("pulsar://localhost:6650");
     RustStream::new(AppInfo::new("workers", "0.1.0")).with_broker(broker, |b| {
+        // Both workers attach to the subscription `workers`: each task goes to one of them.
         for name in ["first", "second"] {
             b.include(
-                subscriber("tasks", Worker(name))
-                    .build()
-                    .map_source(|_| workers()),
+                subscriber(
+                    PulsarSubscription::new("tasks", "workers")
+                        .subscription_type(SubscriptionType::Shared),
+                    Worker(name),
+                )
+                .build(),
             );
         }
     })

@@ -83,30 +83,6 @@ impl Handle<Order> for Audit {
     }
 }
 
-// --8<-- [start:channels]
-// --8<-- [start:operations]
-/// The subscription `confirmations` on one topic of the tenant `acme`.
-fn created() -> PulsarSubscription {
-    PulsarSubscription::new("persistent://acme/orders/created", "confirmations")
-        .ack_timeout(Duration::from_secs(30))
-}
-// --8<-- [end:operations]
-
-/// Two topics in two namespaces, under one `KeyShared` subscription.
-fn regional() -> PulsarSubscription {
-    PulsarSubscription::topics(
-        ["persistent://acme/eu/orders", "persistent://acme/us/orders"],
-        "regional",
-    )
-    .subscription_type(SubscriptionType::KeyShared)
-}
-
-/// Every `audit-*` topic of `public/default`.
-fn audit() -> PulsarSubscription {
-    PulsarSubscription::pattern("audit-.*", "auditors")
-}
-// --8<-- [end:channels]
-
 // --8<-- [start:server]
 /// The cluster's TLS listener, authenticated with a JWT.
 fn broker(token: &str) -> PulsarBroker {
@@ -115,20 +91,36 @@ fn broker(token: &str) -> PulsarBroker {
 // --8<-- [end:server]
 
 // --8<-- [start:app]
+// --8<-- [start:channels]
+// --8<-- [start:operations]
 fn service(broker: PulsarBroker) -> impl App<State = ()> {
     RustStream::new(AppInfo::new("orders", "1.0.0")).with_broker_labeled("pulsar", broker, |b| {
-        let confirm = subscriber("orders", Confirm)
-            .map_source(|_| created())
-            .reply();
-        b.include(confirm.to("persistent://acme/orders/confirmed").build());
         b.include(
-            subscriber("regional", Regional)
-                .map_source(|_| regional())
-                .build(),
+            subscriber(
+                PulsarSubscription::new("persistent://acme/orders/created", "confirmations")
+                    .ack_timeout(Duration::from_secs(30)),
+                Confirm,
+            )
+            .reply()
+            .to("persistent://acme/orders/confirmed")
+            .build(),
         );
-        b.include(subscriber("audit", Audit).map_source(|_| audit()).build());
+        b.include(
+            subscriber(
+                PulsarSubscription::topics(
+                    ["persistent://acme/eu/orders", "persistent://acme/us/orders"],
+                    "regional",
+                )
+                .subscription_type(SubscriptionType::KeyShared),
+                Regional,
+            )
+            .build(),
+        );
+        b.include(subscriber(PulsarSubscription::pattern("audit-.*", "auditors"), Audit).build());
     })
 }
+// --8<-- [end:operations]
+// --8<-- [end:channels]
 
 fn app() -> impl App<State = ()> {
     let token = env::var("PULSAR_TOKEN").unwrap_or_default();

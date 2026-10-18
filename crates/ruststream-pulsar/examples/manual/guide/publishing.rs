@@ -131,25 +131,22 @@ fn app() -> impl App {
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
             b.include(
-                subscriber("orders", Confirm)
-                    .map_source(|_| PulsarSubscription::new("orders", "receipts"))
+                subscriber(PulsarSubscription::new("orders", "receipts"), Confirm)
                     .reply()
                     .build(),
             );
             b.include(
-                subscriber("quote-requests", AnswerQuote)
-                    .map_source(|_| PulsarSubscription::new("quote-requests", "quotes"))
-                    .reply()
-                    .to("quotes")
-                    .build(),
+                subscriber(
+                    PulsarSubscription::new("quote-requests", "quotes"),
+                    AnswerQuote,
+                )
+                .reply()
+                .to("quotes")
+                .build(),
             );
-            b.include(
-                subscriber("orders", Dispatch)
-                    .map_source(|_| PulsarSubscription::new("orders", "dispatch"))
-                    .build(),
-            )
-            .out(Picks, Publish)
-            .build();
+            b.include(subscriber(PulsarSubscription::new("orders", "dispatch"), Dispatch).build())
+                .out(Picks, Publish)
+                .build();
             b.after_startup(Publish, async move |publisher| {
                 let started = Started {
                     service: "checkout".to_owned(),

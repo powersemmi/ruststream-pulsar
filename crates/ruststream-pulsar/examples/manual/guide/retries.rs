@@ -129,17 +129,15 @@ fn app() -> impl App<State = Clients> {
         .on_startup(async move |()| Ok::<_, Infallible>(Clients::default()))
         .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
             // Five deliveries of one refund, the first included; then the dead-letter topic.
+            b.include(subscriber(refunds(), ProcessRefund).build())
+                .max_attempts(nonzero!(5u32))
+                .dead_letter("refunds-dlq");
             b.include(
-                subscriber("refunds", ProcessRefund)
-                    .build()
-                    .map_source(|_| refunds()),
-            )
-            .max_attempts(nonzero!(5u32))
-            .dead_letter("refunds-dlq");
-            b.include(
-                subscriber("refunds-dlq", Review)
-                    .build()
-                    .map_source(|_| PulsarSubscription::new("refunds-dlq", "refunds-review")),
+                subscriber(
+                    PulsarSubscription::new("refunds-dlq", "refunds-review"),
+                    Review,
+                )
+                .build(),
             );
         })
 }

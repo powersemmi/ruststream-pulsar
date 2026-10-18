@@ -32,10 +32,8 @@ impl Handle<Order, Shipment> for Ship {
 /// The service on `broker`. Its replies open a producer on `shipments`, which shutdown closes.
 fn service(broker: PulsarBroker) -> impl App<State = ()> {
     RustStream::new(AppInfo::new("shipping", "0.1.0")).with_broker(broker, |b| {
-        let orders = PulsarSubscription::new("orders", "shipping");
         b.include(
-            subscriber("orders", Ship)
-                .map_source(|_| orders)
+            subscriber(PulsarSubscription::new("orders", "shipping"), Ship)
                 .reply()
                 .build(),
         )

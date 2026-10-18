@@ -67,8 +67,7 @@ where
 fn app() -> impl App {
     let broker = PulsarBroker::new("pulsar://localhost:6650");
     RustStream::new(AppInfo::new("router", "0.1.0")).with_broker(broker, |b| {
-        let orders = PulsarSubscription::new("orders", "router");
-        b.include(subscriber("orders", Route).build().map_source(|_| orders))
+        b.include(subscriber(PulsarSubscription::new("orders", "router"), Route).build())
             .out(TenantOrders, Publish)
             .build();
     })

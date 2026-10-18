@@ -65,17 +65,19 @@ fn app() -> impl App {
     let broker = PulsarBroker::new("pulsar://localhost:6650");
     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(broker, |b| {
         // Each subscription is a cursor of its own: `billing` and `shipping` read every order.
-        let billing = PulsarSubscription::new("acme/sales/orders", "billing");
-        let shipping = PulsarSubscription::new("acme/sales/orders", "shipping");
         b.include(
-            subscriber("acme/sales/orders", Bill)
-                .build()
-                .map_source(|_| billing),
+            subscriber(
+                PulsarSubscription::new("acme/sales/orders", "billing"),
+                Bill,
+            )
+            .build(),
         );
         b.include(
-            subscriber("acme/sales/orders", Ship)
-                .build()
-                .map_source(|_| shipping),
+            subscriber(
+                PulsarSubscription::new("acme/sales/orders", "shipping"),
+                Ship,
+            )
+            .build(),
         );
     })
 }
@@ -121,14 +123,11 @@ mod tests {
     #[tokio::test]
     async fn a_topic_name_pulsar_refuses_stops_the_service() {
         // A namespace with no tenant: Pulsar accepts a bare topic or `tenant/namespace/topic`.
-        let misnamed = PulsarSubscription::new("sales/orders", "billing");
         let app = RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
             PulsarBroker::new("pulsar://localhost:6650"),
             |b| {
                 b.include(
-                    subscriber("sales/orders", Bill)
-                        .build()
-                        .map_source(|_| misnamed),
+                    subscriber(PulsarSubscription::new("sales/orders", "billing"), Bill).build(),
                 );
             },
         );

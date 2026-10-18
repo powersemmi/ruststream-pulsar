@@ -31,11 +31,6 @@ impl Input for Record<'_> {
     type Axis = SoloDeserialized<Record<'static>>;
 }
 
-/// Every `orders-*` topic of `public/default`, those created after startup included.
-fn order_topics() -> PulsarSubscription {
-    PulsarSubscription::pattern("persistent://public/default/orders-.*", "audit")
-}
-
 /// Records each event of those topics.
 struct Audit;
 
@@ -50,22 +45,25 @@ impl Handle<Record<'_>> for Audit {
         ready(Ok(()))
     }
 }
-// --8<-- [end:pattern]
 
 // --8<-- [start:app]
 fn app() -> impl App {
     RustStream::new(AppInfo::new("audit", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
+            // Every `orders-*` topic of `public/default`, those created after startup included.
             b.include(
-                subscriber("audit", Audit)
-                    .build()
-                    .map_source(|_| order_topics()),
+                subscriber(
+                    PulsarSubscription::pattern("persistent://public/default/orders-.*", "audit"),
+                    Audit,
+                )
+                .build(),
             );
         },
     )
 }
 // --8<-- [end:app]
+// --8<-- [end:pattern]
 
 // What `#[ruststream::app]` writes: the command line on a multi-threaded Tokio runtime.
 fn main() -> ExitCode {

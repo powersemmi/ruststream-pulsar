@@ -1,6 +1,6 @@
 //! The shipping service of the Subscription types and ordering guide, written without the
-//! macros: each handler is a type with an `impl Handle`, mounted with the `subscriber`
-//! constructor, and its descriptor joins the chain through `map_source`.
+//! macros: each handler is a type with an `impl Handle`, mounted on its descriptor with the
+//! `subscriber` constructor, and `main` is written by hand.
 //!
 //! ```text
 //! docker compose up -d
@@ -139,29 +139,16 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("shipping", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650").operation_retries(retries),
         |b| {
+            b.include(subscriber(PulsarSubscription::new("orders", "packing"), Pack).build())
+                .out(Shipments, Publish)
+                .build();
             b.include(
-                subscriber("orders", Pack)
-                    .build()
-                    .map_source(|_| PulsarSubscription::new("orders", "packing")),
-            )
-            .out(Shipments, Publish)
-            .build();
-            b.include(
-                subscriber("shipments", Track)
+                subscriber(tracking(), Track)
                     .workers_by_key(nonzero!(8usize))
-                    .build()
-                    .map_source(|_| tracking()),
+                    .build(),
             );
-            b.include(
-                subscriber("payments", Book)
-                    .build()
-                    .map_source(|_| ledger()),
-            );
-            b.include(
-                subscriber("orders", Invoice)
-                    .build()
-                    .map_source(|_| invoicing()),
-            );
+            b.include(subscriber(ledger(), Book).build());
+            b.include(subscriber(invoicing(), Invoice).build());
         },
     )
 }

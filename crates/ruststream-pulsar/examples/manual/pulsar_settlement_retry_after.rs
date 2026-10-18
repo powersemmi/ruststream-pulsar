@@ -85,12 +85,7 @@ fn service(url: &str) -> impl App<State = AppState> {
             })
         })
         .with_broker(PulsarBroker::new(url), |b| {
-            let invoices = PulsarSubscription::new("invoices", "billing");
-            b.include(
-                subscriber("invoices", Issue)
-                    .map_source(|_| invoices)
-                    .build(),
-            );
+            b.include(subscriber(PulsarSubscription::new("invoices", "billing"), Issue).build());
         })
 }
 

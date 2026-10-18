@@ -55,8 +55,7 @@ where
 
 fn service(broker: PulsarBroker) -> impl App<State = ()> {
     RustStream::new(AppInfo::new("shipping", "0.1.0")).with_broker(broker, |b| {
-        let orders = PulsarSubscription::new("orders", "shipping");
-        b.include(subscriber("orders", Ship).map_source(|_| orders).build())
+        b.include(subscriber(PulsarSubscription::new("orders", "shipping"), Ship).build())
             .out(Shipments, Publish)
             .max_attempts(nonzero!(3))
             .dead_letter("orders-dlq")
