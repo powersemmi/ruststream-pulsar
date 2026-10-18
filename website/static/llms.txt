@@ -1,0 +1,26 @@
+# ruststream-pulsar
+
+> `ruststream-pulsar` is the Apache Pulsar broker crate for RustStream, a Rust framework for services that subscribe to message brokers and publish to them. It runs over the `pulsar` client: a topic is a retained log a subscription can rewind over, a subscription picks one of Pulsar's four subscription types, and a retry cap ends at a dead-letter topic.
+
+A subscription is the descriptor `PulsarSubscription`: one topic (`PulsarSubscription::new`), a fixed list (`::topics`) or a pattern over the lookup namespace (`::pattern`), with its subscription type, acknowledgement timeout and batch wait. A routes file imports `ruststream_pulsar::prelude::*`, which offers `PulsarPublish` as `Publish`; a body that sets the partition key of one message takes the `partition_key` step. Building the crate needs `protoc` on the path.
+
+This site holds the guides, one page per component and the architecture of the crate; the API reference is on docs.rs, and the framework itself is documented on the RustStream site.
+
+## Guides
+
+- [Guides](https://powersemmi.github.io/ruststream-pulsar/latest/): building an Apache Pulsar service with the crate, from installation to production
+
+## Components
+
+- [Components](https://powersemmi.github.io/ruststream-pulsar/latest/components/): the parts of the crate a Pulsar service uses, one page each
+
+## Architecture
+
+- [Architecture](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/): how Apache Pulsar works, where the crate sits between Pulsar and the RustStream runtime, and what that costs
+- [Benchmarks](https://powersemmi.github.io/ruststream-pulsar/latest/architecture/benchmarks/): what this crate and the framework's runtime cost over the raw `pulsar` client, and how to re-measure it with `just bench`
+
+## Optional
+
+- [API reference](https://docs.rs/ruststream-pulsar): the full rustdoc of the crate
+- [RustStream llms.txt](https://powersemmi.github.io/ruststream/llms.txt): the index of the framework's own documentation
+- [Source](https://github.com/powersemmi/ruststream-pulsar): the crate's repository
