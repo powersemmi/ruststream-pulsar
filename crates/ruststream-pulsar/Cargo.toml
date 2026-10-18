@@ -150,3 +150,17 @@ name = "manual_pulsar_context"
 path = "examples/manual/pulsar_context.rs"
 required-features = ["testing"]
 test = true
+
+# --- examples: guides ---
+
+[[example]]
+name = "guide_getting_started"
+path = "examples/guide/getting_started.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_guide_getting_started"
+path = "examples/manual/guide/getting_started.rs"
+required-features = ["testing"]
+test = true
