@@ -150,3 +150,125 @@ name = "manual_pulsar_context"
 path = "examples/manual/pulsar_context.rs"
 required-features = ["testing"]
 test = true
+
+# --- examples: broker ---
+[[example]]
+name = "pulsar_service"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_service"
+path = "examples/manual/pulsar_service.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_broker_security"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_broker_security"
+path = "examples/manual/pulsar_broker_security.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_broker_retries"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_broker_retries"
+path = "examples/manual/pulsar_broker_retries.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_broker_limits"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_broker_limits"
+path = "examples/manual/pulsar_broker_limits.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_broker_startup"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_broker_startup"
+path = "examples/manual/pulsar_broker_startup.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_broker_shutdown"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_broker_shutdown"
+path = "examples/manual/pulsar_broker_shutdown.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_broker_prelude"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_broker_prelude"
+path = "examples/manual/pulsar_broker_prelude.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_broker_errors"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_broker_errors"
+path = "examples/manual/pulsar_broker_errors.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_asyncapi"
+required-features = ["asyncapi"]
+test = true
+
+[[example]]
+name = "manual_pulsar_asyncapi"
+path = "examples/manual/pulsar_asyncapi.rs"
+required-features = ["asyncapi"]
+test = true
+
+[[example]]
+name = "pulsar_testing"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_testing"
+path = "examples/manual/pulsar_testing.rs"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "pulsar_testing_live"
+required-features = ["testing"]
+test = true
+
+[[example]]
+name = "manual_pulsar_testing_live"
+path = "examples/manual/pulsar_testing_live.rs"
+required-features = ["testing"]
+test = true
