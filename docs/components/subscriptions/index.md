@@ -24,7 +24,7 @@ Every other setting of a subscription belongs to a descriptor, which goes where 
 | [`PulsarSubscription::topics`](./topics.md) | a fixed list of topics |
 | [`PulsarSubscription::pattern`](./pattern.md) | every topic whose name matches a regular expression |
 
-The manual form passes the name to [`subscriber(name, body)`](api:ruststream::runtime::subscriber), and a descriptor joins the chain through [`map_source`](api:ruststream::runtime::SubscriberSettings::map_source).
+The manual form passes the name or the descriptor to [`subscriber(source, body)`](api:ruststream::runtime::subscriber).
 A subscription the service creates starts at the tip of its topics, and one that already exists resumes at its cursor; [`start_at`](../positions/start-at.md) moves it.
 The Pulsar client moves a delivery whose retries are spent to a [dead-letter topic](../settlement/dead-letters.md) itself, so a registration on any of these forms declares its retries and publishes nothing.
 
