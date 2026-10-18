@@ -15,8 +15,8 @@ use futures::StreamExt;
 use ruststream::runtime::PublishExt;
 use ruststream::{
     BatchSubscriber, Broker, ConnectedBroker, DeclareRetryError, HeaderMap, IncomingMessage,
-    Outgoing, OutgoingMessage, Publisher, RetryDeclaration, Seekable, Seeker, Serialized,
-    Subscribe, Subscriber, SubscriptionSource, nonzero,
+    Outgoing, OutgoingMessage, Positioned, Publisher, RetryDeclaration, Seekable, Seeker,
+    Serialized, Subscribe, Subscriber, SubscriptionSource, nonzero,
 };
 use ruststream_pulsar::{
     ConnectedPulsarBroker, PARTITION_KEY_HEADER, PulsarBroker, PulsarError, PulsarMessage,
@@ -579,6 +579,77 @@ async fn a_key_shared_subscription_spends_the_same_cap() {
         .expect("dlq stream is open")
         .expect("dead letter is ok");
     assert_eq!(dead.payload(), b"poison");
+    dead.ack().await.expect("ack succeeds");
+
+    connected.shutdown().await.expect("shutdown succeeds");
+}
+
+/// A dead-lettered message names where it came from: the client adds the topic it was read from
+/// and its message id there as two properties, which the in-process mode adds too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dead_lettered_message_names_its_origin() {
+    let Some(url) = test_url() else { return };
+    let connected = connect(&url).await;
+
+    let topic = unique("traced-poison");
+    let dlq = unique("traced-dlq");
+    let mut dlq_subscriber = connected
+        .subscribe_descriptor(PulsarSubscription::new(&dlq, unique("dlq-sub")))
+        .await
+        .expect("dlq subscription opens");
+    let mut subscriber = connected
+        .subscribe_descriptor(declaring(
+            PulsarSubscription::new(&topic, unique("sub")),
+            CAP,
+            dlq.clone(),
+        ))
+        .await
+        .expect("subscription opens");
+
+    connected
+        .publisher()
+        .publish(OutgoingMessage::new(&topic, b"traced".as_slice()), None)
+        .await
+        .expect("publish succeeds");
+
+    let mut stream = pin!(subscriber.stream());
+    let mut origin = None;
+    for _ in 0..CAP {
+        let delivery = tokio::time::timeout(RECV_TIMEOUT, stream.next())
+            .await
+            .expect("the delivery arrives")
+            .expect("the subscription is open")
+            .expect("the delivery is ok");
+        let PulsarPosition::MessageId(id) = delivery.position() else {
+            panic!("a delivery reports its message id");
+        };
+        origin = Some((
+            delivery.topic().to_owned(),
+            format!(
+                "{}:{}:{}",
+                id.ledger_id,
+                id.entry_id,
+                id.partition.unwrap_or(-1)
+            ),
+        ));
+        delivery.nack(true).await.expect("nack succeeds");
+    }
+    let (real_topic, message_id) = origin.expect("the cap is at least one delivery");
+
+    let mut dlq_stream = pin!(dlq_subscriber.stream());
+    let dead = tokio::time::timeout(RECV_TIMEOUT, dlq_stream.next())
+        .await
+        .expect("dead letter arrives")
+        .expect("dlq stream is open")
+        .expect("dead letter is ok");
+    assert_eq!(
+        dead.headers().get_str("REAL_TOPIC"),
+        Some(real_topic.as_str())
+    );
+    assert_eq!(
+        dead.headers().get_str("ORIGIN_MESSAGE_ID"),
+        Some(message_id.as_str())
+    );
     dead.ack().await.expect("ack succeeds");
 
     connected.shutdown().await.expect("shutdown succeeds");

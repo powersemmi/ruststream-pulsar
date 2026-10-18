@@ -148,9 +148,11 @@ async fn a_pattern_subscription_carries_the_same_policy() {
     tb.broker::<PulsarBroker>()
         .subscriber("audit")
         .assert_called(2);
+    // A pattern finds its topics by their full names, so that is the origin the client reports.
     tb.broker::<PulsarBroker>()
         .published::<Order>("dlq-audit")
-        .assert_called_once();
+        .assert_called_once()
+        .with_header("REAL_TOPIC", "persistent://public/default/audit-eu");
 }
 
 /// Never settles, and mounted by a bare topic name: the declaration has no descriptor to travel
@@ -286,4 +288,66 @@ async fn the_declaration_composes_with_a_reply_position() {
         .published::<Receipt>("receipts")
         .assert_called_once()
         .with(&Receipt { id: 7 });
+}
+
+/// Where a dead-lettered message came from, as its reviewer reads it off the message.
+#[derive(Debug, Deserialize, Eq, Outgoing, PartialEq, Serialize)]
+#[outgoing(name = "refund-origins")]
+struct Origin {
+    topic: String,
+    message: String,
+}
+
+#[subscriber(PulsarSubscription::new("refunds", "workers"))]
+async fn refund(order: &Order) -> HandlerOutcome {
+    let _ = order;
+    HandlerOutcome::retry()
+}
+
+/// Reads the properties the client adds to a message it moves to the dead-letter topic.
+#[subscriber(PulsarSubscription::new("refunds-dlq", "review"), reply)]
+async fn review(order: &Order, ctx: &mut Context<'_>) -> Origin {
+    let _ = order;
+    let headers = ctx.headers();
+    Origin {
+        topic: headers.get_str("REAL_TOPIC").unwrap_or_default().to_owned(),
+        message: headers
+            .get_str("ORIGIN_MESSAGE_ID")
+            .unwrap_or_default()
+            .to_owned(),
+    }
+}
+
+/// The client stamps a dead-lettered message with the topic it was read from and its message
+/// id there, so a reviewer of the dead-letter topic can trace it back; in process as on a server.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_dead_lettered_message_carries_its_origin() {
+    let app = RustStream::new(AppInfo::new("refunds", "0.1.0")).with_broker(
+        PulsarBroker::new(URL),
+        |b| {
+            b.include(refund)
+                .max_attempts(nonzero!(2))
+                .dead_letter("refunds-dlq");
+            b.include(review);
+        },
+    );
+    let tb = TestApp::start(app).await.expect("start harness");
+
+    tb.broker::<PulsarBroker>()
+        .message(&Order { id: 9 })
+        .to("refunds")
+        .publish()
+        .await
+        .expect("publish");
+    tb.settle().await.expect("settle");
+
+    // The topic as the subscription names it, and the first message of it: entry 0 of a topic
+    // that is not partitioned.
+    tb.broker::<PulsarBroker>()
+        .published::<Origin>("refund-origins")
+        .assert_called_once()
+        .with(&Origin {
+            topic: "refunds".to_owned(),
+            message: "0:0:-1".to_owned(),
+        });
 }

@@ -26,7 +26,12 @@ const LOOKUP_NAMESPACE: &str = "default";
 #[derive(Debug, Clone)]
 pub(crate) enum Route {
     /// Exact topics, fully qualified: one for a single-topic subscription, several for a list.
-    Topics(Vec<String>),
+    /// `named` keeps each one as the descriptor wrote it, in the same order, because that is the
+    /// name the client hands its consumer and reports back.
+    Topics {
+        qualified: Vec<String>,
+        named: Vec<String>,
+    },
     /// A regular expression over the fully qualified names of the lookup namespace.
     Pattern(Regex),
 }
@@ -45,7 +50,10 @@ impl Route {
                 .iter()
                 .map(|topic| PulsarTopic::parse(topic).map(|topic| topic.as_str().to_owned()))
                 .collect::<Result<_, _>>()
-                .map(Self::Topics),
+                .map(|qualified| Self::Topics {
+                    qualified,
+                    named: topics.clone(),
+                }),
             Topics::Pattern(pattern) => Regex::new(pattern).map(Self::Pattern).map_err(|err| {
                 PulsarError::Invalid(format!("invalid topic pattern '{pattern}': {err}"))
             }),
@@ -57,7 +65,7 @@ impl Route {
     /// not depend on time.
     pub(crate) fn selects(&self, topic: &PulsarTopic) -> bool {
         match self {
-            Self::Topics(topics) => topics.iter().any(|name| name == topic.as_str()),
+            Self::Topics { qualified, .. } => qualified.iter().any(|name| name == topic.as_str()),
             Self::Pattern(pattern) => {
                 topic.tenant() == LOOKUP_TENANT
                     && topic.namespace() == LOOKUP_NAMESPACE
@@ -74,8 +82,21 @@ impl Route {
     /// The exact topics of a list route; a pattern names none.
     pub(crate) fn topics(&self) -> &[String] {
         match self {
-            Self::Topics(topics) => topics,
+            Self::Topics { qualified, .. } => qualified,
             Self::Pattern(_) => &[],
+        }
+    }
+
+    /// The name the client knows the fully qualified `topic` by: as the descriptor wrote it for a
+    /// list, and the qualified name itself for a pattern, which the client resolves by listing
+    /// the namespace's qualified names.
+    pub(crate) fn named<'a>(&'a self, topic: &'a str) -> &'a str {
+        match self {
+            Self::Topics { qualified, named } => qualified
+                .iter()
+                .position(|name| name == topic)
+                .map_or(topic, |index| named[index].as_str()),
+            Self::Pattern(_) => topic,
         }
     }
 
@@ -86,11 +107,16 @@ impl Route {
     /// mounted twice, is exact, and deciding whether two regular expressions intersect is not.
     pub(crate) fn overlaps(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Topics(mine), Self::Topics(theirs)) => {
-                mine.iter().any(|topic| theirs.contains(topic))
-            }
-            (Self::Topics(topics), pattern @ Self::Pattern(_))
-            | (pattern @ Self::Pattern(_), Self::Topics(topics)) => topics
+            (
+                Self::Topics {
+                    qualified: mine, ..
+                },
+                Self::Topics {
+                    qualified: theirs, ..
+                },
+            ) => mine.iter().any(|topic| theirs.contains(topic)),
+            (Self::Topics { qualified, .. }, pattern @ Self::Pattern(_))
+            | (pattern @ Self::Pattern(_), Self::Topics { qualified, .. }) => qualified
                 .iter()
                 .any(|topic| PulsarTopic::parse(topic).is_ok_and(|topic| pattern.selects(&topic))),
             (Self::Pattern(mine), Self::Pattern(theirs)) => mine.as_str() == theirs.as_str(),
