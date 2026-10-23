@@ -15,6 +15,9 @@ categories = ["asynchronous", "network-programming"]
 # The crate root is the guide now, and it sends readers to the testing module and to the
 # generated document; a default build on docs.rs carries no feature at all, so both would
 # be missing from the published reference.
+# Every file under `tests/` is a module of one test binary: one link instead of one per file.
+autotests = false
+
 [package.metadata.docs.rs]
 all-features = true
 
@@ -62,6 +65,10 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
 
 # --- examples: subscriptions ---
+
+[[test]]
+name = "suite"
+path = "tests/main.rs"
 
 [[example]]
 name = "pulsar_subscriptions_name"
