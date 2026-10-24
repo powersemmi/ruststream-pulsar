@@ -62,345 +62,294 @@ ruststream = { workspace = true, features = [
 ] }
 serde.workspace = true
 serde_json.workspace = true
+# Builds the examples' tests into one test binary (`tests/examples.rs`) instead of a test binary
+# per example. It lives in the core repository and is not published: a dev-dependency without a
+# version is dropped on publish.
+ruststream-example-suite = { git = "https://github.com/powersemmi/ruststream", branch = "main" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
-
-# --- examples: subscriptions ---
 
 [[test]]
 name = "suite"
 path = "tests/main.rs"
 
+# The tests of the examples, one module per example, in a binary of their own beside the suite.
+[[test]]
+name = "examples"
+path = "tests/examples.rs"
+
+# --- examples: subscriptions ---
+
 [[example]]
 name = "pulsar_subscriptions_name"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_subscriptions_name"
 path = "examples/manual/pulsar_subscriptions_name.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_subscriptions_descriptor"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_subscriptions_descriptor"
 path = "examples/manual/pulsar_subscriptions_descriptor.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_subscriptions_topics"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_subscriptions_topics"
 path = "examples/manual/pulsar_subscriptions_topics.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_pattern"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_pattern"
 path = "examples/manual/pulsar_pattern.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_subscriptions_topic"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_subscriptions_topic"
 path = "examples/manual/pulsar_subscriptions_topic.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_subscriptions_type"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_subscriptions_type"
 path = "examples/manual/pulsar_subscriptions_type.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_batches"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_batches"
 path = "examples/manual/pulsar_batches.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_context"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_context"
 path = "examples/manual/pulsar_context.rs"
 required-features = ["testing"]
-test = true
 
 # --- examples: broker ---
 [[example]]
 name = "pulsar_service"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_service"
 path = "examples/manual/pulsar_service.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_broker_security"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_broker_security"
 path = "examples/manual/pulsar_broker_security.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_broker_retries"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_broker_retries"
 path = "examples/manual/pulsar_broker_retries.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_broker_limits"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_broker_limits"
 path = "examples/manual/pulsar_broker_limits.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_broker_startup"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_broker_startup"
 path = "examples/manual/pulsar_broker_startup.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_broker_shutdown"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_broker_shutdown"
 path = "examples/manual/pulsar_broker_shutdown.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_broker_prelude"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_broker_prelude"
 path = "examples/manual/pulsar_broker_prelude.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_broker_errors"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_broker_errors"
 path = "examples/manual/pulsar_broker_errors.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_asyncapi"
 required-features = ["asyncapi"]
-test = true
 
 [[example]]
 name = "manual_pulsar_asyncapi"
 path = "examples/manual/pulsar_asyncapi.rs"
 required-features = ["asyncapi"]
-test = true
 
 [[example]]
 name = "pulsar_testing"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_testing"
 path = "examples/manual/pulsar_testing.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_testing_live"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_testing_live"
 path = "examples/manual/pulsar_testing_live.rs"
 required-features = ["testing"]
-test = true
 
 # --- examples: flow ---
 [[example]]
 name = "pulsar_positions"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_positions"
 path = "examples/manual/pulsar_positions.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_positions_start_at"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_positions_start_at"
 path = "examples/manual/pulsar_positions_start_at.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_positions_seek"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_positions_seek"
 path = "examples/manual/pulsar_positions_seek.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_settlement_ack"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_settlement_ack"
 path = "examples/manual/pulsar_settlement_ack.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_settlement_ack_timeout"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_settlement_ack_timeout"
 path = "examples/manual/pulsar_settlement_ack_timeout.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_settlement_retry_after"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_settlement_retry_after"
 path = "examples/manual/pulsar_settlement_retry_after.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_settlement_dead_letters"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_settlement_dead_letters"
 path = "examples/manual/pulsar_settlement_dead_letters.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_publishing_publish"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_publishing_publish"
 path = "examples/manual/pulsar_publishing_publish.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_publishing_headers"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_publishing_headers"
 path = "examples/manual/pulsar_publishing_headers.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_publishing_keys"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_publishing_keys"
 path = "examples/manual/pulsar_publishing_keys.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "pulsar_publishing_partition_key"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_pulsar_publishing_partition_key"
 path = "examples/manual/pulsar_publishing_partition_key.rs"
 required-features = ["testing"]
-test = true
 
 # --- examples: guides ---
 
@@ -408,106 +357,88 @@ test = true
 name = "guide_getting_started"
 path = "examples/guide/getting_started.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_guide_getting_started"
 path = "examples/manual/guide/getting_started.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "guide_topics_and_subscriptions"
 path = "examples/guide/topics_and_subscriptions.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_guide_topics_and_subscriptions"
 path = "examples/manual/guide/topics_and_subscriptions.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "guide_subscription_types_and_ordering"
 path = "examples/guide/subscription_types_and_ordering.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_guide_subscription_types_and_ordering"
 path = "examples/manual/guide/subscription_types_and_ordering.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "guide_acknowledgement"
 path = "examples/guide/acknowledgement.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_guide_acknowledgement"
 path = "examples/manual/guide/acknowledgement.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "guide_retries"
 path = "examples/guide/retries.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_guide_retries"
 path = "examples/manual/guide/retries.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "guide_replay"
 path = "examples/guide/replay.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_guide_replay"
 path = "examples/manual/guide/replay.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "guide_publishing"
 path = "examples/guide/publishing.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_guide_publishing"
 path = "examples/manual/guide/publishing.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "guide_testing"
 path = "examples/guide/testing.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_guide_testing"
 path = "examples/manual/guide/testing.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "guide_production"
 path = "examples/guide/production.rs"
 required-features = ["testing"]
-test = true
 
 [[example]]
 name = "manual_guide_production"
 path = "examples/manual/guide/production.rs"
 required-features = ["testing"]
-test = true
