@@ -14,8 +14,6 @@
 //! under `just test-brokers`.
 #![cfg(feature = "testing")]
 
-mod live;
-
 use std::time::Duration;
 
 use ruststream::testing::TestApp;
