@@ -13,8 +13,6 @@
 
 #![cfg(feature = "testing")]
 
-mod live;
-
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;

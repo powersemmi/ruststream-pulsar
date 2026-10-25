@@ -3,8 +3,6 @@
 //! Start one with `just brokers-up`, then:
 //! `PULSAR_TEST_URL=pulsar://127.0.0.1:6650 cargo test --all-features -- --test-threads=1`.
 
-mod live;
-
 use std::collections::BTreeSet;
 use std::pin::pin;
 use std::sync::Arc;
