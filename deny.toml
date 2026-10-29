@@ -8,7 +8,14 @@ all-features = true
 [advisories]
 yanked = "deny"
 
-ignore = []
+ignore = [
+    # The pulsar client pins zstd 0.13 (zstd-safe 7); the fixes ship only in zstd 0.14 and
+    # zstd-safe 8. The client calls zstd::encode_all and zstd::decode_all alone, which none of
+    # these reach.
+    { id = "RUSTSEC-2026-0391", reason = "affects only the with_context stream constructors" },
+    { id = "RUSTSEC-2026-0398", reason = "affects only the seekable feature, not enabled" },
+    { id = "RUSTSEC-2026-0403", reason = "decode_all and the bulk API are not affected" },
+]
 
 [licenses]
 # Apache-2.0/MIT-compatible permissive licenses only.
