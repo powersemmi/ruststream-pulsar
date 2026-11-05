@@ -43,8 +43,10 @@ fn app(messages: usize) -> Pending {
 }
 
 // About eighteen allocations per delivery, this crate's four among them as on the consume path;
-// the batch itself allocates once per batch. Five runs allocated 277, 20,110 and 38,296 to
-// 38,298 blocks over one, a thousand and two thousand deliveries; the floor takes the highest.
+// a batch fills the slot the runtime lends and allocates nothing of its own. Five runs on the 0.7
+// core allocated 277, 20,110 and 38,296 to 38,298 blocks over one, a thousand and two thousand
+// deliveries, and the 0.8 core's lent slot took 284, 20,102 and 38,273; the floor takes the
+// highest.
 #[library_benchmark(config = common::config_every(18_188, 1_000, 1_922))]
 #[bench::first(app(1))]
 #[bench::base(app(MESSAGES))]
