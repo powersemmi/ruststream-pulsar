@@ -71,7 +71,7 @@ pub(crate) const DEFAULT_MAX_MESSAGE_SIZE: usize = 5 * 1024 * 1024;
 ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
 ///         PulsarBroker::new("pulsar://localhost:6650").operation_retries(retries),
 ///         |b| {
-///             b.include(handle);
+///             b.include(handle)
 ///         },
 ///     )
 /// }
@@ -247,7 +247,7 @@ pub(crate) type CoreCell = Arc<OnceCell<Arc<Core>>>;
 ///         broker = broker.token(token);
 ///     }
 ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(broker, |b| {
-///         b.include(handle);
+///         b.include(handle)
 ///     })
 /// }
 /// # }
@@ -284,7 +284,7 @@ pub(crate) type CoreCell = Arc<OnceCell<Arc<Core>>>;
 /// pub fn app() -> RustStream {
 ///     RustStream::new(AppInfo::new("orders", "0.1.0"))
 ///         .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
-///             b.include(handle);
+///             b.include(handle)
 ///         })
 /// }
 ///
@@ -381,7 +381,7 @@ impl PulsarBroker {
     ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
     ///         PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-worker"),
     ///         |b| {
-    ///             b.include(handle);
+    ///             b.include(handle)
     ///         },
     ///     )
     /// }
@@ -429,7 +429,7 @@ impl PulsarBroker {
     ///         PulsarBroker::new("pulsar://localhost:6650")
     ///             .operation_retries(OperationRetries::attempts(nonzero!(3u32))),
     ///         |b| {
-    ///             b.include(handle);
+    ///             b.include(handle)
     ///         },
     ///     )
     /// }
@@ -472,7 +472,7 @@ impl PulsarBroker {
     ///         PulsarBroker::new("pulsar://localhost:6650")
     ///             .max_message_size(nonzero!(10_485_760usize)),
     ///         |b| {
-    ///             b.include(archive);
+    ///             b.include(archive)
     ///         },
     ///     )
     /// }

@@ -39,7 +39,7 @@ fn app() -> impl App {
         |b| {
             b.include(handle)
                 .max_attempts(nonzero!(5))
-                .dead_letter("orders-dlq");
+                .dead_letter("orders-dlq")
         },
     )
 }

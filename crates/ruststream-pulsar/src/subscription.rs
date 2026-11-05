@@ -166,7 +166,7 @@ pub(crate) const DEFAULT_BATCH_WAIT: Duration = Duration::from_millis(10);
 ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
 ///         PulsarBroker::new("pulsar://localhost:6650"),
 ///         |b| {
-///             b.include(handle).max_attempts(nonzero!(5)).dead_letter("orders-dlq");
+///             b.include(handle).max_attempts(nonzero!(5)).dead_letter("orders-dlq")
 ///         },
 ///     )
 /// }
@@ -214,11 +214,7 @@ pub(crate) const DEFAULT_BATCH_WAIT: Duration = Duration::from_millis(10);
 /// fn app() -> impl App {
 ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
 ///         PulsarBroker::new("pulsar://localhost:6650"),
-///         |b| {
-///             b.include(fulfil);
-///             b.include(tally);
-///             b.include(audit);
-///         },
+///         |b| b.include(fulfil).include(tally).include(audit),
 ///     )
 /// }
 /// # }
@@ -332,7 +328,7 @@ impl PulsarSubscription {
     ///     RustStream::new(AppInfo::new("readings", "0.1.0")).with_broker(
     ///         PulsarBroker::new("pulsar://localhost:6650"),
     ///         |b| {
-    ///             b.include(aggregate.batch(nonzero!(64)));
+    ///             b.include(aggregate.batch(nonzero!(64)))
     ///         },
     ///     )
     /// }

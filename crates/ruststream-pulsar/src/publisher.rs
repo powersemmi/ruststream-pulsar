@@ -100,7 +100,7 @@ fn keyed_routing() -> ProducerOptions {
 /// pub fn app() -> RustStream {
 ///     RustStream::new(AppInfo::new("orders", "0.1.0"))
 ///         .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
-///             b.include(record).out(Ledger, Publish).build();
+///             b.include(record).out(Ledger, Publish)
 ///         })
 /// }
 ///
@@ -340,7 +340,7 @@ impl Publisher for PulsarPublisher {
 /// #     RustStream::new(AppInfo::new("bookkeeping", "0.1.0")).with_broker(
 /// #         PulsarBroker::new("pulsar://localhost:6650"),
 /// #         |b| {
-/// #             b.include(book).out(Ledger, Publish).build();
+/// #             b.include(book).out(Ledger, Publish)
 /// #         },
 /// #     )
 /// # }
@@ -394,7 +394,7 @@ pub trait PulsarPublishSteps {
     /// #     RustStream::new(AppInfo::new("sessions", "0.1.0")).with_broker(
     /// #         PulsarBroker::new("pulsar://localhost:6650"),
     /// #         |b| {
-    /// #             b.include(sessionize).out(Sessions, Publish).build();
+    /// #             b.include(sessionize).out(Sessions, Publish)
     /// #         },
     /// #     )
     /// # }
@@ -458,7 +458,7 @@ where
 ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
 ///         PulsarBroker::new("pulsar://localhost:6650"),
 ///         |b| {
-///             b.include(confirm).out_reply(PulsarPublish);
+///             b.include(confirm).out_reply(PulsarPublish)
 ///         },
 ///     )
 /// }
