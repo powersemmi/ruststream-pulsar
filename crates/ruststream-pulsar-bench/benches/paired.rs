@@ -74,7 +74,7 @@ use pulsar::producer::SendFuture;
 use pulsar::{Consumer, Pulsar, SubType, TokioExecutor};
 use ruststream::runtime::RunningApp;
 use ruststream::{
-    Broker, ConnectedBroker, IncomingMessage, OutgoingMessage, Publisher, Subscriber,
+    Broker, ConnectedBroker, IncomingMessage, OutgoingMessage, Publisher, Settle, Subscriber,
     SubscriptionSource,
 };
 use ruststream_pulsar::prelude::*;
@@ -570,9 +570,7 @@ async fn consume(order: &Order, ctx: &mut Context<'_, (), Run>) -> HandlerOutcom
 async fn start(url: &str, run: Run) -> RunningApp {
     RustStream::new(AppInfo::new("pulsar-bench", "0.0.0"))
         .on_startup(async move |()| Ok::<_, Infallible>(run))
-        .with_broker(PulsarBroker::new(url), |b| {
-            b.include(consume);
-        })
+        .with_broker(PulsarBroker::new(url), |b| b.include(consume))
         .start()
         .await
         .expect("the service starts")

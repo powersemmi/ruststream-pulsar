@@ -39,9 +39,7 @@ async fn consume(orders: &[Order], ctx: &mut Context<'_, (), Latch>) -> HandlerO
 }
 
 fn app(messages: usize) -> Pending {
-    common::pending(messages, |b| {
-        b.include(consume.batch(nonzero!(64)));
-    })
+    common::pending(messages, |b| b.include(consume.batch(nonzero!(64))))
 }
 
 // About eighteen allocations per delivery, this crate's four among them as on the consume path;
