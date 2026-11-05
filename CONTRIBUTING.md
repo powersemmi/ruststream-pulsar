@@ -67,7 +67,7 @@ A change in the core is tested here before it is released, with the `ruststream`
 patched to the checkout next to this one:
 
 ```bash
-cargo test --workspace --all-features --config "patch.crates-io.ruststream.path='../ruststream'"
+cargo test --workspace --all-features --config "patch.crates-io.ruststream.path='../ruststream/crates/ruststream'"
 ```
 
 From the core, `just brokers pulsar` runs the same command against the core's working tree.
@@ -79,7 +79,7 @@ with the core patched in, and stop the stand:
 just brokers-up
 PULSAR_TEST_URL=pulsar://127.0.0.1:6650 RUSTSTREAM_REQUIRE_LIVE=1 \
     cargo test --workspace --all-features \
-    --config "patch.crates-io.ruststream.path='../ruststream'" -- --test-threads=1
+    --config "patch.crates-io.ruststream.path='../ruststream/crates/ruststream'" -- --test-threads=1
 just brokers-down
 ```
 
