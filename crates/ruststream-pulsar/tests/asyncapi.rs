@@ -99,12 +99,12 @@ fn document() -> Value {
         .with_broker(
             PulsarBroker::new("pulsar://broker:6650").default_subscription("workers"),
             |b| {
-                b.include(created);
-                b.include(by_name);
-                b.include(regional);
-                b.include(audit);
-                b.include(telemetry);
-                b.include(halves);
+                b.include(created)
+                    .include(by_name)
+                    .include(regional)
+                    .include(audit)
+                    .include(telemetry)
+                    .include(halves)
             },
         );
     serde_json::from_str(

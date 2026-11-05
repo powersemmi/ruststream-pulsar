@@ -50,23 +50,23 @@ async fn a_handle_body_mounts_on_each_pulsar_descriptor() {
                 subscriber(PulsarSubscription::new("orders", "workers"), TakeOrder)
                     .undocumented()
                     .build(),
-            );
-            b.include(
+            )
+            .include(
                 subscriber(
                     PulsarSubscription::topics(["orders-eu", "orders-us"], "regional"),
                     TakeOrder,
                 )
                 .undocumented()
                 .build(),
-            );
-            b.include(
+            )
+            .include(
                 subscriber(
                     PulsarSubscription::pattern("persistent://public/default/audit-.*", "audit"),
                     TakeOrder,
                 )
                 .undocumented()
                 .build(),
-            );
+            )
         });
     let tb = TestApp::start(app).await.expect("start");
 

@@ -71,14 +71,14 @@ fn app() -> impl App {
                 Bill,
             )
             .build(),
-        );
-        b.include(
+        )
+        .include(
             subscriber(
                 PulsarSubscription::new("acme/sales/orders", "shipping"),
                 Ship,
             )
             .build(),
-        );
+        )
     })
 }
 // --8<-- [end:descriptor]
@@ -128,7 +128,7 @@ mod tests {
             |b| {
                 b.include(
                     subscriber(PulsarSubscription::new("sales/orders", "billing"), Bill).build(),
-                );
+                )
             },
         );
 

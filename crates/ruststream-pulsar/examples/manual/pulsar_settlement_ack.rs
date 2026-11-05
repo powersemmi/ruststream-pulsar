@@ -80,7 +80,7 @@ fn app() -> impl App<State = AppState> {
             })
         })
         .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
-            b.include(subscriber(PulsarSubscription::new("orders", "fulfilment"), Fulfil).build());
+            b.include(subscriber(PulsarSubscription::new("orders", "fulfilment"), Fulfil).build())
         })
 }
 

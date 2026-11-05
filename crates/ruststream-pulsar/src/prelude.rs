@@ -53,7 +53,7 @@
 //!             b.include(confirm)
 //!                 .out_reply(Publish)
 //!                 .max_attempts(nonzero!(5))
-//!                 .dead_letter("orders-dlq");
+//!                 .dead_letter("orders-dlq")
 //!         },
 //!     )
 //! }

@@ -17,7 +17,7 @@ use std::time::Duration;
 use futures::StreamExt;
 use ruststream::testing::{InProcess, TestApp};
 use ruststream::{
-    HeaderMap, IncomingMessage, OutgoingMessage, Publisher, Seekable, Seeker, Subscriber,
+    HeaderMap, IncomingMessage, OutgoingMessage, Publisher, Seekable, Seeker, Settle, Subscriber,
 };
 use ruststream_pulsar::prelude::*;
 use ruststream_pulsar::{
@@ -265,8 +265,7 @@ async fn worker_two(task: &Task) -> HandlerOutcome {
 /// The service these workers run in: two handlers mounted on one shared subscription.
 fn app() -> RustStream {
     RustStream::new(AppInfo::new("workers", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
-        b.include(worker_one);
-        b.include(worker_two);
+        b.include(worker_one).include(worker_two)
     })
 }
 

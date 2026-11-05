@@ -85,7 +85,7 @@ fn app() -> impl App<State = AppState> {
                     Upload,
                 )
                 .build(),
-            );
+            )
         })
 }
 // --8<-- [end:descriptor]

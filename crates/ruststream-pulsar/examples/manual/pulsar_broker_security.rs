@@ -38,7 +38,7 @@ fn service(broker: PulsarBroker) -> impl App<State = ()> {
                 Fulfil,
             )
             .build(),
-        );
+        )
     })
 }
 
@@ -110,7 +110,7 @@ mod tests {
         let app = RustStream::new(AppInfo::new("fulfilment", "0.1.0")).with_broker_labeled(
             "pulsar",
             broker(TOKEN),
-            |_| {},
+            |b| b,
         );
         let document = build_spec(&app).to_json()?;
 

@@ -52,12 +52,10 @@ async fn record(
 
 #[ruststream::app]
 fn app() -> impl App {
-    RustStream::new(AppInfo::new("ledger", "0.1.0")).with_broker(
-        PulsarBroker::new("pulsar://localhost:6650"),
-        |b| {
-            b.include(record).out(Ledger, Publish).build();
-        },
-    )
+    RustStream::new(AppInfo::new("ledger", "0.1.0"))
+        .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
+            b.include(record).out(Ledger, Publish)
+        })
 }
 
 #[cfg(test)]

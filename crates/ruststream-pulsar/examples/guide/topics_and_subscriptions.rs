@@ -68,11 +68,11 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("fulfilment", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650").default_subscription("fulfilment"),
         |b| {
-            b.include(fulfil);
-            b.include(notify);
-            b.include(tally);
-            b.include(audit);
-            b.include(restock);
+            b.include(fulfil)
+                .include(notify)
+                .include(tally)
+                .include(audit)
+                .include(restock)
         },
     )
 }

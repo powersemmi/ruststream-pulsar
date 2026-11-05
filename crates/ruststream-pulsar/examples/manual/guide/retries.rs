@@ -131,14 +131,14 @@ fn app() -> impl App<State = Clients> {
             // Five deliveries of one refund, the first included; then the dead-letter topic.
             b.include(subscriber(refunds(), ProcessRefund).build())
                 .max_attempts(nonzero!(5u32))
-                .dead_letter("refunds-dlq");
-            b.include(
-                subscriber(
-                    PulsarSubscription::new("refunds-dlq", "refunds-review"),
-                    Review,
+                .dead_letter("refunds-dlq")
+                .include(
+                    subscriber(
+                        PulsarSubscription::new("refunds-dlq", "refunds-review"),
+                        Review,
+                    )
+                    .build(),
                 )
-                .build(),
-            );
         })
 }
 

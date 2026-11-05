@@ -44,7 +44,7 @@ fn service(url: &str) -> impl App<State = ()> {
             subscriber(PulsarSubscription::new("ledger.audit", "audit"), Replay)
                 .start_at(PulsarPosition::earliest())
                 .build(),
-        );
+        )
     })
 }
 // --8<-- [end:start_at]

@@ -112,25 +112,28 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("fulfilment", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650").default_subscription("fulfilment"),
         |b| {
-            b.include(subscriber(PulsarSubscription::new("orders", "fulfilment"), Fulfil).build());
-            b.include(
-                subscriber(PulsarSubscription::new("orders", "notifications"), Notify).build(),
-            );
-            b.include(
-                subscriber(
-                    PulsarSubscription::topics(["orders-eu", "orders-us"], "regional-totals"),
-                    Tally,
+            b.include(subscriber(PulsarSubscription::new("orders", "fulfilment"), Fulfil).build())
+                .include(
+                    subscriber(PulsarSubscription::new("orders", "notifications"), Notify).build(),
                 )
-                .build(),
-            );
-            b.include(
-                subscriber(
-                    PulsarSubscription::pattern("persistent://public/default/orders-.*", "audit"),
-                    Audit,
+                .include(
+                    subscriber(
+                        PulsarSubscription::topics(["orders-eu", "orders-us"], "regional-totals"),
+                        Tally,
+                    )
+                    .build(),
                 )
-                .build(),
-            );
-            b.include(subscriber("returns", Restock).build());
+                .include(
+                    subscriber(
+                        PulsarSubscription::pattern(
+                            "persistent://public/default/orders-.*",
+                            "audit",
+                        ),
+                        Audit,
+                    )
+                    .build(),
+                )
+                .include(subscriber("returns", Restock).build())
         },
     )
 }

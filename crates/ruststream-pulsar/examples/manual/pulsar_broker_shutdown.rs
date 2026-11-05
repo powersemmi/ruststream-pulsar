@@ -37,7 +37,7 @@ fn service(broker: PulsarBroker) -> impl App<State = ()> {
                 .reply()
                 .build(),
         )
-        .out_reply(Publish);
+        .out_reply(Publish)
     })
 }
 

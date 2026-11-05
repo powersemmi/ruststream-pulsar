@@ -30,9 +30,8 @@ async fn replay(entry: &AuditEntry) -> HandlerOutcome {
 
 /// The service on the Pulsar cluster `url` names.
 fn service(url: &str) -> impl App<State = ()> {
-    RustStream::new(AppInfo::new("audit", "0.1.0")).with_broker(PulsarBroker::new(url), |b| {
-        b.include(replay);
-    })
+    RustStream::new(AppInfo::new("audit", "0.1.0"))
+        .with_broker(PulsarBroker::new(url), |b| b.include(replay))
 }
 
 #[ruststream::app]

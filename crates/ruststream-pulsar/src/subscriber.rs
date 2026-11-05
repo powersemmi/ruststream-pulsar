@@ -21,7 +21,9 @@ use futures::{Stream, StreamExt};
 use pulsar::consumer::{Consumer, DeadLetterPolicy};
 use pulsar::proto::MessageIdData;
 use pulsar::{Pulsar, SubType, TokioExecutor};
-use ruststream::{AckError, BatchSubscriber, BufferedSubscriber, Seekable, Subscriber};
+use ruststream::{
+    AckError, BatchStream, BatchSubscriber, BufferedSubscriber, Seekable, Subscriber,
+};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::warn;
@@ -337,7 +339,7 @@ impl BatchSubscriber for PulsarSubscriber {
     fn batches(
         &mut self,
         size: NonZeroUsize,
-    ) -> impl Stream<Item = Result<Self::Batch, PulsarError>> + Send + '_ {
+    ) -> impl BatchStream<Self::Batch, Error = PulsarError> + Send + '_ {
         self.inner.batches(size)
     }
 }

@@ -6,6 +6,9 @@
 //! PULSAR_TEST_URL=pulsar://127.0.0.1:6650 cargo test --example manual_guide_testing --features testing
 //! ```
 
+// A test drives the app on its own task; the app's cold path carries no Send.
+#![allow(clippy::future_not_send)]
+
 use std::future::{Future, ready};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -68,7 +71,7 @@ fn service(broker: PulsarBroker) -> RustStream {
     RustStream::new(AppInfo::new("payments", "0.1.0")).with_broker(broker, |b| {
         b.include(subscriber("card-payments", Charge).reply().build())
             .max_attempts(nonzero!(3u32))
-            .dead_letter("card-payments-review");
+            .dead_letter("card-payments-review")
     })
 }
 

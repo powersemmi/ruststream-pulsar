@@ -41,7 +41,7 @@ The dependency line:
 
 ```toml
 [dev-dependencies]
-ruststream-pulsar = { version = "0.7", features = ["testing"] }
+ruststream-pulsar = { version = "0.8", features = ["testing"] }
 ```
 
 The first test publishes an empty payment and reads how the handler settled it.

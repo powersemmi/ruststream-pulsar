@@ -147,12 +147,12 @@ fn app() -> impl App<State = Clients> {
     RustStream::new(AppInfo::new("inventory", "0.1.0"))
         .on_startup(async move |()| Ok::<_, Infallible>(Clients::default()))
         .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
-            b.include(subscriber(reservations(), Reserve).build());
-            b.include(
-                subscriber(stock_counts(), RecordCounts)
-                    .batch(nonzero!(64))
-                    .build(),
-            );
+            b.include(subscriber(reservations(), Reserve).build())
+                .include(
+                    subscriber(stock_counts(), RecordCounts)
+                        .batch(nonzero!(64))
+                        .build(),
+                )
         })
 }
 

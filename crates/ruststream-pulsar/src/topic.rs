@@ -43,7 +43,7 @@ use crate::error::PulsarError;
 /// #     RustStream::new(AppInfo::new("router", "0.1.0")).with_broker(
 /// #         PulsarBroker::new("pulsar://localhost:6650"),
 /// #         |b| {
-/// #             b.include(route).out(TenantOrders, Publish).build();
+/// #             b.include(route).out(TenantOrders, Publish)
 /// #         },
 /// #     )
 /// # }
@@ -168,7 +168,7 @@ impl PulsarTopic {
     ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
     ///         PulsarBroker::new("pulsar://localhost:6650"),
     ///         |b| {
-    ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter(dead_letters);
+    ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter(dead_letters)
     ///         },
     ///     )
     /// }
@@ -210,7 +210,7 @@ impl PulsarTopic {
     ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
     ///         PulsarBroker::new("pulsar://localhost:6650"),
     ///         |b| {
-    ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter(dead_letters);
+    ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter(dead_letters)
     ///         },
     ///     )
     /// }
@@ -252,7 +252,7 @@ impl PulsarTopic {
     ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
     ///         PulsarBroker::new("pulsar://localhost:6650"),
     ///         |b| {
-    ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter(dead_letters);
+    ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter(dead_letters)
     ///         },
     ///     )
     /// }
@@ -292,7 +292,7 @@ impl PulsarTopic {
     ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
     ///         PulsarBroker::new("pulsar://localhost:6650"),
     ///         |b| {
-    ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter(dead_letters);
+    ///             b.include(handle).max_attempts(nonzero!(5)).dead_letter(dead_letters)
     ///         },
     ///     )
     /// }

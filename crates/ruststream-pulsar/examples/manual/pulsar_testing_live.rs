@@ -8,6 +8,8 @@
 //!     cargo test --example manual_pulsar_testing_live --features testing
 //! ```
 
+// A test drives the app on its own task; the app's cold path carries no Send.
+#![allow(clippy::future_not_send)]
 // A plain build compiles the service; the tests that use it exist only in the test build.
 #![cfg_attr(not(test), allow(dead_code, unused_imports))]
 
@@ -56,9 +58,7 @@ impl Handle<Payment> for Accept {
 fn app(url: &str, subscription: &str) -> impl App<State = ()> {
     RustStream::new(AppInfo::new("payments", "0.1.0")).with_broker(
         PulsarBroker::new(url).default_subscription(subscription),
-        |b| {
-            b.include(subscriber("testing-live-payments", Accept).build());
-        },
+        |b| b.include(subscriber("testing-live-payments", Accept).build()),
     )
 }
 

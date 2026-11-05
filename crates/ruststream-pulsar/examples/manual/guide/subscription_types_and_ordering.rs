@@ -141,14 +141,13 @@ fn app() -> impl App {
         |b| {
             b.include(subscriber(PulsarSubscription::new("orders", "packing"), Pack).build())
                 .out(Shipments, Publish)
-                .build();
-            b.include(
-                subscriber(tracking(), Track)
-                    .workers_by_key(nonzero!(8usize))
-                    .build(),
-            );
-            b.include(subscriber(ledger(), Book).build());
-            b.include(subscriber(invoicing(), Invoice).build());
+                .include(
+                    subscriber(tracking(), Track)
+                        .workers_by_key(nonzero!(8usize))
+                        .build(),
+                )
+                .include(subscriber(ledger(), Book).build())
+                .include(subscriber(invoicing(), Invoice).build())
         },
     )
 }

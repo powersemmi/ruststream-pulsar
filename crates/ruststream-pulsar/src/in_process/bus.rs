@@ -5,7 +5,10 @@ use std::sync::{Arc, OnceLock};
 
 use bytes::Bytes;
 use ruststream::testing::Coordinator;
-use ruststream::{BytesMut, HeaderMap, OutgoingMessage, RawMessage, Str};
+use ruststream::{
+    BytesMut, HeaderMap, OutgoingMessage, PublishMessageError, PublishOutcome, RawMessage, Str,
+    Take,
+};
 use tokio::runtime::Handle;
 
 use crate::error::PulsarError;
@@ -62,13 +65,17 @@ impl Bus {
     ///
     /// Returns [`PulsarError::Invalid`] for a destination that is no topic name, which the live
     /// publisher refuses before it opens a producer, and [`PulsarError::Publish`] for a header
-    /// value that is not UTF-8, which the live publisher refuses too.
-    pub(crate) fn publish(
+    /// value that is not UTF-8, which the live publisher refuses too. Both refusals hand the message
+    /// back.
+    pub(crate) fn publish<'msg>(
         &self,
-        msg: OutgoingMessage<'_, BytesMut>,
+        msg: OutgoingMessage<'msg, BytesMut>,
         key: Option<&str>,
-    ) -> Result<(), PulsarError> {
-        let topic = PulsarTopic::parse(msg.name())?;
+    ) -> PublishOutcome<'msg, PulsarError, Take> {
+        let topic = match PulsarTopic::parse(msg.name()) {
+            Ok(topic) => topic,
+            Err(error) => return Err(PublishMessageError::with_message(error, msg)),
+        };
         let message = to_pulsar_message(msg, key)?;
         let headers = delivered_headers(message.properties, message.partition_key);
         self.router.publish(
@@ -147,7 +154,14 @@ mod tests {
                 None,
             )
             .expect_err("a two-part name is no topic");
-        assert!(matches!(refused, PulsarError::Invalid(_)), "{refused}");
+        assert!(
+            matches!(refused.error(), PulsarError::Invalid(_)),
+            "{refused}"
+        );
+        let unsent = refused
+            .into_message()
+            .expect("the refusal hands the message back");
+        assert_eq!(unsent.name(), "a/b");
     }
 
     /// Pulsar carries properties as text, so a header value that is not UTF-8 is refused, as the
@@ -164,7 +178,14 @@ mod tests {
                 None,
             )
             .expect_err("a binary header is refused");
-        assert!(matches!(refused, PulsarError::Publish { .. }), "{refused}");
+        assert!(
+            matches!(refused.error(), PulsarError::Publish { .. }),
+            "{refused}"
+        );
+        assert!(
+            refused.message().is_some(),
+            "the refusal hands the message back"
+        );
         assert_eq!(bus.published("orders"), Vec::<RawMessage>::new());
     }
 }

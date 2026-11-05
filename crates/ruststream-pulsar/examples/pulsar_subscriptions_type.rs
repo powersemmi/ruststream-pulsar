@@ -37,10 +37,8 @@ async fn second_worker(task: &Task) -> HandlerOutcome {
 
 fn app() -> impl App {
     let broker = PulsarBroker::new("pulsar://localhost:6650");
-    RustStream::new(AppInfo::new("workers", "0.1.0")).with_broker(broker, |b| {
-        b.include(first_worker);
-        b.include(second_worker);
-    })
+    RustStream::new(AppInfo::new("workers", "0.1.0"))
+        .with_broker(broker, |b| b.include(first_worker).include(second_worker))
 }
 // --8<-- [end:descriptor]
 

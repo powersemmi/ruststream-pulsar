@@ -7,6 +7,9 @@
 //! cargo run --example manual_pulsar_settlement_retry_after --features testing -- run
 //! ```
 
+// A test drives the app on its own task; the app's cold path carries no Send.
+#![allow(clippy::future_not_send)]
+
 use std::convert::Infallible;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -85,7 +88,7 @@ fn service(url: &str) -> impl App<State = AppState> {
             })
         })
         .with_broker(PulsarBroker::new(url), |b| {
-            b.include(subscriber(PulsarSubscription::new("invoices", "billing"), Issue).build());
+            b.include(subscriber(PulsarSubscription::new("invoices", "billing"), Issue).build())
         })
 }
 

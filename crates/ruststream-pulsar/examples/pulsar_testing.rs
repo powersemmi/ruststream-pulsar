@@ -37,12 +37,10 @@ async fn accept(payment: &Payment) -> HandlerOutcome {
 /// The app `main` runs in production, and the one a test hands the harness unchanged.
 #[ruststream::app]
 fn app() -> impl App<State = ()> {
-    RustStream::new(AppInfo::new("payments", "0.1.0")).with_broker(
-        PulsarBroker::new("pulsar://localhost:6650"),
-        |b| {
-            b.include(accept);
-        },
-    )
+    RustStream::new(AppInfo::new("payments", "0.1.0"))
+        .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
+            b.include(accept)
+        })
 }
 
 #[cfg(test)]

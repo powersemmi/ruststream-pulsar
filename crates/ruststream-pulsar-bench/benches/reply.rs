@@ -37,9 +37,7 @@ async fn confirm(order: &Order, ctx: &mut Context<'_, (), Latch>) -> Confirmatio
 }
 
 fn app(messages: usize) -> Pending {
-    common::pending(messages, |b| {
-        b.include(confirm);
-    })
+    common::pending(messages, |b| b.include(confirm))
 }
 
 // About thirty-eight allocations per reply: the consume path's, the buffer the framework encodes

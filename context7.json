@@ -15,6 +15,7 @@
     "target"
   ],
   "rules": [
+    "Mount through the chain the `with_broker` closure returns: `|b| b.include(a).out_reply(Publish).include(c)`, `after_startup` written before the first `include`, and `|b| b` for a broker the service only publishes to (Components > Broker > Startup).",
     "Import `ruststream_pulsar::prelude::*` at a mount site and name the policy `Publish` there; a handler body imports `ruststream::prelude::*` and bounds a slot with a capability such as `Out<impl Publisher>` (Components > Broker > Prelude).",
     "Describe a subscription with `PulsarSubscription::new(topic, name)` for one topic, `::topics([..], name)` for a fixed list or `::pattern(regex, name)` for every topic whose full name matches (Components > Subscriptions).",
     "Mount a handler written without the macros as `subscriber(PulsarSubscription::new(..), Body)`, the descriptor passed as the source as it is (Components > Subscriptions > PulsarSubscription).",
@@ -24,7 +25,7 @@
     "Cap redeliveries with `.max_attempts(n).dead_letter(topic)` after `include` on a `Shared` or `KeyShared` subscription; the Pulsar client counts the deliveries and moves the spent message (Guides > Retries and dead letters).",
     "Take a batch with a slice handler and `.batch(n)` at the mount site, and set `batch_wait` on the descriptor to close a partial one (Components > Subscriptions > Batches).",
     "Replay the retained log with `start_at(PulsarPosition::earliest())` on every startup, and move a running subscription from its handler through `Ctx<SeekHandle>` (Guides > Replay and seeking).",
-    "Publish and reply through `Publish` at the mount site (`.out_reply(Publish)`, `.out(Marker, Publish).build()`); a request-reply exchange is a publish to another topic (Components > Publishing).",
+    "Publish and reply through `Publish` at the mount site (`.out_reply(Publish)`, `.out(Marker, Publish)`); a request-reply exchange is a publish to another topic (Components > Publishing).",
     "Key one publish with the `partition_key` step on a slot bounded `Out<impl Publisher<Options = PulsarPublishOptions>, Marker>`, or write the `partition-key` header (Components > Publishing > partition_key).",
     "Build a topic name from code with `PulsarTopic::persistent` or `non_persistent`, and parse one read at run time with `PulsarTopic::parse` (Components > Subscriptions > PulsarTopic).",
     "Test the production app: hand the app `main` runs to `TestApp::start` with the `testing` feature, address the broker as `tb.broker::<PulsarBroker>()`, and run the same body on `TestApp::start_live` (Components > Testing).",

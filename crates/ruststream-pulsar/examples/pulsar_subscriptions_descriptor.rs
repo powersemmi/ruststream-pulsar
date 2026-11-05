@@ -34,10 +34,8 @@ async fn ship(order: &Order) -> HandlerOutcome {
 
 fn app() -> impl App {
     let broker = PulsarBroker::new("pulsar://localhost:6650");
-    RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(broker, |b| {
-        b.include(bill);
-        b.include(ship);
-    })
+    RustStream::new(AppInfo::new("orders", "0.1.0"))
+        .with_broker(broker, |b| b.include(bill).include(ship))
 }
 // --8<-- [end:descriptor]
 
@@ -87,12 +85,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_topic_name_pulsar_refuses_stops_the_service() {
-        let app = RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
-            PulsarBroker::new("pulsar://localhost:6650"),
-            |b| {
-                b.include(misnamed);
-            },
-        );
+        let app = RustStream::new(AppInfo::new("orders", "0.1.0"))
+            .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
+                b.include(misnamed)
+            });
 
         let refused = TestApp::start(app)
             .await

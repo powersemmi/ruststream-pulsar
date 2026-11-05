@@ -23,9 +23,8 @@ async fn confirm(order: &Order) -> Confirmation {
 fn app() -> impl App {
     let broker = PulsarBroker::new("pulsar://localhost:6650")
         .operation_retries(OperationRetries::attempts(nonzero!(5u32)));
-    RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(broker, |b| {
-        b.include(confirm).out_reply(Publish);
-    })
+    RustStream::new(AppInfo::new("orders", "0.1.0"))
+        .with_broker(broker, |b| b.include(confirm).out_reply(Publish))
 }
 // --8<-- [end:app]
 

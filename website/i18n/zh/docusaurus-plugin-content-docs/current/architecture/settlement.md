@@ -61,7 +61,7 @@ export const retries = {
 
 <Diagram name="retries" words={retries} />
 
-送回消息不需要发布任何东西：Broker 再次投递同一条消息，并为它计数。注册的 [`max_attempts`](api:ruststream::runtime::Mounting::max_attempts) 和死信主题变成客户端的死信策略。消息的计数低于上限时，客户端交出它，因此处理器会看到它 `max_attempts` 次。到达上限时，客户端把它生产到死信主题，并确认原消息。
+送回消息不需要发布任何东西：Broker 再次投递同一条消息，并为它计数。注册的 [`max_attempts`](api:ruststream::runtime::RouterWith::max_attempts) 和死信主题变成客户端的死信策略。消息的计数低于上限时，客户端交出它，因此处理器会看到它 `max_attempts` 次。到达上限时，客户端把它生产到死信主题，并确认原消息。
 
 这两项设置要一起使用：只声明其中一项的注册会拒绝启动；`Exclusive` 或 `Failover` [订阅](../components/subscriptions/subscription-type.md)上的上限也会拒绝启动，因为这两种订阅的消息到达时计数总是零。
 

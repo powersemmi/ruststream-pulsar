@@ -1,7 +1,9 @@
 // The benchmark is a binary of its own, not library surface: the framework's macros generate the
 // handler scaffolding, and a measured loop panics on a broker fault rather than threading a
-// `Result` through a scenario nobody recovers from.
+// `Result` through a scenario nobody recovers from. The app's cold path (its start) carries no
+// Send, and the loops drive it on their own runtime.
 #![allow(
+    clippy::future_not_send,
     missing_docs,
     unreachable_pub,
     unused_qualifications,
@@ -74,7 +76,7 @@ use pulsar::producer::SendFuture;
 use pulsar::{Consumer, Pulsar, SubType, TokioExecutor};
 use ruststream::runtime::RunningApp;
 use ruststream::{
-    Broker, ConnectedBroker, IncomingMessage, OutgoingMessage, Publisher, Subscriber,
+    Broker, ConnectedBroker, IncomingMessage, OutgoingMessage, Publisher, Settle, Subscriber,
     SubscriptionSource,
 };
 use ruststream_pulsar::prelude::*;
@@ -570,9 +572,7 @@ async fn consume(order: &Order, ctx: &mut Context<'_, (), Run>) -> HandlerOutcom
 async fn start(url: &str, run: Run) -> RunningApp {
     RustStream::new(AppInfo::new("pulsar-bench", "0.0.0"))
         .on_startup(async move |()| Ok::<_, Infallible>(run))
-        .with_broker(PulsarBroker::new(url), |b| {
-            b.include(consume);
-        })
+        .with_broker(PulsarBroker::new(url), |b| b.include(consume))
         .start()
         .await
         .expect("the service starts")

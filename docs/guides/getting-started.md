@@ -14,13 +14,13 @@ This guide installs `ruststream-pulsar`, starts a local Pulsar and runs a first 
 
 ```toml title="Cargo.toml"
 [dependencies]
-ruststream = { version = "0.7", features = ["macros", "json", "logging"] }
-ruststream-pulsar = "0.7"
+ruststream = { version = "0.8", features = ["macros", "json", "logging"] }
+ruststream-pulsar = "0.8"
 serde = { version = "1", features = ["derive"] }
 tracing = "0.1"
 
 [dev-dependencies]
-ruststream-pulsar = { version = "0.7", features = ["testing"] }
+ruststream-pulsar = { version = "0.8", features = ["testing"] }
 tokio = { version = "1", features = ["macros", "rt"] }
 ```
 
