@@ -10,7 +10,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use pulsar::proto::MessageIdData;
 use ruststream::{
-    AckError, BytesMut, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned, Str,
+    AckError, BytesMut, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned, Settle,
+    Str,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -192,7 +193,7 @@ pub(crate) type SettleSender = mpsc::UnboundedSender<DriverCmd>;
 ///
 /// Without the feature there is one variant, so the type is the driver channel itself.
 #[derive(Debug)]
-enum Settle {
+enum SettleRoute {
     Driver(SettleSender),
     #[cfg(feature = "testing")]
     InProcess(Box<Settlement>),
@@ -201,7 +202,7 @@ enum Settle {
 // The zero-cost promise of the in-process mode, held by the compiler: a build without it gives
 // a delivery's settlement exactly the size of the driver channel it wraps.
 #[cfg(not(feature = "testing"))]
-const _: () = assert!(size_of::<Settle>() == size_of::<SettleSender>());
+const _: () = assert!(size_of::<SettleRoute>() == size_of::<SettleSender>());
 
 /// Refuses a delay the consumer's own timer would cut short.
 ///
@@ -243,7 +244,7 @@ pub struct PulsarMessage {
     headers: HeaderMap,
     topic: String,
     id: MessageIdData,
-    settle: Settle,
+    settle: SettleRoute,
     /// The subscription's acknowledgement timeout, which bounds how long a delayed retry may
     /// hold the delivery before the consumer redelivers it anyway.
     ack_timeout: Option<Duration>,
@@ -279,7 +280,7 @@ impl PulsarMessage {
             headers,
             topic: message.topic.clone(),
             id: message.message_id().clone(),
-            settle: Settle::Driver(settle),
+            settle: SettleRoute::Driver(settle),
             ack_timeout,
         }
     }
@@ -306,7 +307,7 @@ impl PulsarMessage {
                 partition: Some(-1),
                 ..MessageIdData::default()
             },
-            settle: Settle::InProcess(Box::new(settlement)),
+            settle: SettleRoute::InProcess(Box::new(settlement)),
             ack_timeout,
         }
     }
@@ -327,9 +328,9 @@ impl PulsarMessage {
     /// message.
     pub(crate) fn seeker(&self) -> PulsarSeeker {
         match &self.settle {
-            Settle::Driver(driver) => PulsarSeeker::new(driver.clone()),
+            SettleRoute::Driver(driver) => PulsarSeeker::new(driver.clone()),
             #[cfg(feature = "testing")]
-            Settle::InProcess(settlement) => settlement.seeker(),
+            SettleRoute::InProcess(settlement) => settlement.seeker(),
         }
     }
 }
@@ -378,13 +379,19 @@ impl IncomingMessage for PulsarMessage {
         &self.headers
     }
 
+    fn partition_key(&self) -> Option<&[u8]> {
+        Partitioned::partition_key(self)
+    }
+}
+
+impl Settle for PulsarMessage {
     async fn ack(self) -> Result<(), AckError> {
         match self.settle {
-            Settle::Driver(driver) => {
+            SettleRoute::Driver(driver) => {
                 send_settle(driver, self.topic, self.id, SettleKind::Ack).await
             }
             #[cfg(feature = "testing")]
-            Settle::InProcess(settlement) => {
+            SettleRoute::InProcess(settlement) => {
                 settlement.settle();
                 Ok(())
             }
@@ -400,9 +407,9 @@ impl IncomingMessage for PulsarMessage {
             SettleKind::Ack
         };
         match self.settle {
-            Settle::Driver(driver) => send_settle(driver, self.topic, self.id, kind).await,
+            SettleRoute::Driver(driver) => send_settle(driver, self.topic, self.id, kind).await,
             #[cfg(feature = "testing")]
-            Settle::InProcess(settlement) => {
+            SettleRoute::InProcess(settlement) => {
                 if requeue {
                     (*settlement).requeue(self.payload, self.headers)
                 } else {
@@ -446,7 +453,7 @@ impl IncomingMessage for PulsarMessage {
             return ready(Err(err));
         }
         match self.settle {
-            Settle::Driver(driver) => {
+            SettleRoute::Driver(driver) => {
                 let cmd = DriverCmd::NackAfter(NackAfterCmd {
                     topic: self.topic,
                     id: self.id,
@@ -460,15 +467,11 @@ impl IncomingMessage for PulsarMessage {
                 }
             }
             #[cfg(feature = "testing")]
-            Settle::InProcess(settlement) => {
+            SettleRoute::InProcess(settlement) => {
                 return ready((*settlement).nack_after(delay, self.payload, self.headers));
             }
         }
         ready(Ok(()))
-    }
-
-    fn partition_key(&self) -> Option<&[u8]> {
-        Partitioned::partition_key(self)
     }
 }
 

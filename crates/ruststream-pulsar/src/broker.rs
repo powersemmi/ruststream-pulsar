@@ -866,7 +866,7 @@ mod tests {
     #[tokio::test]
     async fn a_delivery_held_across_shutdown_is_not_handed_back_in_process() {
         use futures::StreamExt;
-        use ruststream::{IncomingMessage, Subscriber};
+        use ruststream::{Settle, Subscriber};
 
         let connected = PulsarBroker::new("pulsar://localhost:6650")
             .connect_in_process()
@@ -911,7 +911,7 @@ mod tests {
     #[tokio::test]
     async fn what_a_closed_consumer_left_unsettled_reaches_the_next_one() {
         use futures::StreamExt;
-        use ruststream::{IncomingMessage, Subscriber};
+        use ruststream::{IncomingMessage, Settle, Subscriber};
 
         let connected = PulsarBroker::new("pulsar://localhost:6650")
             .connect_in_process()
