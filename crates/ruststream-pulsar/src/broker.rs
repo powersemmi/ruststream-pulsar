@@ -997,7 +997,9 @@ mod tests {
         publish(16)
             .await
             .expect("a payload at the limit is published");
-        let refused = publish(17).await.expect_err("a payload over the limit is refused");
+        let refused = publish(17)
+            .await
+            .expect_err("a payload over the limit is refused");
         assert!(
             matches!(refused.error(), PulsarError::Publish { .. }),
             "{refused:?}"

@@ -6,7 +6,8 @@ use std::sync::{Arc, OnceLock};
 use bytes::Bytes;
 use ruststream::testing::Coordinator;
 use ruststream::{
-    BytesMut, HeaderMap, OutgoingMessage, PublishMessageError, PublishOutcome, RawMessage, Str, Take,
+    BytesMut, HeaderMap, OutgoingMessage, PublishMessageError, PublishOutcome, RawMessage, Str,
+    Take,
 };
 use tokio::runtime::Handle;
 
@@ -153,7 +154,10 @@ mod tests {
                 None,
             )
             .expect_err("a two-part name is no topic");
-        assert!(matches!(refused.error(), PulsarError::Invalid(_)), "{refused}");
+        assert!(
+            matches!(refused.error(), PulsarError::Invalid(_)),
+            "{refused}"
+        );
         let unsent = refused
             .into_message()
             .expect("the refusal hands the message back");
@@ -174,8 +178,14 @@ mod tests {
                 None,
             )
             .expect_err("a binary header is refused");
-        assert!(matches!(refused.error(), PulsarError::Publish { .. }), "{refused}");
-        assert!(refused.message().is_some(), "the refusal hands the message back");
+        assert!(
+            matches!(refused.error(), PulsarError::Publish { .. }),
+            "{refused}"
+        );
+        assert!(
+            refused.message().is_some(),
+            "the refusal hands the message back"
+        );
         assert_eq!(bus.published("orders"), Vec::<RawMessage>::new());
     }
 }

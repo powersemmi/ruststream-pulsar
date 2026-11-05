@@ -491,8 +491,10 @@ impl Settle for PulsarMessage {
 pub(crate) fn to_pulsar_message<'msg>(
     msg: OutgoingMessage<'msg, BytesMut>,
     key: Option<&str>,
-) -> Result<pulsar::producer::Message, PublishMessageError<PulsarError, OutgoingMessage<'msg, BytesMut>>>
-{
+) -> Result<
+    pulsar::producer::Message,
+    PublishMessageError<PulsarError, OutgoingMessage<'msg, BytesMut>>,
+> {
     let (properties, partition_key) = match properties_of(&msg, key) {
         Ok(parts) => parts,
         Err(error) => return Err(PublishMessageError::with_message(error, msg)),
@@ -635,7 +637,9 @@ mod tests {
             matches!(refused.error(), PulsarError::Publish { topic, .. } if topic == "orders"),
             "{refused:?}",
         );
-        let unsent = refused.into_message().expect("the refusal hands the message back");
+        let unsent = refused
+            .into_message()
+            .expect("the refusal hands the message back");
         assert_eq!(unsent.payload(), b"{}");
         assert_eq!(unsent.headers().get("x-raw"), Some([0xff, b'a'].as_slice()));
     }
