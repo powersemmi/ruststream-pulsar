@@ -16,7 +16,10 @@ use pulsar::{ProducerOptions, Pulsar, TokioExecutor};
 #[cfg(feature = "asyncapi")]
 use ruststream::asyncapi::Bindings;
 use ruststream::runtime::{PublishBuilder, PublishSink};
-use ruststream::{BytesMut, OutgoingMessage, PairError, PublishPolicy, Publisher, Take};
+use ruststream::{
+    BytesMut, OutgoingMessage, PairError, PublishMessageError, PublishOutcome, PublishPolicy,
+    Publisher, Take,
+};
 use tokio::sync::Mutex;
 
 #[cfg(feature = "asyncapi")]
@@ -223,22 +226,30 @@ impl Publisher for PulsarPublisher {
     /// crate's surface.
     type Options = PulsarPublishOptions;
 
-    async fn publish(
+    /// A refusal before the client takes the message (the broker shut down, a payload over the
+    /// size limit, a destination that is no topic, a header that is not text, a producer that
+    /// cannot open) hands the message back. A send the client refuses after taking the payload
+    /// does not: the client gives nothing back.
+    async fn publish<'msg>(
         &self,
-        msg: OutgoingMessage<'_, BytesMut>,
+        msg: OutgoingMessage<'msg, BytesMut>,
         options: Option<&Self::Options>,
-    ) -> Result<(), Self::Error> {
-        let core = self.core()?;
+    ) -> PublishOutcome<'msg, PulsarError, Take> {
+        let core = match self.core() {
+            Ok(core) => core,
+            Err(error) => return Err(PublishMessageError::with_message(error, msg)),
+        };
         let size = msg.payload().len();
         if size > core.max_message_size {
-            return Err(PulsarError::Publish {
+            let error = PulsarError::Publish {
                 topic: msg.name().to_owned(),
                 source: Box::from(format!(
                     "the payload is {size} bytes, over the {} the broker's max_message_size \
                      allows",
                     core.max_message_size
                 )),
-            });
+            };
+            return Err(PublishMessageError::with_message(error, msg));
         }
         let key = options.and_then(|options| options.partition_key.as_deref());
         let client = match &core.transport {
@@ -248,7 +259,10 @@ impl Publisher for PulsarPublisher {
         };
         // The destination outlives the message, so the client's message can consume it.
         let topic = msg.name();
-        let producer = Box::pin(self.producer_for(core, client, topic)).await?;
+        let producer = match Box::pin(self.producer_for(core, client, topic)).await {
+            Ok(producer) => producer,
+            Err(error) => return Err(PublishMessageError::with_message(error, msg)),
+        };
         let message = to_pulsar_message(msg, key)?;
         let receipt = {
             let mut producer = producer.lock().await;
@@ -259,9 +273,12 @@ impl Publisher for PulsarPublisher {
                     source: box_err(e),
                 })?
         };
-        receipt.await.map(|_| ()).map_err(|e| PulsarError::Publish {
-            topic: topic.to_owned(),
-            source: box_err(e),
+        receipt.await.map(|_| ()).map_err(|e| {
+            PulsarError::Publish {
+                topic: topic.to_owned(),
+                source: box_err(e),
+            }
+            .into()
         })
     }
 }

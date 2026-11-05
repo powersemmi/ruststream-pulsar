@@ -857,7 +857,15 @@ mod tests {
                 None,
             )
             .await;
-        assert!(matches!(late, Err(PulsarError::NotConnected)), "{late:?}");
+        let refused = late.expect_err("a publish after shutdown is refused");
+        assert!(
+            matches!(refused.error(), PulsarError::NotConnected),
+            "{refused:?}"
+        );
+        let unsent = refused
+            .into_message()
+            .expect("the refusal hands the message back");
+        assert_eq!(unsent.payload(), b"{}");
     }
 
     /// A delivery held across the shutdown has no consumer to go back to in process, so handing it
@@ -989,11 +997,15 @@ mod tests {
         publish(16)
             .await
             .expect("a payload at the limit is published");
-        let refused = publish(17).await;
+        let refused = publish(17).await.expect_err("a payload over the limit is refused");
         assert!(
-            matches!(refused, Err(PulsarError::Publish { .. })),
+            matches!(refused.error(), PulsarError::Publish { .. }),
             "{refused:?}"
         );
+        let unsent = refused
+            .into_message()
+            .expect("the refusal hands the message back");
+        assert_eq!(unsent.payload().len(), 17);
         assert_eq!(connected.published("orders").len(), 1);
     }
 

@@ -10,8 +10,8 @@ use std::time::Duration;
 use bytes::Bytes;
 use pulsar::proto::MessageIdData;
 use ruststream::{
-    AckError, BytesMut, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned, Settle,
-    Str,
+    AckError, BytesMut, HeaderMap, IncomingMessage, OutgoingMessage, Partitioned, Positioned,
+    PublishMessageError, Settle, Str,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -487,18 +487,38 @@ impl Settle for PulsarMessage {
 ///
 /// Returns [`PulsarError::Publish`] for a header value that is not UTF-8. Pulsar carries
 /// properties as text, so such a value cannot arrive as it was written, and a rewritten header
-/// is a silent loss.
-pub(crate) fn to_pulsar_message(
-    msg: OutgoingMessage<'_, BytesMut>,
+/// is a silent loss. The refusal hands the message back: nothing of it was consumed yet.
+pub(crate) fn to_pulsar_message<'msg>(
+    msg: OutgoingMessage<'msg, BytesMut>,
     key: Option<&str>,
-) -> Result<pulsar::producer::Message, PulsarError> {
-    let (topic, payload, headers) = msg.into_parts();
-    let mut properties = HashMap::with_capacity(headers.len());
+) -> Result<pulsar::producer::Message, PublishMessageError<PulsarError, OutgoingMessage<'msg, BytesMut>>>
+{
+    let (properties, partition_key) = match properties_of(&msg, key) {
+        Ok(parts) => parts,
+        Err(error) => return Err(PublishMessageError::with_message(error, msg)),
+    };
+    let (_, payload, _) = msg.into_parts();
+    Ok(pulsar::producer::Message {
+        // The client owns the payload, and the buffer the framework wrote is the vector it
+        // wants: taking it costs nothing where a copy costs the whole body.
+        payload: Vec::from(payload),
+        properties,
+        partition_key,
+        ..Default::default()
+    })
+}
+
+/// The text properties and the partition key of `msg`, read without consuming it.
+fn properties_of(
+    msg: &OutgoingMessage<'_, BytesMut>,
+    key: Option<&str>,
+) -> Result<(HashMap<String, String>, Option<String>), PulsarError> {
+    let mut properties = HashMap::with_capacity(msg.headers().len());
     let mut partition_key = key.map(ToOwned::to_owned);
-    for (name, value) in headers.iter() {
+    for (name, value) in msg.headers().iter() {
         let text = std::str::from_utf8(value)
             .map_err(|err| PulsarError::Publish {
-                topic: topic.to_owned(),
+                topic: msg.name().to_owned(),
                 source: Box::from(format!(
                     "header '{name}' is not UTF-8 ({err}); Pulsar carries properties as text"
                 )),
@@ -510,14 +530,7 @@ pub(crate) fn to_pulsar_message(
             properties.insert(name.to_owned(), text);
         }
     }
-    Ok(pulsar::producer::Message {
-        // The client owns the payload, and the buffer the framework wrote is the vector it
-        // wants: taking it costs nothing where a copy costs the whole body.
-        payload: Vec::from(payload),
-        properties,
-        partition_key,
-        ..Default::default()
-    })
+    Ok((properties, partition_key))
 }
 
 #[cfg(test)]
@@ -619,8 +632,11 @@ mod tests {
 
         let refused = to_pulsar_message(outgoing, None).expect_err("a binary header is refused");
         assert!(
-            matches!(&refused, PulsarError::Publish { topic, .. } if topic == "orders"),
+            matches!(refused.error(), PulsarError::Publish { topic, .. } if topic == "orders"),
             "{refused:?}",
         );
+        let unsent = refused.into_message().expect("the refusal hands the message back");
+        assert_eq!(unsent.payload(), b"{}");
+        assert_eq!(unsent.headers().get("x-raw"), Some([0xff, b'a'].as_slice()));
     }
 }
