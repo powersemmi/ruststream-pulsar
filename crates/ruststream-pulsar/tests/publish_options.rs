@@ -6,6 +6,8 @@
 //! publish that names no step carries the policy's own settings, and the message goes unkeyed
 //! unless the call site wrote the `partition-key` header itself.
 #![cfg(feature = "testing")]
+// A test drives the app on its own task; the app's cold path carries no Send.
+#![allow(clippy::future_not_send)]
 
 use std::pin::pin;
 

@@ -1,7 +1,9 @@
 // The benchmark is a binary of its own, not library surface: the framework's macros generate the
 // handler scaffolding, and a measured loop panics on a broker fault rather than threading a
-// `Result` through a scenario nobody recovers from.
+// `Result` through a scenario nobody recovers from. The app's cold path (its start) carries no
+// Send, and the loops drive it on their own runtime.
 #![allow(
+    clippy::future_not_send,
     missing_docs,
     unreachable_pub,
     unused_qualifications,
