@@ -4,6 +4,7 @@
 //! `PULSAR_TEST_URL=pulsar://127.0.0.1:6650 cargo test --all-features -- --test-threads=1`.
 
 use std::collections::BTreeSet;
+use std::future::poll_fn;
 use std::pin::pin;
 use std::sync::Arc;
 use std::thread;
@@ -12,9 +13,10 @@ use std::time::Duration;
 use futures::StreamExt;
 use ruststream::runtime::PublishExt;
 use ruststream::{
-    BatchSubscriber, Broker, ConnectedBroker, DeclareRetryError, HeaderMap, IncomingMessage,
-    Outgoing, OutgoingMessage, Positioned, Publisher, RetryDeclaration, Seekable, Seeker,
-    Serialized, Subscribe, Subscriber, SubscriptionSource, nonzero,
+    BatchStream, BatchSubscriber, Broker, ConnectedBroker, DeclareRetryError, HeaderMap,
+    IncomingMessage, Outgoing, OutgoingMessage, Positioned, PublishMessageError, Publisher,
+    RetryDeclaration, Seekable, Seeker, Serialized, Settle, Subscribe, Subscriber,
+    SubscriptionSource, nonzero,
 };
 use ruststream_pulsar::{
     ConnectedPulsarBroker, PARTITION_KEY_HEADER, PulsarBroker, PulsarError, PulsarMessage,
@@ -346,6 +348,7 @@ async fn a_subscription_and_a_producer_opened_from_a_stopped_runtime_keep_workin
         first_use
             .publish(OutgoingMessage::new(&name, b"first".as_slice()), None)
             .await
+            .map_err(PublishMessageError::into_error)
     })
     .await
     .expect("the first publish goes out from a runtime of its own");
@@ -973,17 +976,24 @@ async fn a_partial_batch_closes_at_the_batch_wait_deadline() {
     }
 
     let mut batches = pin!(subscriber.batches(nonzero!(8usize)));
+    let mut batch = Vec::new();
     assert!(
-        tokio::time::timeout(NACK_DELAY / 2, batches.next())
-            .await
-            .is_err(),
+        tokio::time::timeout(
+            NACK_DELAY / 2,
+            poll_fn(|cx| batches.as_mut().poll_fill(cx, &mut batch)),
+        )
+        .await
+        .is_err(),
         "a partial batch closed before the deadline the descriptor named",
     );
-    let batch = tokio::time::timeout(RECV_TIMEOUT, batches.next())
-        .await
-        .expect("the deadline closes the batch")
-        .expect("the subscription is open")
-        .expect("the batch is ok");
+    tokio::time::timeout(
+        RECV_TIMEOUT,
+        poll_fn(|cx| batches.as_mut().poll_fill(cx, &mut batch)),
+    )
+    .await
+    .expect("the deadline closes the batch")
+    .expect("the subscription is open")
+    .expect("the batch is ok");
     assert_eq!(batch.len(), 2, "the batch must carry what had arrived");
     for message in batch {
         message.ack().await.expect("ack succeeds");

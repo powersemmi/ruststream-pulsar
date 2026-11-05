@@ -15,7 +15,7 @@ use std::time::Duration;
 use futures::StreamExt;
 use ruststream::{
     Broker, ConnectedBroker, HeaderMap, IncomingMessage, OutgoingMessage, Publisher,
-    RetryDeclaration, Subscriber, SubscriptionSource, nonzero,
+    RetryDeclaration, Settle, Subscriber, SubscriptionSource, nonzero,
 };
 use ruststream_pulsar::{
     ConnectedPulsarBroker, OperationRetries, PARTITION_KEY_HEADER, PulsarBroker, PulsarError,

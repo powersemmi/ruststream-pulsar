@@ -117,9 +117,9 @@ async fn delivered(app: impl App<State = ()>, topic: &str) -> TestApp<()> {
 /// The step's key is what the publish carried, and what reached the broker.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_step_keys_the_message_the_slot_sends() {
-    let app =
-        RustStream::new(AppInfo::new("keyed", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
-            b.include(record).out(Ledger, Publish).build();
+    let app = RustStream::new(AppInfo::new("keyed", "0.1.0"))
+        .with_broker(PulsarBroker::new(URL), |b| {
+            b.include(record).out(Ledger, Publish)
         });
     let tb = delivered(app, "orders").await;
 
@@ -139,9 +139,9 @@ async fn the_step_keys_the_message_the_slot_sends() {
 /// policy fixes no key, so the message leaves unkeyed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_publish_with_no_step_leaves_the_message_unkeyed() {
-    let app =
-        RustStream::new(AppInfo::new("plain", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
-            b.include(note).out(Notes, Publish).build();
+    let app = RustStream::new(AppInfo::new("plain", "0.1.0"))
+        .with_broker(PulsarBroker::new(URL), |b| {
+            b.include(note).out(Notes, Publish)
         });
     let tb = delivered(app, "orders.plain").await;
 
@@ -163,9 +163,9 @@ async fn a_publish_with_no_step_leaves_the_message_unkeyed() {
 /// the portable way keeps working.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_call_site_header_keys_the_message_too() {
-    let app =
-        RustStream::new(AppInfo::new("tagged", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
-            b.include(tag).out(Notes, Publish).build();
+    let app = RustStream::new(AppInfo::new("tagged", "0.1.0"))
+        .with_broker(PulsarBroker::new(URL), |b| {
+            b.include(tag).out(Notes, Publish)
         });
     let tb = delivered(app, "orders.tagged").await;
 
@@ -183,15 +183,10 @@ async fn a_call_site_header_keys_the_message_too() {
 /// so a keyed publish still leaves in the slot's own format.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_keyed_publish_keeps_the_codec_the_mount_site_named() {
-    let app = RustStream::new(AppInfo::new("keyed-codec", "0.1.0")).with_broker(
-        PulsarBroker::new(URL),
-        |b| {
-            b.include(record)
-                .out(Ledger, Publish)
-                .codec(CborCodec)
-                .build();
-        },
-    );
+    let app = RustStream::new(AppInfo::new("keyed-codec", "0.1.0"))
+        .with_broker(PulsarBroker::new(URL), |b| {
+            b.include(record).out(Ledger, Publish).codec(CborCodec)
+        });
     let tb = delivered(app, "orders").await;
 
     tb.out::<Ledger>()

@@ -102,10 +102,8 @@ async fn confirm_by_default(order: &Order) -> Receipt {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_production_descriptor_mounts_in_process() {
-    let app =
-        RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
-            b.include(handle);
-        });
+    let app = RustStream::new(AppInfo::new("orders", "0.1.0"))
+        .with_broker(PulsarBroker::new(URL), |b| b.include(handle));
     let tb = TestApp::start(app).await.expect("start harness");
 
     tb.broker::<PulsarBroker>()
@@ -125,12 +123,8 @@ async fn a_production_descriptor_mounts_in_process() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_multi_topic_descriptor_covers_every_topic_it_lists() {
-    let app = RustStream::new(AppInfo::new("regional", "0.1.0")).with_broker(
-        PulsarBroker::new(URL),
-        |b| {
-            b.include(handle_regional);
-        },
-    );
+    let app = RustStream::new(AppInfo::new("regional", "0.1.0"))
+        .with_broker(PulsarBroker::new(URL), |b| b.include(handle_regional));
     let tb = TestApp::start(app).await.expect("start harness");
 
     for (topic, id) in [("orders-eu", 1), ("orders-us", 2)] {
@@ -166,10 +160,8 @@ async fn a_multi_topic_descriptor_covers_every_topic_it_lists() {
 /// delivered, because the subscription the client opens on it starts at its tip.
 #[tokio::test(start_paused = true)]
 async fn a_pattern_descriptor_reads_a_new_topic_from_the_next_listing() {
-    let app =
-        RustStream::new(AppInfo::new("audit", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
-            b.include(audit);
-        });
+    let app = RustStream::new(AppInfo::new("audit", "0.1.0"))
+        .with_broker(PulsarBroker::new(URL), |b| b.include(audit));
     let tb = TestApp::start(app).await.expect("start harness");
 
     // Neither topic existed when the subscription opened.
@@ -212,10 +204,8 @@ async fn a_pattern_descriptor_reads_a_new_topic_from_the_next_listing() {
 /// `public/default` is not listed for it even where the regular expression alone would match.
 #[tokio::test(start_paused = true)]
 async fn a_pattern_reads_the_namespace_its_prefix_names() {
-    let app =
-        RustStream::new(AppInfo::new("acme", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
-            b.include(acme_audit);
-        });
+    let app = RustStream::new(AppInfo::new("acme", "0.1.0"))
+        .with_broker(PulsarBroker::new(URL), |b| b.include(acme_audit));
     let tb = TestApp::start(app).await.expect("start harness");
 
     // The topics come to exist after the subscription opened, so the next listing reads them.
@@ -260,10 +250,8 @@ async fn a_pattern_reads_the_namespace_its_prefix_names() {
 /// pattern.
 #[tokio::test]
 async fn a_pattern_with_a_regex_namespace_refuses_to_start() {
-    let app =
-        RustStream::new(AppInfo::new("acme", "0.1.0")).with_broker(PulsarBroker::new(URL), |b| {
-            b.include(acme_everything);
-        });
+    let app = RustStream::new(AppInfo::new("acme", "0.1.0"))
+        .with_broker(PulsarBroker::new(URL), |b| b.include(acme_everything));
 
     let failed = TestApp::start(app)
         .await
@@ -283,9 +271,10 @@ async fn a_production_routes_file_publishes_its_reply() {
     let app = RustStream::new(AppInfo::new("payments", "0.1.0")).with_broker(
         PulsarBroker::new(URL),
         |b| {
-            b.include(confirm).out_reply(Publish);
-            // No reply position: the reply takes the broker's default policy, `Publish` too.
-            b.include(confirm_by_default);
+            b.include(confirm)
+                .out_reply(Publish)
+                // No reply position: the reply takes the broker's default policy, `Publish` too.
+                .include(confirm_by_default)
         },
     );
     let tb = TestApp::start(app).await.expect("start harness");

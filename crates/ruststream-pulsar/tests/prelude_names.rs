@@ -88,8 +88,10 @@ fn the_policy_binds_the_reply_position() {
     let _app = RustStream::new(AppInfo::new("prelude", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650").default_subscription("workers"),
         |b| {
-            b.include(confirm).out_reply(Publish);
-            b.include(issue_receipt).out_reply(Publish);
+            b.include(confirm)
+                .out_reply(Publish)
+                .include(issue_receipt)
+                .out_reply(Publish)
         },
     );
 }
@@ -101,9 +103,7 @@ fn the_policy_binds_the_reply_position() {
 async fn a_reply_lands_on_the_topic_its_type_declares() {
     let app = RustStream::new(AppInfo::new("declared", "0.1.0")).with_broker(
         PulsarBroker::new(URL).default_subscription("workers"),
-        |b| {
-            b.include(issue_receipt);
-        },
+        |b| b.include(issue_receipt),
     );
     let tb = TestApp::start(app).await.expect("start harness");
 
@@ -132,9 +132,7 @@ async fn a_reply_lands_on_the_topic_its_type_declares() {
 async fn a_reply_lands_on_the_topic_the_mount_site_names() {
     let app = RustStream::new(AppInfo::new("mounted", "0.1.0")).with_broker(
         PulsarBroker::new(URL).default_subscription("workers"),
-        |b| {
-            b.include(confirm);
-        },
+        |b| b.include(confirm),
     );
     let tb = TestApp::start(app).await.expect("start harness");
 

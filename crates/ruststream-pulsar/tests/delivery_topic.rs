@@ -95,7 +95,7 @@ fn app() -> impl App {
                 .layer(read_topic())
                 .include(audit)
                 .layer(read_topic()),
-        );
+        )
     })
 }
 
