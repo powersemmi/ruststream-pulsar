@@ -46,12 +46,12 @@ codecs and middleware come from the framework; this crate is the transport.
 
 ```toml
 [dependencies]
-ruststream = { version = "0.7", features = ["macros", "json"] }
-ruststream-pulsar = "0.7"
+ruststream = { version = "0.8", features = ["macros", "json"] }
+ruststream-pulsar = "0.8"
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
-ruststream-pulsar = { version = "0.7", features = ["testing"] }
+ruststream-pulsar = { version = "0.8", features = ["testing"] }
 ```
 
 Building requires `protoc` on the path.
