@@ -71,7 +71,7 @@ one, it comes back only when the consumer disconnects.
 <Diagram name="retries" words={retries} />
 
 Nothing is published to bring a message back: the broker delivers the same message again and
-counts it. A registration's [`max_attempts`](api:ruststream::runtime::Mounting::max_attempts) and
+counts it. A registration's [`max_attempts`](api:ruststream::runtime::RouterWith::max_attempts) and
 dead-letter topic become the client's dead-letter policy. The client delivers a message while its
 count is below the cap, so the handler sees it `max_attempts` times. At the cap the client produces
 it to the dead-letter topic and acknowledges the original.
