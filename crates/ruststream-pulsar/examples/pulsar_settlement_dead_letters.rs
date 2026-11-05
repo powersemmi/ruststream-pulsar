@@ -37,7 +37,7 @@ fn app() -> impl App {
             // Three deliveries in all; then the client moves the payment to `payments-dlq`.
             b.include(book)
                 .max_attempts(nonzero!(3))
-                .dead_letter("payments-dlq");
+                .dead_letter("payments-dlq")
         },
     )
 }

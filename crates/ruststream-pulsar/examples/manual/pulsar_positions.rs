@@ -91,14 +91,14 @@ fn app() -> impl App<State = AppState> {
             })
         })
         .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
-            b.include(subscriber(PulsarSubscription::new("ledger", "projection"), Project).build());
-            b.include(
-                subscriber(
-                    PulsarSubscription::new("ledger.rebuild", "projection"),
-                    Rewind,
+            b.include(subscriber(PulsarSubscription::new("ledger", "projection"), Project).build())
+                .include(
+                    subscriber(
+                        PulsarSubscription::new("ledger.rebuild", "projection"),
+                        Rewind,
+                    )
+                    .build(),
                 )
-                .build(),
-            );
         })
 }
 // --8<-- [end:position]

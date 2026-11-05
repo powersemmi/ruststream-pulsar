@@ -55,7 +55,7 @@ fn app() -> impl App {
                 .build(),
             )
             .max_attempts(nonzero!(5))
-            .dead_letter("orders-dlq");
+            .dead_letter("orders-dlq")
         },
     )
 }

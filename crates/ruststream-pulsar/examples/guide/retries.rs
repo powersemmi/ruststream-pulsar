@@ -110,8 +110,8 @@ fn app() -> impl App<State = Clients> {
             // Five deliveries of one refund, the first included; then the dead-letter topic.
             b.include(process_refund)
                 .max_attempts(nonzero!(5u32))
-                .dead_letter("refunds-dlq");
-            b.include(review);
+                .dead_letter("refunds-dlq")
+                .include(review)
         })
 }
 // --8<-- [end:app]

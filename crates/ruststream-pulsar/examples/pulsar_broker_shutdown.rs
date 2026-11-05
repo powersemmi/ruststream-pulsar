@@ -19,9 +19,8 @@ async fn ship(order: &Order) -> Shipment {
 // --8<-- [start:app]
 /// The service on `broker`. Its replies open a producer on `shipments`, which shutdown closes.
 fn service(broker: PulsarBroker) -> impl App<State = ()> {
-    RustStream::new(AppInfo::new("shipping", "0.1.0")).with_broker(broker, |b| {
-        b.include(ship).out_reply(Publish);
-    })
+    RustStream::new(AppInfo::new("shipping", "0.1.0"))
+        .with_broker(broker, |b| b.include(ship).out_reply(Publish))
 }
 
 #[ruststream::app]

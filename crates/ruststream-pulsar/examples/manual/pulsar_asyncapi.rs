@@ -104,8 +104,8 @@ fn service(broker: PulsarBroker) -> impl App<State = ()> {
             .reply()
             .to("persistent://acme/orders/confirmed")
             .build(),
-        );
-        b.include(
+        )
+        .include(
             subscriber(
                 PulsarSubscription::topics(
                     ["persistent://acme/eu/orders", "persistent://acme/us/orders"],
@@ -115,8 +115,8 @@ fn service(broker: PulsarBroker) -> impl App<State = ()> {
                 Regional,
             )
             .build(),
-        );
-        b.include(subscriber(PulsarSubscription::pattern("audit-.*", "auditors"), Audit).build());
+        )
+        .include(subscriber(PulsarSubscription::pattern("audit-.*", "auditors"), Audit).build())
     })
 }
 // --8<-- [end:operations]

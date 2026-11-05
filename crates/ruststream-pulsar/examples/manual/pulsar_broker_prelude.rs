@@ -41,7 +41,7 @@ fn app() -> impl App {
             .reply()
             .build(),
         )
-        .out_reply(Publish);
+        .out_reply(Publish)
     })
 }
 // --8<-- [end:app]

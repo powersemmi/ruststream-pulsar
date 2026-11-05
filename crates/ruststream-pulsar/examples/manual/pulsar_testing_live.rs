@@ -56,9 +56,7 @@ impl Handle<Payment> for Accept {
 fn app(url: &str, subscription: &str) -> impl App<State = ()> {
     RustStream::new(AppInfo::new("payments", "0.1.0")).with_broker(
         PulsarBroker::new(url).default_subscription(subscription),
-        |b| {
-            b.include(subscriber("testing-live-payments", Accept).build());
-        },
+        |b| b.include(subscriber("testing-live-payments", Accept).build()),
     )
 }
 

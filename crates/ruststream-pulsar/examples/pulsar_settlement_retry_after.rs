@@ -73,9 +73,7 @@ fn service(url: &str) -> impl App<State = AppState> {
                 directory: Directory::default(),
             })
         })
-        .with_broker(PulsarBroker::new(url), |b| {
-            b.include(issue);
-        })
+        .with_broker(PulsarBroker::new(url), |b| b.include(issue))
 }
 
 #[ruststream::app]

@@ -120,8 +120,8 @@ fn service(broker: PulsarBroker) -> impl App<State = Clients> {
                 subscriber(PulsarSubscription::new("ledger", "balances"), Project)
                     .start_at(PulsarPosition::earliest())
                     .build(),
-            );
-            b.include(subscriber(PulsarSubscription::new("orders", "search-index"), Index).build());
+            )
+            .include(subscriber(PulsarSubscription::new("orders", "search-index"), Index).build())
         })
 }
 

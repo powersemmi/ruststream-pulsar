@@ -57,12 +57,10 @@ async fn ship(order: &Order, Out(shipments): Out<impl Publisher, Shipments>) -> 
 
 #[ruststream::app]
 fn app() -> impl App {
-    RustStream::new(AppInfo::new("shipping", "0.1.0")).with_broker(
-        PulsarBroker::new("pulsar://localhost:6650"),
-        |b| {
-            b.include(ship).out(Shipments, Publish).build();
-        },
-    )
+    RustStream::new(AppInfo::new("shipping", "0.1.0"))
+        .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
+            b.include(ship).out(Shipments, Publish)
+        })
 }
 
 #[cfg(test)]

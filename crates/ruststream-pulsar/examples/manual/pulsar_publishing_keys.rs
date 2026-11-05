@@ -71,7 +71,7 @@ fn app() -> impl App {
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
             let ship = subscriber(PulsarSubscription::new("orders", "shipping"), Ship);
-            b.include(ship.build()).out(Shipments, Publish).build();
+            b.include(ship.build()).out(Shipments, Publish)
         },
     )
 }

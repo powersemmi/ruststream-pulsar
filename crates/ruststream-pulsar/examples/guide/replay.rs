@@ -101,10 +101,7 @@ async fn index(
 fn service(broker: PulsarBroker) -> impl App<State = Clients> {
     RustStream::new(AppInfo::new("search", "0.1.0"))
         .on_startup(async move |()| Ok::<_, Infallible>(Clients::default()))
-        .with_broker(broker, |b| {
-            b.include(project);
-            b.include(index);
-        })
+        .with_broker(broker, |b| b.include(project).include(index))
 }
 
 #[ruststream::app]

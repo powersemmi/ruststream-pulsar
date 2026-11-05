@@ -46,9 +46,9 @@ impl Handle<Order> for Audit {
 fn service(broker: PulsarBroker) -> impl App<State = ()> {
     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(broker, |b| {
         // A bare topic name: it joins the broker's default subscription.
-        b.include(subscriber("orders", Place).build());
-        // A pattern: checked as a regular expression before its consumer opens.
-        b.include(subscriber(PulsarSubscription::pattern("audit-.*", "auditors"), Audit).build());
+        b.include(subscriber("orders", Place).build())
+            // A pattern: checked as a regular expression before its consumer opens.
+            .include(subscriber(PulsarSubscription::pattern("audit-.*", "auditors"), Audit).build())
     })
 }
 
@@ -135,10 +135,9 @@ mod tests {
         let app = RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
             PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-svc"),
             |b| {
-                b.include(subscriber("orders", Place).build());
-                b.include(
+                b.include(subscriber("orders", Place).build()).include(
                     subscriber(PulsarSubscription::pattern("audit-(", "auditors"), Audit).build(),
-                );
+                )
             },
         );
 

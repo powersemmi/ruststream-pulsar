@@ -65,7 +65,6 @@ fn app() -> impl App {
             .build(),
         )
         .out(Archive, Publish)
-        .build();
     })
 }
 // --8<-- [end:app]

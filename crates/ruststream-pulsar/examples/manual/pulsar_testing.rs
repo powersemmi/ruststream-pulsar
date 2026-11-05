@@ -62,7 +62,7 @@ fn app() -> impl App<State = ()> {
         |b| {
             b.include(
                 subscriber(PulsarSubscription::new("payments", "payments-svc"), Accept).build(),
-            );
+            )
         },
     )
 }

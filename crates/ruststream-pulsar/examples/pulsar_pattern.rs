@@ -25,12 +25,10 @@ async fn audit(record: &Record<'_>) -> HandlerOutcome {
 // --8<-- [start:app]
 #[ruststream::app]
 fn app() -> impl App {
-    RustStream::new(AppInfo::new("audit", "0.1.0")).with_broker(
-        PulsarBroker::new("pulsar://localhost:6650"),
-        |b| {
-            b.include(audit);
-        },
-    )
+    RustStream::new(AppInfo::new("audit", "0.1.0"))
+        .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
+            b.include(audit)
+        })
 }
 // --8<-- [end:app]
 

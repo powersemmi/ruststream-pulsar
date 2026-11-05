@@ -130,12 +130,18 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("checkout", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
-            b.include(
+            b.after_startup(Publish, async move |publisher| {
+                let started = Started {
+                    service: "checkout".to_owned(),
+                };
+                publisher.message(&started).publish().await
+            })
+            .include(
                 subscriber(PulsarSubscription::new("orders", "receipts"), Confirm)
                     .reply()
                     .build(),
-            );
-            b.include(
+            )
+            .include(
                 subscriber(
                     PulsarSubscription::new("quote-requests", "quotes"),
                     AnswerQuote,
@@ -143,16 +149,9 @@ fn app() -> impl App {
                 .reply()
                 .to("quotes")
                 .build(),
-            );
-            b.include(subscriber(PulsarSubscription::new("orders", "dispatch"), Dispatch).build())
-                .out(Picks, Publish)
-                .build();
-            b.after_startup(Publish, async move |publisher| {
-                let started = Started {
-                    service: "checkout".to_owned(),
-                };
-                publisher.message(&started).publish().await
-            });
+            )
+            .include(subscriber(PulsarSubscription::new("orders", "dispatch"), Dispatch).build())
+            .out(Picks, Publish)
         },
     )
 }
