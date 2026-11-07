@@ -122,8 +122,8 @@ fn app() -> impl App<State = Clients> {
     RustStream::new(AppInfo::new("inventory", "0.1.0"))
         .on_startup(async move |()| Ok::<_, Infallible>(Clients::default()))
         .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
-            b.include(reserve);
-            b.include(record_counts.batch(nonzero!(64)));
+            b.include(reserve)
+                .include(record_counts.batch(nonzero!(64)))
         })
 }
 // --8<-- [end:app]

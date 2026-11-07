@@ -55,7 +55,7 @@ fn app() -> impl App {
                 Fulfil,
             )
             .build(),
-        );
+        )
     })
 }
 // --8<-- [end:descriptor]

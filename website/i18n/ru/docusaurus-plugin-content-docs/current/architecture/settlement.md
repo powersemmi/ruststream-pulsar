@@ -73,7 +73,7 @@ export const retries = {
 <Diagram name="retries" words={retries} />
 
 Чтобы вернуть сообщение, ничего не публикуется: брокер снова доставляет то же сообщение и
-засчитывает доставку. [`max_attempts`](api:ruststream::runtime::Mounting::max_attempts) и топик
+засчитывает доставку. [`max_attempts`](api:ruststream::runtime::RouterWith::max_attempts) и топик
 dead-letter, которые объявляет регистрация, становятся политикой dead-letter клиента. Клиент
 отдаёт сообщение, пока его счётчик ниже предела, поэтому обработчик видит его `max_attempts` раз.
 На пределе клиент отправляет сообщение в топик dead-letter и подтверждает оригинал.

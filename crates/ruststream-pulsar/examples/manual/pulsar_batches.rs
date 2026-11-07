@@ -64,7 +64,7 @@ fn app() -> impl App {
                 )
                 .batch(nonzero!(64))
                 .build(),
-            );
+            )
         },
     )
 }

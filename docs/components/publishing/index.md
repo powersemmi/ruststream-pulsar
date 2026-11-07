@@ -10,7 +10,7 @@ import TabItem from '@theme/TabItem';
 
 [`PulsarPublish`](api:ruststream_pulsar::PulsarPublish), `Publish` in the prelude, opens one producer per topic and waits for the broker's receipt, so `Ok` means stored.
 
-A mount site names it wherever a registration publishes: [`.out_reply(Publish)`](api:ruststream::runtime::Mounting::out_reply) for a reply, `.out(Slot, Publish)` for a slot.
+A mount site names it wherever a registration publishes: [`.out_reply(Publish)`](api:ruststream::runtime::RouterWith::out_reply) for a reply, `.out(Slot, Publish)` for a slot.
 The policy holds no connection; the runtime pairs it with the connected broker at startup into a [`PulsarPublisher`](api:ruststream_pulsar::PulsarPublisher).
 A registration that names no policy for its reply publishes through this one.
 A reply goes to the topic its type names with `#[outgoing(name = "..")]`, or to the one a `reply("..")` clause names when the type leaves it open.

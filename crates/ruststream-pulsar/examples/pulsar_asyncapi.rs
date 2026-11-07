@@ -69,9 +69,7 @@ fn broker(token: &str) -> PulsarBroker {
 // --8<-- [start:app]
 fn service(broker: PulsarBroker) -> impl App<State = ()> {
     RustStream::new(AppInfo::new("orders", "1.0.0")).with_broker_labeled("pulsar", broker, |b| {
-        b.include(confirm);
-        b.include(regional);
-        b.include(audit);
+        b.include(confirm).include(regional).include(audit)
     })
 }
 

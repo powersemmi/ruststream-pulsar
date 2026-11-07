@@ -26,10 +26,8 @@ async fn audit(order: &Order) -> HandlerOutcome {
 }
 
 fn service(broker: PulsarBroker) -> impl App<State = ()> {
-    RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(broker, |b| {
-        b.include(place);
-        b.include(audit);
-    })
+    RustStream::new(AppInfo::new("orders", "0.1.0"))
+        .with_broker(broker, |b| b.include(place).include(audit))
 }
 
 #[ruststream::app]
@@ -107,10 +105,7 @@ mod tests {
     async fn a_pattern_that_is_no_regular_expression_fails_startup() {
         let app = RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
             PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-svc"),
-            |b| {
-                b.include(place);
-                b.include(broken);
-            },
+            |b| b.include(place).include(broken),
         );
 
         let failed = TestApp::start(app)

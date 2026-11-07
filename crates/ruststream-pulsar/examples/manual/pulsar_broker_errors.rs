@@ -59,7 +59,6 @@ fn service(broker: PulsarBroker) -> impl App<State = ()> {
             .out(Shipments, Publish)
             .max_attempts(nonzero!(3))
             .dead_letter("orders-dlq")
-            .build();
     })
 }
 

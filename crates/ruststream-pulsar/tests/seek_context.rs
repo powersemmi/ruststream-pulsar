@@ -92,9 +92,8 @@ async fn burst(ingress: &PulsarPublisher, address: &str) {
 async fn a_handler_repositions_its_own_subscription() {
     let broker = PulsarBroker::new(URL).default_subscription("workers");
     let ingress = broker.publisher();
-    let app = RustStream::new(AppInfo::new("seek", "0.1.0")).with_broker(broker, |b| {
-        b.include(skip_poison);
-    });
+    let app = RustStream::new(AppInfo::new("seek", "0.1.0"))
+        .with_broker(broker, |b| b.include(skip_poison));
     let tb = TestApp::start(app).await.expect("start harness");
     burst(&ingress, "jobs").await;
     tb.settle().await.expect("the run settles");
@@ -137,9 +136,8 @@ async fn a_handler_repositions_its_own_subscription() {
 async fn a_batch_repositions_the_subscription_it_came_from() {
     let broker = PulsarBroker::new(URL).default_subscription("workers");
     let ingress = broker.publisher();
-    let app = RustStream::new(AppInfo::new("seek-batch", "0.1.0")).with_broker(broker, |b| {
-        b.include(skip_poison_batch.batch(nonzero!(2)));
-    });
+    let app = RustStream::new(AppInfo::new("seek-batch", "0.1.0"))
+        .with_broker(broker, |b| b.include(skip_poison_batch.batch(nonzero!(2))));
     let tb = TestApp::start(app).await.expect("start harness");
     burst(&ingress, "jobs.bulk").await;
     tb.settle().await.expect("the run settles");

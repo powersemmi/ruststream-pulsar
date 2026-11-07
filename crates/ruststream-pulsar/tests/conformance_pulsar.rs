@@ -20,6 +20,7 @@ use std::time::Duration;
 use ruststream::conformance::harness::InProcessBroker;
 use ruststream::conformance::helpers::unique_subject;
 use ruststream::conformance::in_process::{self, Refusal};
+use ruststream::conformance::lifecycle::Unsent;
 use ruststream::conformance::message_shape::OptionCases;
 use ruststream::conformance::{capabilities, harness, lifecycle, message_shape, retry, settlement};
 use ruststream::testing::Backlog;
@@ -99,6 +100,19 @@ async fn the_in_process_mode_passes_lifecycle() {
     harness::lifecycle(in_process, descriptor("lifecycle"), |connected| {
         connected.publisher()
     })
+    .await;
+}
+
+/// A publish refused before the client takes the message hands it back whole: after a shutdown
+/// nothing of the message has reached the client yet.
+#[allow(clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_in_process_mode_hands_a_refused_publish_back() {
+    lifecycle::refused_publish_returns_message(
+        in_process,
+        |connected| connected.publisher(),
+        Unsent::Returned,
+    )
     .await;
 }
 
@@ -221,6 +235,18 @@ async fn pulsar_broker_passes_lifecycle() {
         move || production(&url),
         descriptor("lifecycle"),
         |connected| connected.publisher(),
+    ))
+    .await;
+}
+
+#[allow(clippy::redundant_closure_for_method_calls)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pulsar_broker_hands_a_refused_publish_back() {
+    let Some(url) = test_url() else { return };
+    Box::pin(lifecycle::refused_publish_returns_message(
+        move || production(&url),
+        |connected| connected.publisher(),
+        Unsent::Returned,
     ))
     .await;
 }

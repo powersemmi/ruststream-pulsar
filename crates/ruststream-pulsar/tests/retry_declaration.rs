@@ -56,7 +56,7 @@ async fn the_declared_cap_ends_at_the_dead_letter_topic() {
         |b| {
             b.include(reconcile)
                 .max_attempts(nonzero!(3))
-                .dead_letter("orders-dlq");
+                .dead_letter("orders-dlq")
         },
     );
     let tb = TestApp::start(app).await.expect("start harness");
@@ -87,7 +87,7 @@ async fn a_multi_topic_subscription_declares_one_destination() {
         |b| {
             b.include(reconcile_regional)
                 .max_attempts(nonzero!(2))
-                .dead_letter("regional-dlq");
+                .dead_letter("regional-dlq")
         },
     );
     let tb = TestApp::start(app).await.expect("start harness");
@@ -122,7 +122,7 @@ async fn a_pattern_subscription_carries_the_same_policy() {
         |b| {
             b.include(audit)
                 .max_attempts(nonzero!(2))
-                .dead_letter("dlq-audit");
+                .dead_letter("dlq-audit")
         },
     );
     let tb = TestApp::start(app).await.expect("start harness");
@@ -172,7 +172,7 @@ async fn a_bare_name_carries_its_declaration_to_the_consumer() {
         |b| {
             b.include(reconcile_by_name)
                 .max_attempts(nonzero!(5))
-                .dead_letter("orders-dead");
+                .dead_letter("orders-dead")
         },
     );
     let tb = TestApp::start(app).await.expect("start harness");
@@ -200,9 +200,7 @@ async fn a_bare_name_carries_its_declaration_to_the_consumer() {
 async fn a_bare_name_refuses_half_a_declaration() {
     let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
         PulsarBroker::new(URL).default_subscription("workers"),
-        |b| {
-            b.include(reconcile_by_name).max_attempts(nonzero!(5));
-        },
+        |b| b.include(reconcile_by_name).max_attempts(nonzero!(5)),
     );
 
     let failed = TestApp::start(app)
@@ -217,12 +215,10 @@ async fn a_bare_name_refuses_half_a_declaration() {
 /// which step is missing.
 #[tokio::test]
 async fn a_cap_without_a_destination_refuses_to_start() {
-    let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarBroker::new(URL),
-        |b| {
-            b.include(reconcile).max_attempts(nonzero!(3));
-        },
-    );
+    let app = RustStream::new(AppInfo::new("retries", "0.1.0"))
+        .with_broker(PulsarBroker::new(URL), |b| {
+            b.include(reconcile).max_attempts(nonzero!(3))
+        });
 
     let failed = TestApp::start(app)
         .await
@@ -235,12 +231,10 @@ async fn a_cap_without_a_destination_refuses_to_start() {
 /// The mirror image: a destination with no cap never fires, so it is refused as well.
 #[tokio::test]
 async fn a_destination_without_a_cap_refuses_to_start() {
-    let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarBroker::new(URL),
-        |b| {
-            b.include(reconcile).dead_letter("orders-dlq");
-        },
-    );
+    let app = RustStream::new(AppInfo::new("retries", "0.1.0"))
+        .with_broker(PulsarBroker::new(URL), |b| {
+            b.include(reconcile).dead_letter("orders-dlq")
+        });
 
     let failed = TestApp::start(app)
         .await
@@ -271,7 +265,7 @@ async fn the_declaration_composes_with_a_reply_position() {
             b.include(confirm)
                 .out_reply(Publish)
                 .max_attempts(nonzero!(5))
-                .dead_letter("payments-dlq");
+                .dead_letter("payments-dlq")
         },
     );
     let tb = TestApp::start(app).await.expect("start harness");
@@ -327,8 +321,8 @@ async fn a_dead_lettered_message_carries_its_origin() {
         |b| {
             b.include(refund)
                 .max_attempts(nonzero!(2))
-                .dead_letter("refunds-dlq");
-            b.include(review);
+                .dead_letter("refunds-dlq")
+                .include(review)
         },
     );
     let tb = TestApp::start(app).await.expect("start harness");

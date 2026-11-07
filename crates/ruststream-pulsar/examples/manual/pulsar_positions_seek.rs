@@ -48,12 +48,10 @@ impl Handle<Job, (), (), PulsarContext> for Work {
 }
 
 fn app() -> impl App {
-    RustStream::new(AppInfo::new("jobs", "0.1.0")).with_broker(
-        PulsarBroker::new("pulsar://localhost:6650"),
-        |b| {
-            b.include(subscriber(PulsarSubscription::new("jobs", "workers"), Work).build());
-        },
-    )
+    RustStream::new(AppInfo::new("jobs", "0.1.0"))
+        .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
+            b.include(subscriber(PulsarSubscription::new("jobs", "workers"), Work).build())
+        })
 }
 // --8<-- [end:seek]
 

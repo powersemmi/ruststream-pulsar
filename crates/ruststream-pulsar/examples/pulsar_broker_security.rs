@@ -20,9 +20,7 @@ async fn fulfil(order: &Order) -> HandlerOutcome {
 }
 
 fn service(broker: PulsarBroker) -> impl App<State = ()> {
-    RustStream::new(AppInfo::new("fulfilment", "0.1.0")).with_broker(broker, |b| {
-        b.include(fulfil);
-    })
+    RustStream::new(AppInfo::new("fulfilment", "0.1.0")).with_broker(broker, |b| b.include(fulfil))
 }
 
 // --8<-- [start:broker]
@@ -79,7 +77,7 @@ mod tests {
         let app = RustStream::new(AppInfo::new("fulfilment", "0.1.0")).with_broker_labeled(
             "pulsar",
             broker(TOKEN),
-            |_| {},
+            |b| b,
         );
         let document = build_spec(&app).to_json()?;
 

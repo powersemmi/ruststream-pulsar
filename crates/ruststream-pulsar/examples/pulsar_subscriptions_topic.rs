@@ -39,9 +39,8 @@ async fn route(order: &Order, Out(tenants): Out<impl Publisher, TenantOrders>) -
 
 fn app() -> impl App {
     let broker = PulsarBroker::new("pulsar://localhost:6650");
-    RustStream::new(AppInfo::new("router", "0.1.0")).with_broker(broker, |b| {
-        b.include(route).out(TenantOrders, Publish).build();
-    })
+    RustStream::new(AppInfo::new("router", "0.1.0"))
+        .with_broker(broker, |b| b.include(route).out(TenantOrders, Publish))
 }
 // --8<-- [end:route]
 

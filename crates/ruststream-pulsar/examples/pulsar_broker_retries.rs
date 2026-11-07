@@ -28,9 +28,7 @@ async fn record(entry: &Entry) -> HandlerOutcome {
 }
 
 fn service(broker: PulsarBroker) -> impl App<State = ()> {
-    RustStream::new(AppInfo::new("ledger", "0.1.0")).with_broker(broker, |b| {
-        b.include(record);
-    })
+    RustStream::new(AppInfo::new("ledger", "0.1.0")).with_broker(broker, |b| b.include(record))
 }
 
 // --8<-- [start:broker]
@@ -123,7 +121,7 @@ mod tests {
         let writer = || {
             let ledger = ledger.clone();
             RustStream::new(AppInfo::new("ledger", "0.1.0")).with_broker(broker(&url), |b| {
-                b.include(record.map_source(move |_| ledger));
+                b.include(record.map_source(move |_| ledger))
             })
         };
 

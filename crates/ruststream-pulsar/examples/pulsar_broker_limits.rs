@@ -36,9 +36,8 @@ fn app() -> impl App {
     // The cluster runs with `maxMessageSize=1048576`.
     let broker =
         PulsarBroker::new("pulsar://localhost:6650").max_message_size(nonzero!(1_048_576usize));
-    RustStream::new(AppInfo::new("archive", "0.1.0")).with_broker(broker, |b| {
-        b.include(archive).out(Archive, Publish).build();
-    })
+    RustStream::new(AppInfo::new("archive", "0.1.0"))
+        .with_broker(broker, |b| b.include(archive).out(Archive, Publish))
 }
 // --8<-- [end:app]
 

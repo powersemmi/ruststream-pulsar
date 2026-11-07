@@ -28,6 +28,9 @@ allow = [
     # snap (the Snappy wire compressor the client may receive) is BSD-3-Clause:
     # OSI-approved and permissive.
     "BSD-3-Clause",
+    # assert_no_alloc, the failing allocator of the core's no-heap test leg, reached through the
+    # framework's `testing` feature; permissive.
+    "BSD-1-Clause",
 ]
 
 [bans]

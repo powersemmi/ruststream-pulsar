@@ -13,6 +13,8 @@
 //! The last pair runs one test body twice: in process under `just test`, and against the stand
 //! under `just test-brokers`.
 #![cfg(feature = "testing")]
+// A test drives the app on its own task; the app's cold path carries no Send.
+#![allow(clippy::future_not_send)]
 
 use std::time::Duration;
 
@@ -56,7 +58,7 @@ async fn a_delayed_retry_comes_back_after_the_delay_and_not_before() {
         |b| {
             b.include(reconcile)
                 .max_attempts(nonzero!(3))
-                .dead_letter("orders-dlq");
+                .dead_letter("orders-dlq")
         },
     );
     let tb = TestApp::start(app).await.expect("start harness");
@@ -93,7 +95,7 @@ async fn a_deferred_delivery_still_reaches_the_dead_letter_topic() {
         |b| {
             b.include(reconcile)
                 .max_attempts(nonzero!(3))
-                .dead_letter("orders-dlq");
+                .dead_letter("orders-dlq")
         },
     );
     let tb = TestApp::start(app).await.expect("start harness");
@@ -122,12 +124,8 @@ async fn a_deferred_delivery_still_reaches_the_dead_letter_topic() {
 /// longer than the broker would wait: nothing comes back, and the handler is not called again.
 #[tokio::test(start_paused = true)]
 async fn a_delay_past_the_ack_timeout_is_refused() {
-    let app = RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(
-        PulsarBroker::new(URL),
-        |b| {
-            b.include(reconcile_slowly);
-        },
-    );
+    let app = RustStream::new(AppInfo::new("retries", "0.1.0"))
+        .with_broker(PulsarBroker::new(URL), |b| b.include(reconcile_slowly));
     let tb = TestApp::start(app).await.expect("start harness");
 
     tb.broker::<PulsarBroker>()
@@ -162,9 +160,7 @@ async fn defer(order: &Order) -> HandlerOutcome {
 
 /// The app `main` runs, on the broker it is handed: the production builder in either mode.
 fn deferring_app(broker: PulsarBroker) -> RustStream {
-    RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(broker, |b| {
-        b.include(defer);
-    })
+    RustStream::new(AppInfo::new("retries", "0.1.0")).with_broker(broker, |b| b.include(defer))
 }
 
 /// The body both modes run: the first delivery asks to come back, the delay passes, and the

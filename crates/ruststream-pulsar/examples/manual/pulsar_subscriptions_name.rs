@@ -48,9 +48,8 @@ impl Handle<Order> for Place {
 
 fn app() -> impl App {
     let broker = PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-svc");
-    RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(broker, |b| {
-        b.include(subscriber("orders", Place).build());
-    })
+    RustStream::new(AppInfo::new("orders", "0.1.0"))
+        .with_broker(broker, |b| b.include(subscriber("orders", Place).build()))
 }
 // --8<-- [end:name]
 
@@ -84,12 +83,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_service_with_no_default_subscription_does_not_start() {
-        let unnamed = RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
-            PulsarBroker::new("pulsar://localhost:6650"),
-            |b| {
-                b.include(subscriber("orders", Place).build());
-            },
-        );
+        let unnamed = RustStream::new(AppInfo::new("orders", "0.1.0"))
+            .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
+                b.include(subscriber("orders", Place).build())
+            });
 
         let refused = TestApp::start(unnamed)
             .await

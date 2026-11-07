@@ -69,7 +69,6 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("router", "0.1.0")).with_broker(broker, |b| {
         b.include(subscriber(PulsarSubscription::new("orders", "router"), Route).build())
             .out(TenantOrders, Publish)
-            .build();
     })
 }
 // --8<-- [end:route]

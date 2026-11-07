@@ -38,7 +38,7 @@ fn app() -> impl App {
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
             // At most 64 readings per call.
-            b.include(aggregate.batch(nonzero!(64)));
+            b.include(aggregate.batch(nonzero!(64)))
         },
     )
 }

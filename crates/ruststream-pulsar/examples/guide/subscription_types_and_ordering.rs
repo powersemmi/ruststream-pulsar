@@ -101,10 +101,11 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("shipping", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650").operation_retries(retries),
         |b| {
-            b.include(pack).out(Shipments, Publish).build();
-            b.include(track);
-            b.include(book);
-            b.include(invoice);
+            b.include(pack)
+                .out(Shipments, Publish)
+                .include(track)
+                .include(book)
+                .include(invoice)
         },
     )
 }

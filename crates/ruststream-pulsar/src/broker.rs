@@ -71,7 +71,7 @@ pub(crate) const DEFAULT_MAX_MESSAGE_SIZE: usize = 5 * 1024 * 1024;
 ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
 ///         PulsarBroker::new("pulsar://localhost:6650").operation_retries(retries),
 ///         |b| {
-///             b.include(handle);
+///             b.include(handle)
 ///         },
 ///     )
 /// }
@@ -247,7 +247,7 @@ pub(crate) type CoreCell = Arc<OnceCell<Arc<Core>>>;
 ///         broker = broker.token(token);
 ///     }
 ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(broker, |b| {
-///         b.include(handle);
+///         b.include(handle)
 ///     })
 /// }
 /// # }
@@ -284,7 +284,7 @@ pub(crate) type CoreCell = Arc<OnceCell<Arc<Core>>>;
 /// pub fn app() -> RustStream {
 ///     RustStream::new(AppInfo::new("orders", "0.1.0"))
 ///         .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
-///             b.include(handle);
+///             b.include(handle)
 ///         })
 /// }
 ///
@@ -381,7 +381,7 @@ impl PulsarBroker {
     ///     RustStream::new(AppInfo::new("orders", "0.1.0")).with_broker(
     ///         PulsarBroker::new("pulsar://localhost:6650").default_subscription("orders-worker"),
     ///         |b| {
-    ///             b.include(handle);
+    ///             b.include(handle)
     ///         },
     ///     )
     /// }
@@ -429,7 +429,7 @@ impl PulsarBroker {
     ///         PulsarBroker::new("pulsar://localhost:6650")
     ///             .operation_retries(OperationRetries::attempts(nonzero!(3u32))),
     ///         |b| {
-    ///             b.include(handle);
+    ///             b.include(handle)
     ///         },
     ///     )
     /// }
@@ -472,7 +472,7 @@ impl PulsarBroker {
     ///         PulsarBroker::new("pulsar://localhost:6650")
     ///             .max_message_size(nonzero!(10_485_760usize)),
     ///         |b| {
-    ///             b.include(archive);
+    ///             b.include(archive)
     ///         },
     ///     )
     /// }
@@ -857,7 +857,15 @@ mod tests {
                 None,
             )
             .await;
-        assert!(matches!(late, Err(PulsarError::NotConnected)), "{late:?}");
+        let refused = late.expect_err("a publish after shutdown is refused");
+        assert!(
+            matches!(refused.error(), PulsarError::NotConnected),
+            "{refused:?}"
+        );
+        let unsent = refused
+            .into_message()
+            .expect("the refusal hands the message back");
+        assert_eq!(unsent.payload(), b"{}");
     }
 
     /// A delivery held across the shutdown has no consumer to go back to in process, so handing it
@@ -866,7 +874,7 @@ mod tests {
     #[tokio::test]
     async fn a_delivery_held_across_shutdown_is_not_handed_back_in_process() {
         use futures::StreamExt;
-        use ruststream::{IncomingMessage, Subscriber};
+        use ruststream::{Settle, Subscriber};
 
         let connected = PulsarBroker::new("pulsar://localhost:6650")
             .connect_in_process()
@@ -911,7 +919,7 @@ mod tests {
     #[tokio::test]
     async fn what_a_closed_consumer_left_unsettled_reaches_the_next_one() {
         use futures::StreamExt;
-        use ruststream::{IncomingMessage, Subscriber};
+        use ruststream::{IncomingMessage, Settle, Subscriber};
 
         let connected = PulsarBroker::new("pulsar://localhost:6650")
             .connect_in_process()
@@ -989,11 +997,17 @@ mod tests {
         publish(16)
             .await
             .expect("a payload at the limit is published");
-        let refused = publish(17).await;
+        let refused = publish(17)
+            .await
+            .expect_err("a payload over the limit is refused");
         assert!(
-            matches!(refused, Err(PulsarError::Publish { .. })),
+            matches!(refused.error(), PulsarError::Publish { .. }),
             "{refused:?}"
         );
+        let unsent = refused
+            .into_message()
+            .expect("the refusal hands the message back");
+        assert_eq!(unsent.payload().len(), 17);
         assert_eq!(connected.published("orders").len(), 1);
     }
 

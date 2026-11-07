@@ -9,7 +9,7 @@ import TabItem from '@theme/TabItem';
 
 # Dead letters
 
-[`max_attempts`](api:ruststream::runtime::Mounting::max_attempts) with [`dead_letter`](api:ruststream::runtime::Mounting::dead_letter) becomes the consumer's own dead-letter policy: the client moves a spent message, and the service publishes nothing.
+[`max_attempts`](api:ruststream::runtime::RouterWith::max_attempts) with [`dead_letter`](api:ruststream::runtime::RouterWith::dead_letter) becomes the consumer's own dead-letter policy: the client moves a spent message, and the service publishes nothing.
 
 `max_attempts(n)` is how many times one message reaches the handler, the first delivery included.
 `dead_letter(topic)` is where it goes once those are spent.

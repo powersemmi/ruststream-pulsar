@@ -57,7 +57,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use futures::StreamExt as _;
 use futures::stream::FuturesUnordered;
 use gungraun::{Callgrind, Dhat, DhatMetric, EntryPoint, LibraryBenchmarkConfig};
-use ruststream::runtime::{AppInfo, BrokerScope, Identity, RunningApp, RustStream};
+use ruststream::runtime::{
+    AppInfo, BrokerScope, Identity, MountChain, MountRoutes, PublishIdentity, RunningApp,
+    RustStream,
+};
 use ruststream::{Broker, BytesMut, ConnectedBroker, OutgoingMessage, Publisher};
 use ruststream_pulsar::PulsarBroker;
 use serde::Deserialize;
@@ -306,11 +309,16 @@ pub struct Pending {
     messages: usize,
 }
 
-/// The mount a scenario passes in: what `with_broker` does with the scope.
-pub type Mount<'a> = &'a mut BrokerScope<PulsarBroker, Identity, (), Latch>;
+/// The scope a scenario's mount receives: what `with_broker` hands its closure.
+pub type Mount = BrokerScope<PulsarBroker, Identity, (), Latch>;
 
 /// Builds a one-handler service on the production broker, ready to be started by the body.
-pub fn pending(messages: usize, mount: impl FnOnce(Mount<'_>)) -> Pending {
+/// `mount` returns the chain of the scenario's mounts, as a service's `with_broker` closure does.
+pub fn pending<Chain, Routes>(messages: usize, mount: impl FnOnce(Mount) -> Chain) -> Pending
+where
+    Chain: MountChain<Routes = Routes>,
+    Routes: MountRoutes<PulsarBroker, Identity, Latch, PublishIdentity>,
+{
     let latch = Latch::default();
     let state = latch.clone();
     let app = RustStream::new(AppInfo::new("bench", "0.0.0"))

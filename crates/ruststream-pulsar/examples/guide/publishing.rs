@@ -105,15 +105,16 @@ fn app() -> impl App {
     RustStream::new(AppInfo::new("checkout", "0.1.0")).with_broker(
         PulsarBroker::new("pulsar://localhost:6650"),
         |b| {
-            b.include(confirm);
-            b.include(quote);
-            b.include(dispatch).out(Picks, Publish).build();
             b.after_startup(Publish, async move |publisher| {
                 let started = Started {
                     service: "checkout".to_owned(),
                 };
                 publisher.message(&started).publish().await
-            });
+            })
+            .include(confirm)
+            .include(quote)
+            .include(dispatch)
+            .out(Picks, Publish)
         },
     )
 }

@@ -27,9 +27,7 @@ async fn fulfil(order: &Order) -> HandlerOutcome {
 
 fn app() -> impl App {
     let broker = PulsarBroker::new("pulsar://localhost:6650");
-    RustStream::new(AppInfo::new("fulfilment", "0.1.0")).with_broker(broker, |b| {
-        b.include(fulfil);
-    })
+    RustStream::new(AppInfo::new("fulfilment", "0.1.0")).with_broker(broker, |b| b.include(fulfil))
 }
 // --8<-- [end:descriptor]
 

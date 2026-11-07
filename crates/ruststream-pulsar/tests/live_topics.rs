@@ -16,7 +16,7 @@ use std::time::Duration;
 use futures::StreamExt;
 use ruststream::runtime::PublishExt;
 use ruststream::{
-    ConnectedBroker, IncomingMessage, Outgoing, Seekable, Seeker, Serialized, Subscriber,
+    ConnectedBroker, IncomingMessage, Outgoing, Seekable, Seeker, Serialized, Settle, Subscriber,
 };
 use ruststream_pulsar::{PulsarPosition, PulsarPublishSteps, PulsarSubscriber, PulsarSubscription};
 

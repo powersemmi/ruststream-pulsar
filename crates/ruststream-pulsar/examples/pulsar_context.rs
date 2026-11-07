@@ -77,7 +77,7 @@ mod delivery {
         RustStream::new(AppInfo::new("jobs", "0.1.0"))
             .on_startup(async move |()| Ok::<_, Infallible>(AppState::default()))
             .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
-                b.include(work);
+                b.include(work)
             })
     }
 
@@ -153,7 +153,7 @@ mod batch {
         RustStream::new(AppInfo::new("jobs", "0.1.0"))
             .on_startup(async move |()| Ok::<_, Infallible>(AppState::default()))
             .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
-                b.include(work.batch(nonzero!(16)));
+                b.include(work.batch(nonzero!(16)))
             })
     }
 

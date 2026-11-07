@@ -117,7 +117,7 @@ impl BuildContext<PulsarMessage> for PulsarContext {
 ///     RustStream::new(AppInfo::new("jobs", "0.1.0")).with_broker(
 ///         PulsarBroker::new("pulsar://localhost:6650"),
 ///         |b| {
-///             b.include(work.batch(nonzero!(100)));
+///             b.include(work.batch(nonzero!(100)))
 ///         },
 ///     )
 /// }

@@ -38,12 +38,10 @@ async fn work(job: &Job, Ctx(seeker): Ctx<SeekHandle>) -> HandlerOutcome {
 
 #[ruststream::app]
 fn app() -> impl App {
-    RustStream::new(AppInfo::new("jobs", "0.1.0")).with_broker(
-        PulsarBroker::new("pulsar://localhost:6650"),
-        |b| {
-            b.include(work);
-        },
-    )
+    RustStream::new(AppInfo::new("jobs", "0.1.0"))
+        .with_broker(PulsarBroker::new("pulsar://localhost:6650"), |b| {
+            b.include(work)
+        })
 }
 
 #[cfg(test)]

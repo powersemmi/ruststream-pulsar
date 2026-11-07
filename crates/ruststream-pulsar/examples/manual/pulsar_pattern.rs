@@ -58,7 +58,7 @@ fn app() -> impl App {
                     Audit,
                 )
                 .build(),
-            );
+            )
         },
     )
 }

@@ -76,7 +76,7 @@ fn service(broker: PulsarBroker) -> RustStream {
             subscriber(PulsarSubscription::new("orders", "orders-svc"), Confirm)
                 .reply()
                 .build(),
-        );
+        )
     })
 }
 
